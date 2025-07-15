@@ -467,7 +467,7 @@ void listSDRootContents(int pagetax,String Directtory) {
     }else{
       Serial.println("No files in this directory: " + Directtory);
       serious_errorsd = false;
-      otroot = true;
+      
     }
     nummempty();
     return;
@@ -481,11 +481,25 @@ void listSDRootContents(int pagetax,String Directtory) {
   if (maxpage == 0 && maxfileperd > 0) { // ファイルが1つでもあるが、計算上0ページになる場合の補正
       maxpage = 1;
   }
-  positpointmax = maxLinesPerPage - 1; // 1ページあたりの最大表示行数から1を引いた値
   goukei_page = maxpage; // グローバル変数に合計ページ数を設定
   Serial.println("Total files/dirs: " + String(maxfileperd));
   Serial.println("Max lines per page: " + String(maxLinesPerPage));
   Serial.println("Calculated max pages: " + String(maxpage));
+
+  // positpointmax の計算を修正
+  if (pagetax == maxpage - 1) { // 現在のページが最後のページの場合
+    int remainingFiles = maxfileperd % maxLinesPerPage;
+    if (remainingFiles == 0 && maxfileperd > 0) { // 最後のページがちょうど満杯の場合
+      positpointmax = maxLinesPerPage - 1;
+    } else if (maxfileperd == 0) { // ファイルが全くない場合
+      positpointmax = -1; // 選択可能な項目がないことを示す
+    }
+    else { // 最後のページに端数がある場合
+      positpointmax = remainingFiles - 1;
+    }
+  } else { // 現在のページが最後のページではない場合
+    positpointmax = maxLinesPerPage - 1;
+  }
 
 
   // 指定されたページ番号が有効範囲内かチェック
@@ -574,6 +588,7 @@ void listSDRootContents(int pagetax,String Directtory) {
   delay(5);
   
 }
+
 
  
 
@@ -1043,7 +1058,64 @@ void textluck() {
 
 
 
+int deleteRightmostSDItem(String itemPath) {
+  // 1. パスが空でないか確認
+  if (itemPath.length() == 0) {
+    Serial.println("Error: Path is empty.");
+    return 2; // パスが空
+  }
 
+  // 2. SDカードが初期化されているか確認
+  // SD.begin() は一度しか呼び出す必要がないため、ここではチェックのみ行う
+  // もしSD.begin()がこの関数の前に呼び出されていない場合、ここで呼び出す必要があるかもしれません。
+  // ただし、listSDRootContentsの前に呼び出されていることを前提とします。
+  // 必要であれば、ここでSD.begin()を再度呼び出すロジックを追加してください。
+  // 例: if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) { return 1; }
+
+  // 3. アイテムのタイプを判断し、削除
+  File item = SD.open(itemPath);
+  if (!item) {
+    Serial.println("Error: Item not found or cannot be opened: " + itemPath);
+    return 3; // アイテムが見つからない、または開けない
+  }
+
+  bool isDir = item.isDirectory();
+  item.close(); // ファイル/ディレクトリを開いた後は閉じる
+
+  bool deleteSuccess = false;
+  if (isDir) {
+    // ディレクトリの場合
+    // ディレクトリが空でないとrmdirは失敗するので注意
+    deleteSuccess = SD.rmdir(itemPath);
+    if (!deleteSuccess) {
+      Serial.println("Error: Failed to remove directory (might not be empty): " + itemPath);
+    }
+  } else {
+    // ファイルの場合
+    deleteSuccess = SD.remove(itemPath);
+    if (!deleteSuccess) {
+      Serial.println("Error: Failed to remove file: " + itemPath);
+    }
+  }
+
+  if (deleteSuccess) {
+    Serial.println("Successfully deleted: " + itemPath);
+    return 0; // 成功
+  } else {
+    return 4; // 削除失敗
+  }
+}
+
+void kanketu(String texx,int frame){
+   M5.Lcd.fillScreen(BLACK); // 画面を黒でクリア
+    M5.Lcd.setTextColor(WHITE); // テキストの色を白に設定
+    M5.Lcd.setTextFont(1); // フォントサイズを2に設定
+    M5.Lcd.setCursor(0, 0); // カーソルを
+    M5.Lcd.print(texx); // テキストを表示
+    delay(frame);
+    M5.Lcd.fillScreen(BLACK); // 画面を黒でクリア
+    M5.Lcd.setTextFont(File_goukeifont); // フォントサイズを元に戻す
+}
 
 
 void updatePointer(bool text1cote) {
@@ -1111,6 +1183,7 @@ void updatePointer(bool text1cote) {
 void shokaipointer(){
   otroot = false;
   listSDRootContents(imano_page,DirecX);
+  Serial.println(otroot);
   M5.Lcd.setTextColor(YELLOW);
   M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
   M5.Lcd.print(">");
@@ -1124,7 +1197,7 @@ void shokaipointer(bool yessdd){
   if(yessdd){
     listSDRootContents(imano_page,DirecX);
   }
-  
+  Serial.println(otroot);
   M5.Lcd.setTextColor(YELLOW);
   M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
   M5.Lcd.print(">");
@@ -1202,13 +1275,36 @@ void setup() {
   textexx();
   Serial.begin(115200); // シリアル通信の初期化
   wirecheck();
+  mainmode = 0;
 }
 
 void loop() {
-  M5.update();  // ボタン状態を更新
-  
+  M5.update(); // ボタン状態を更新
+  //Serial.println("mainmode:" + String(mainmode));
+  if(mainmode == 4){
+    updatePointer(true);
+    if(positpoint == 2 && M5.BtnB.wasPressed()){
+      // ディレクトリの削除
 
-  if(mainmode == 3){
+      int result = deleteRightmostSDItem(DirecX);
+      if(result == 0){
+        kanketu("success deleted dir",500);
+        DirecX = maeredirect(DirecX);
+        shokaipointer();
+        mainmode = 2;
+        return;
+
+      }else{
+        kanketu("delete failed",500);
+        DirecX = maeredirect(DirecX);
+        shokaipointer();
+        mainmode = 2;
+        return;
+      }
+    }
+  }
+
+  else if(mainmode == 3){
     delay(1);
     if(entryenter == 2){
       entryenter = 0;
@@ -1216,7 +1312,7 @@ void loop() {
       SuperT = "";
       // 次のページを表示
       shokaipointer();
-      otroot = false;
+      
       return;
     }
     else if(entryenter == 1){
@@ -1225,13 +1321,13 @@ void loop() {
         Textex = "making dir...";
         int g = createDirectory(SuperT,DirecX);
         if(g == 0){
-           entryenter = 0;
+            entryenter = 0;
           mainmode = 1;
           SuperT = "";
-           // 次のページを表示
+            // 次のページを表示
           shokaipointer();
-          otroot = false;
-          return; 
+          
+          return;
         }else{
           Textex = "Error Occured!";
 
@@ -1243,12 +1339,13 @@ void loop() {
     }else{
       textluck();
     }
-    
+
   }
-  if(mainmode == 2){
+
+  else if(mainmode == 2){
     delay(3);
     String key = wirecheck(); // wirecheck()は常に呼び出される
-    updatePointer(true); 
+    updatePointer(true);
 
     if(M5.BtnB.wasPressed() && positpoint == 0){
       bool dd = areusure();
@@ -1267,7 +1364,7 @@ void loop() {
         M5.Lcd.setTextSize(File_goukeifont);
         positpoint = holdpositpoint;
         mainmode = 1;
-        
+
         // SDカードコンテンツの初期表示
         shokaipointer();
         return;
@@ -1275,115 +1372,124 @@ void loop() {
     }
 
   }
-  
+
   // mainmodeの値に基づいて処理を分岐
   else if (mainmode == 1) { // SDリスト表示モードの場合
     delay(3);
    // Serial.println((String)maxpage);
     String key = wirecheck(); // wirecheck()は常に呼び出される
     if(!otroot && !nosd){
-      updatePointer(false); 
+      updatePointer(false);
     }
-    
+
     //Serial.println("IMA:" + ForDlist[nowposit()] + "bango" + nowposit());
-    if(!nosd){
-      
-        if (M5.BtnC.wasPressed() && pagemoveflag == 1) {
-        
-          imano_page++;
-          pagemoveflag = 0;
-          listSDRootContents(imano_page,DirecX); // 次のページを表示
-          positpoint = 0;
-          shokaipointer();
-          mainmode = 1;
-          return;
-        
-    } else if (M5.BtnA.wasPressed()&& pagemoveflag == 2) {
-        
-          imano_page--;
-          pagemoveflag = 0;
-          listSDRootContents(imano_page,DirecX); // 次のページを表示
-          positpoint = positpointmax ;
-          shokaipointer();
-          mainmode = 1;
-          return;
-        
-     } else if(M5.BtnB.wasPressed() && ForDlist[nowposit()] == "1"){
-      
+    if(!nosd){ // !nosd の if ブロック開始
+      if (M5.BtnC.wasPressed() && pagemoveflag == 1) {
 
-      if(Filelist[nowposit()] == "System Volume Information" || Filelist[nowposit()] == "m5stack.server"){
-        M5.Lcd.fillScreen(BLACK);
-        M5.Lcd.setTextSize(1);
-        M5.Lcd.setCursor(0, 0);
-        M5.Lcd.println("This Directory is cannot be edited!");
-        delay(1000);
-        M5.Lcd.setTextSize(File_goukeifont);
-     
-        shokaipointer();
-        return;
-      }else{
-      DirecX = DirecX  + "/" +  Filelist[nowposit()]; // 選択したディレクトリのパスを更新
-      Serial.println("DZOON:" + DirecX);
-      positpoint = 0;
-      imano_page = 0;
-      shokaipointer();
-
-      return;
-      }
-      
-     } else if(M5.BtnB.wasPressed() && ForDlist[nowposit()] == "0"){
-      mainmode = 2;
-      holdpositpoint = positpoint;
-      positpointmax = 7;
-      positpoint = 0;
-      M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.setTextSize(3);
-      M5.Lcd.setCursor(0, 0);
-      M5.Lcd.setTextColor(WHITE);
-      
-      M5.Lcd.println("  Create Dir\n  Delete File\n  Delete InDir\n  Create File\n  Copy File\n  Paste File\n  Cut File\n  Back Home" );
-      shokaipointer(false);
-      return;
-     }  
-    
-    
-    }else if( M5.BtnB.wasPressed()){
-      Serial.println(otroot);
-      if(otroot){
-        nosd = false;
-        DirecX = maeredirect(DirecX); // 一つ前のディレクトリに戻る
-        Serial.println(DirecX);
-        imano_page = 0;
+        imano_page++;
+        pagemoveflag = 0;
+        listSDRootContents(imano_page,DirecX); // 次のページを表示
         positpoint = 0;
-      // 一つ前のディレクトリの内容を表示
         shokaipointer();
+        mainmode = 1;
+        return;
+
+      } else if (M5.BtnA.wasPressed()&& pagemoveflag == 2) {
+
+        imano_page--;
+        pagemoveflag = 0;
+        listSDRootContents(imano_page,DirecX); // 次のページを表示
+        positpoint = positpointmax ;
+        shokaipointer();
+        mainmode = 1;
+        return;
+
+      } else if(M5.BtnB.wasPressed() && ForDlist[nowposit()] == "1"){ // ここに閉じ括弧が不足していました
+        if(Filelist[nowposit()] == "System Volume Information" || Filelist[nowposit()] == "m5stack.server"){
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setTextSize(1);
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("This Directory is cannot be edited!");
+          delay(1000);
+          M5.Lcd.setTextSize(File_goukeifont);
+
+          shokaipointer();
+          return;
+        }else{
+          DirecX = DirecX + "/" + Filelist[nowposit()]; // 選択したディレクトリのパスを更新
+          Serial.println("DZOON:" + DirecX);
+          positpoint = 0;
+          imano_page = 0;
+          shokaipointer();
+
+          return;
+        }
+      } // ここに閉じ括弧を追加しました
+
+      else if(M5.BtnB.wasPressed() && ForDlist[nowposit()] == "0"){
+        mainmode = 2;
+        holdpositpoint = positpoint;
+        positpointmax = 7;
+        positpoint = 0;
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.setTextColor(WHITE);
+
+        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Create File\n   Copy File\n   Paste File\n   Cut File\n   Back Home" );
+        shokaipointer(false);
         return;
       }
-      if(serious_errorsd){
-        nosd = false;
-      mainmode = 0;
-      M5.Lcd.fillScreen(BLACK); 
-      M5.Lcd.setCursor(0, 0);
-      textexx();
-      return;
-      }else {
-        
-      }
+    
       
-    }
-    
-    //Serial.println(positpoint);
-    
+    } else if (otroot){
+        if (M5.BtnC.wasPressed() ) {
+        mainmode = 2;
+        holdpositpoint = positpoint;
+        positpointmax = 7;
+        positpoint = 0;
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.setTextColor(WHITE);
 
+        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Create File\n   Copy File\n   Paste File\n   Cut File\n   Back Home" );
+        shokaipointer(false);
+        return;
 
+      }else if( M5.BtnB.wasPressed()){
+        Serial.println(otroot);
 
-  } else if (mainmode == 0) { // メニューモードの場合
-    
+          nosd = false;
+          DirecX = maeredirect(DirecX); // 一つ前のディレクトリに戻る
+          Serial.println(DirecX);
+          imano_page = 0;
+          positpoint = 0;
+        // 一つ前のディレクトリの内容を表示
+          shokaipointer();
+          return; 
+        }
+      
+    }else if (serious_errorsd && M5.BtnB.wasPressed()) {
+        // SDカードのエラーが発生した場合の処理
+        
+        serious_errorsd = false;
+      nosd = false;
+        mainmode = 0;
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0, 0);
+        textexx();
+        return;// !nosd の if ブロック終了 (ここに閉じ括弧を追加しました)
+  }
+
+}
+  else if (mainmode == 0) { // メニューモードの場合
+
     String key = wirecheck(); // wirecheck()は常に呼び出される
     //これを入れないとmainmode変数認識が遅れやすい
     // ボタンAが押された場合の処理 (メニューを上に移動)
-    
-    if (M5.BtnA.wasPressed()  ) {
+
+    if (M5.BtnA.wasPressed() ) {
       if (maindex == 0) {
         maindex = 4; // 最後のオプションへループ
       } else {
@@ -1400,7 +1506,7 @@ void loop() {
         mainmode = 1; // モードをSDリスト表示モードに切り替え
         imano_page = 0;
         DirecX = "";
-        listSDRootContents(imano_page,DirecX); // SDカードコンテンツの初期表示 (最初のページ)
+
         shokaipointer();
         return;//mainmode0フラグ誤作動対策
       } else {
@@ -1425,8 +1531,10 @@ void loop() {
       textexx(); // メニュー画面を再描画
     }
   }
-  delay(10); // 短い遅延
 }
-#include <M5Unified.h>
+
+
+
+
 
 
