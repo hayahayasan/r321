@@ -6,7 +6,7 @@
 #include <algorithm>
 #define CARDKB_ADDR 0x5F// Unit CardKB v1.1のI2Cアドレス（要確認）
 
-
+#pragma region <hensu>
 String mainprintex = "M5Core3 LAN Activationer";
 String sita = "";
 String sitagar[] = {"Start","SD Files","Configs","text editor","how to"};
@@ -69,7 +69,10 @@ const int MAX_STRING_LENGTH = 2048; // SuperTに格納可能な最大文字数
 // 矢印キー長押し処理用のグローバル変数
 // （重複定義を削除しました）
 
-
+bool endsWithTxtOrDbm(String filename) {
+  // filename が ".txt" で終わるか、または ".dbm" で終わるかをチェック
+  return filename.endsWith(".txt") || filename.endsWith(".dbm");
+}
 const char FORBIDDEN_CHARS[] = {'"', '<', '>', '|', '*', ':', '?', '\\', '/'};
 
 // Windowsの予約名 (大文字小文字を区別しない)
@@ -193,6 +196,12 @@ bool isValidWindowsDirName(String textt) {
     return false;
   }
 
+  for(int ii = 0;ii < 100;ii++){
+    if(Filelist[ii] == textt && ForDlist[ii] == "1"){
+      return false;
+    }
+  }
+
   return true; // すべてのチェックを通過
 }
 
@@ -257,11 +266,15 @@ bool isValidWindowsFileName(String textt) {
   if (textt.length() > 255) { // Windowsの一般的なファイル/ディレクトリ名の最大長
     return false;
   }
-
+  for(int ii = 0;ii < 100;ii++){
+    if(Filelist[ii] == textt && ForDlist[ii] == "0"){
+      return false;
+    }
+  }
   return true; // すべてのチェックを通過
 }
 
-
+#pragma endregion <hensu>
 
 String maeredirect(String path){
   int lastSlashIndex = path.lastIndexOf('/'); // 右から最初のスラッシュの位置を探す
@@ -590,7 +603,55 @@ void listSDRootContents(int pagetax,String Directtory) {
 }
 
 
- 
+#pragma region <text input>
+int createFile(String fileNameToCreate, String targetDirectoryPath) {
+  // SDカードが利用可能か確認
+  if (!SD.begin()) {
+    Serial.println("SD card initialization error.");
+    // M5.Lcd.clear(); // 画面クリアのコメントアウトを有効にする場合は、適切な場所で呼び出す
+    // M5.Lcd.setCursor(0, 0);
+    // M5.Lcd.println("SD Error!");
+    return 1; // SDカードエラーを示すコードを返す
+  }
+
+  // 作成するファイルのフルパスを構築
+  // targetDirectoryPath がルートディレクトリ ("/") の場合とそうでない場合で結合方法を調整
+  String fullPath;
+  if (targetDirectoryPath.endsWith("/")) { // 例: "/MyFolder/" の場合
+    fullPath = targetDirectoryPath + fileNameToCreate;
+  } else if (targetDirectoryPath.length() > 0) { // 例: "/MyFolder" の場合
+    fullPath = targetDirectoryPath + "/" + fileNameToCreate;
+  } else { // 空文字列の場合、ルートディレクトリと見なす
+    fullPath = "/" + fileNameToCreate;
+  }
+
+  Serial.print("Attempting to create file: ");
+  Serial.println(fullPath);
+
+  // ファイルの作成を試みる（書き込みモード "w" で開く）
+  // SD.open() は、ファイルが存在しない場合は新規作成し、存在する場合は上書きします。
+  File file = SD.open(fullPath, FILE_WRITE);
+
+  if (file) {
+    // ファイル作成（オープン）が成功した場合
+    Serial.println("File created successfully: " + fullPath);
+    // ここにファイルの初期内容を書き込むことができます。
+    file.println("This is a new file created by M5Stack.");
+    file.println("File name: " + fileNameToCreate);
+    file.close(); // ファイルをクローズすることが重要！
+
+    delay(1000); // 1秒間表示
+    return 0; // 成功を示すコードを返す
+  } else {
+    // ファイル作成（オープン）が失敗した場合
+    // (例: 指定されたパスが存在しない、メモリ不足、ファイル名が無効など)
+    Serial.println("Failed to create file: " + fullPath);
+    // M5.Lcd.clear(); // 画面クリア
+    // M5.Lcd.setCursor(0, 0);
+    // M5.Lcd.println("Failed!"); // 「Failed!」メッセージ
+    return 2; // ファイル作成失敗を示すコードを返す
+  }
+}
 
 int createDirectory(String SuperTT, String DirecXX) {
   // SDカードが利用可能か確認
@@ -901,7 +962,7 @@ void performArrowKeyAction(const String& key) {
 // 通常、M5Stackの初期化はsetup()関数で行う必要がありますが、
 // このコードが既存のプロジェクトの一部であり、
 // 別の場所でM5Stackの初期化が行われている場合、この変更で問題ありません。
-
+#pragma endregion <text input>
 // 毎フレーム呼び出されるメインのテキスト入力処理関数
 void textluck() {
     // M5.begin() など、M5Stackの初期化がここ以外で行われていることを前提とします。
@@ -1116,6 +1177,8 @@ void kanketu(String texx,int frame){
     M5.Lcd.fillScreen(BLACK); // 画面を黒でクリア
     M5.Lcd.setTextFont(File_goukeifont); // フォントサイズを元に戻す
 }
+//#endregion
+
 
 
 void updatePointer(bool text1cote) {
@@ -1194,6 +1257,7 @@ void shokaipointer(){
 
 void shokaipointer(bool yessdd){
   otroot = false;
+  nosd = false;
   if(yessdd){
     listSDRootContents(imano_page,DirecX);
   }
@@ -1280,8 +1344,46 @@ void setup() {
 
 void loop() {
   M5.update(); // ボタン状態を更新
+  
   //Serial.println("mainmode:" + String(mainmode));
-  if(mainmode == 4){
+  if(mainmode == 5){
+    delay(1);
+    textluck();
+    if(entryenter == 2){
+            entryenter = 0;
+      mainmode = 1;
+      SuperT = "";
+      // 次のページを表示
+      shokaipointer();
+      
+      return;
+    }else if (entryenter == 1){
+      entryenter = 0;
+      if(isValidWindowsFileName(SuperT)){
+        Textex = "making file...";
+        int g = createFile(SuperT,DirecX);
+        if(g == 0){
+          
+          mainmode = 1;
+          SuperT = "";
+          kanketu("we made it",500);
+          // 次のページを表示
+          shokaipointer();
+          
+          return;
+        }else{
+          kanketu("making file failed",500);
+          DirecX = maeredirect(DirecX);
+          shokaipointer();
+          mainmode = 2;
+          return;
+        }
+    }else{
+      Textex = "Invalid File Name! try again";
+    }
+  }
+  }
+  else if(mainmode == 4){
     updatePointer(true);
     if(positpoint == 2 && M5.BtnB.wasPressed()){
       // ディレクトリの削除
@@ -1290,6 +1392,10 @@ void loop() {
       if(result == 0){
         kanketu("success deleted dir",500);
         DirecX = maeredirect(DirecX);
+        Serial.println(DirecX);
+        positpoint = 0;
+        imano_page = 0;
+
         shokaipointer();
         mainmode = 2;
         return;
@@ -1347,15 +1453,17 @@ void loop() {
     String key = wirecheck(); // wirecheck()は常に呼び出される
     updatePointer(true);
 
-    if(M5.BtnB.wasPressed() && positpoint == 0){
+    if(M5.BtnB.wasPressed() && positpoint == 0){//create dir
       bool dd = areusure();
       if(dd){
         M5.Lcd.fillScreen(BLACK);
+        SuperT = "";
         Textex = "If you wanna end,press tab key.";
         SCROLL_INTERVAL_FRAMES = 1;
-        SCROLL_SPEED_PIXELS = 4;
+        SCROLL_SPEED_PIXELS = 3;
         firstScrollLoop = true;
         mainmode = 3;
+        cursorIndex = 0;
         entryenter = false;
         return;
 
@@ -1369,6 +1477,19 @@ void loop() {
         shokaipointer();
         return;
       }
+    }
+    if(M5.BtnB.wasPressed() && positpoint == 3){//Make File
+      M5.Lcd.fillScreen(BLACK);
+      firstScrollLoop = true;
+        mainmode = 5;
+        entryenter = false;
+        SuperT=".txt";
+        SCROLL_INTERVAL_FRAMES = 1;
+        SCROLL_SPEED_PIXELS = 3;
+        firstScrollLoop = true;
+        cursorIndex = 0;
+      Textex = "If you wanna end,press tab key. If you wanna edit, please end with "".txt""";
+      return;
     }
 
   }
@@ -1429,14 +1550,14 @@ void loop() {
       else if(M5.BtnB.wasPressed() && ForDlist[nowposit()] == "0"){
         mainmode = 2;
         holdpositpoint = positpoint;
-        positpointmax = 7;
+        positpointmax = 8;
         positpoint = 0;
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
-
-        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Create File\n   Copy File\n   Paste File\n   Cut File\n   Back Home" );
+        if(Filelist[nowposit()] )
+        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Make File\n   Copy File\n   Paste File\n   Rename PDir\n  Delete PDir\n   Back Home" );
         shokaipointer(false);
         return;
       }
@@ -1444,7 +1565,7 @@ void loop() {
       
     } else if (otroot){
         if (M5.BtnC.wasPressed() ) {
-        mainmode = 2;
+        mainmode = 4;
         holdpositpoint = positpoint;
         positpointmax = 7;
         positpoint = 0;
@@ -1452,8 +1573,8 @@ void loop() {
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
-
-        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Create File\n   Copy File\n   Paste File\n   Cut File\n   Back Home" );
+        otroot = false;
+        M5.Lcd.println("   Make File\n   Rename\n   Delete Dir\n   Back Home" );
         shokaipointer(false);
         return;
 
@@ -1465,6 +1586,7 @@ void loop() {
           Serial.println(DirecX);
           imano_page = 0;
           positpoint = 0;
+          otroot = false;
         // 一つ前のディレクトリの内容を表示
           shokaipointer();
           return; 
