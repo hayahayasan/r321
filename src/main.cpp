@@ -1,10 +1,188 @@
 #include <M5Unified.h>
 #include <Wire.h>
 #include<SD.h>
+#include <USB.h> 
 #include<FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
+#include <USBMSC.h> // USBマスストレージクラス用
+#include <SD_MMC.h>  
+#include <sdmmc_cmd.h>
 #define CARDKB_ADDR 0x5F// Unit CardKB v1.1のI2Cアドレス（要確認）
+
+#pragma region<usbmmc>
+static USBMSC massStorage; // USBマスストレージオブジェクト
+static bool sd_card_initialized = false; // SDカードが初期化されているか
+static bool usb_msc_started = false;     // USBマスストレージが開始されているか
+
+// --- 新しい状態管理フラグ ---
+// USBマスストレージがSD_MMCオブジェクトを直接使用するため、
+// データ転送の正確な検出はライブラリの内部状態に依存します。
+// ここでは、USB接続がアクティブであれば「CONNECT AND SAVING」と表示する簡略化されたロジックを維持します。
+static bool is_data_transferring = false; // データ転送中か
+static bool error_state = false; // エラー状態を示すフラグ
+static bool usb_connected_to_host = false; // USBホストに物理的に接続されているか
+
+// --- USBデバイスがホストに接続されたときに呼び出されるコールバック ---
+void onConnect() {
+  usb_connected_to_host = true;
+  Serial.println("USB Connected to Host");
+  is_data_transferring = false; // 接続時にデータ転送中状態をリセット
+}
+
+// --- USBデバイスがホストから切断されたときに呼び出されるコールバック ---
+void onDisconnect() {
+  usb_connected_to_host = false;
+  Serial.println("USB Disconnected from Host");
+  is_data_transferring = false; // 切断時にデータ転送中状態をリセット
+}
+
+// --- SDカード初期化関数 ---
+bool initSDCard() {
+  Serial.println("Initializing SD card...");
+  M5.Lcd.fillScreen(BLACK); // 画面をクリア
+  M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+  M5.Lcd.println("Initializing SD Card...");
+
+  // SD_MMC.begin() でSDカードを初期化します。
+  // M5Stack CoreS3のSD_MMCピンはデフォルトで設定されているため、引数は不要です。
+  if (!SD_MMC.begin()) {
+    Serial.println("SD Card Mount Failed");
+    M5.Lcd.fillScreen(BLACK); // 画面をクリア
+    M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+    M5.Lcd.println("SD Card Mount Failed");
+    error_state = true;
+    sd_card_initialized = false;
+    return false;
+  }
+
+  // SD_MMC.cardSize() や SD_MMC.cardBlockSize() はfs::SDMMCFSクラスの直接のメンバーではありません。
+  // USBMSCが内部でこれらの情報を使用するため、ここではデバッグ目的の出力も削除します。
+  Serial.println("SD Card initialized successfully.");
+
+  M5.Lcd.fillScreen(BLACK); // 画面をクリア
+  M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+  M5.Lcd.println("SD Card Mounted.");
+  
+  error_state = false;
+  sd_card_initialized = true;
+  return true;
+}
+
+// --- SDカードの初期化解除関数 ---
+void deinitSDCard() {
+  if (sd_card_initialized) {
+    // USBマスストレージがアクティブな場合は先に停止
+    if (usb_msc_started) {
+      massStorage.end();
+      usb_msc_started = false;
+      Serial.println("USB MSC stopped before SD deinit.");
+    }
+    SD_MMC.end(); // SD_MMCを終了
+    Serial.println("SD Card Unmounted.");
+    sd_card_initialized = false;
+  }
+}
+
+// --- sdcmode() 関数 ---
+// この関数はSDカードとUSB MSC接続を管理し、M5Stackのディスプレイに状態を表示します。
+// loop()関数内で繰り返し呼び出す必要があります。
+void sdcmode() {
+  static bool sd_card_present_last_frame = false; // 前のフレームでのSDカードの存在状態
+  bool current_sd_card_present = sd_card_initialized; // 現在のSDカードの存在状態 (初期化されているか)
+
+  // --- エラー状態の表示 ---
+  if (error_state) {
+    M5.Lcd.fillScreen(BLACK); // 画面をクリア
+    M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+    M5.Lcd.println("ERROR!");
+    return; // エラー状態の場合はこれ以上処理しない
+  }
+
+  // --- SDカードの有無と状態変化の検出 ---
+  if (!current_sd_card_present) {
+    // SDカードが現在存在しない
+    if (sd_card_present_last_frame) {
+      // 前のフレームではSDカードがあったが、今はない (取り外された)
+      Serial.println("SD card removed! Attempting to stop USB MSC and disconnect from PC.");
+      M5.Lcd.fillScreen(BLACK); // 画面をクリア
+      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+      M5.Lcd.println("SD REMOVED!");
+      M5.Lcd.println("WILL BE BACK..."); // "will be back" を表示
+      if (usb_msc_started) {
+        massStorage.end(); // USBマスストレージを停止
+        usb_msc_started = false;
+        Serial.println("USB MSC stopped.");
+      }
+      deinitSDCard(); // SDカードを初期化解除
+      // 再度SDカードの初期化を試みる
+      initSDCard(); // SDカードが再挿入された場合に備えて試行
+    } else {
+      // 起動時からSDカードがない、または取り外されたままの状態
+      M5.Lcd.fillScreen(BLACK); // 画面をクリア
+      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+      M5.Lcd.println("NO SD CARD");
+      // SDカードが再挿入されたか確認し、初期化を試みる
+      initSDCard(); // SDカードの再初期化を試みる (成功すればsd_card_initializedがtrueになる)
+    }
+  } else {
+    // SDカードが現在存在する
+    if (!usb_msc_started) {
+      // SDカードは存在するが、USB MSCがまだ開始されていない (PCとの接続待機中)
+      M5.Lcd.fillScreen(BLACK); // 画面をクリア
+      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+      M5.Lcd.println("CONNECT VIA USB");
+      
+      // USBマスストレージを開始 - ここでSD_MMCオブジェクトのポインタとマウントパスを渡す
+      // これにより、USBMassStorageがSDカードのブロックI/Oを直接管理します。
+      // SD_MMCはfs::FSを継承しているため、USBMSC::begin(fs::FS* fs, const char* path) に適合します。
+      massStorage.begin(&SD_MMC, "/sd"); // /sd はSD_MMCのマウントパスの慣例
+      USB.begin(); // USB機能全体を有効化
+      usb_msc_started = true;
+      Serial.println("USB MSC started, waiting for PC connection.");
+    } else {
+      // USB MSCが開始されている場合
+      if (!usb_connected_to_host) {
+        // USB MSCは開始されているが、PCがまだ接続を認識していない (接続試行中)
+        M5.Lcd.fillScreen(BLACK); // 画面をクリア
+        M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+        M5.Lcd.println("CONNECTING BUT NO CONNECTION");
+      } else {
+        // PCと接続済み
+        // データ転送のヒューリスティック: USBが接続されている場合、データ転送の可能性があると仮定
+        is_data_transferring = true; // 接続中はデータ転送の可能性があると仮定
+
+        if (is_data_transferring) {
+          M5.Lcd.fillScreen(BLACK); // 画面をクリア
+          M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+          M5.Lcd.println("CONNECT AND SAVING");
+        } else {
+          M5.Lcd.fillScreen(BLACK); // 画面をクリア
+          M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+          M5.Lcd.println("CONNECTED");
+        }
+      }
+    }
+  }
+
+  // 前のフレームのSDカード状態を更新
+  sd_card_present_last_frame = current_sd_card_present;
+}
+
+#pragma endregion
+
+
+
+
+
+
+
+
+
+
+
+
+
 //後で実装　ファイルのゴミ箱移動オプション
 //ファイルコピペ時に、ペースト後「カットしますか」を出す
 #pragma region <hensu>
@@ -28,6 +206,8 @@ String karadirectname;
 bool filebrat = false;
 bool nosd = false;
 int maxpage;
+static int scrollPos = M5.Lcd.width();
+String Tex2;
 bool serious_errorsd = false;
 int pagemoveflag = 0;
 String Filelist[100];
@@ -41,6 +221,8 @@ bool isArrowKeyRepeating = false;  // キーが現在連続実行状態である
 int nullCount = 0; 
 int lastDrawnCursorScreenX = -9999; 
 int lastDrawnCursorScreenY = -9999;
+const unsigned long TEXT_SCROLL_INTERVAL_MS = 40; 
+static unsigned long lastTextScrollTime = 0;
 String Textex = "!"; // 最下部にスクロール表示するテキスト
 int scrollOffset = 0; // スクロールテキストの描画オフセット
 int scrollFrameCounter = 0; // スクロールフレームカウンター
@@ -54,6 +236,8 @@ int entryenter = 0;
 bool otroot = false;
 String copymotroot;
 bool copymotdir;
+bool modordir;
+static int frameCounter = 0;
 
 struct SdEntryInfo {
   String name;
@@ -68,12 +252,61 @@ int offsetY = 0; // テキスト描画の垂直オフセット（スクロール
 
 bool needsRedraw = false;
 
-const int CURSOR_BLINK_INTERVAL = 20; // カーソル点滅のフレーム間隔
-const int MAX_STRING_LENGTH = 2048; // SuperTに格納可能な最大文字数
+const int CURSOR_BLINK_INTERVAL = 10; // カーソル点滅のフレーム間隔
+const int MAX_STRING_LENGTH = 65535; // SuperTに格納可能な最大文字数
 
 
 // 矢印キー長押し処理用のグローバル変数
 // （重複定義を削除しました）
+
+String formatBytes(uint64_t bytes) {
+  const uint64_t KB = 1024ULL;
+  const uint64_t MB = KB * 1024ULL;
+  const uint64_t GB = MB * 1024ULL;
+  const uint64_t TB = GB * 1024ULL;
+
+  char output[50]; // 結果を格納するバッファ
+
+  if (bytes >= TB) {
+    double tbValue = (double)bytes / TB;
+    // TBの場合、MB/KBの詳細は表示しないため、小数点以下は表示しない
+    // 必要であればここでtbValueの表示形式を調整してください (例: 1.23 TB)
+    snprintf(output, sizeof(output), "%.0f TB %.0f GB %.0f MB %.0f KB", 
+             floor(tbValue), // TBの整数部分
+             floor(fmod(bytes, TB) / GB), // TBを除いたGB部分
+             floor(fmod(bytes, GB) / MB), // GBを除いたMB部分
+             floor(fmod(bytes, MB) / KB)  // MBを除いたKB部分
+            );
+  } else if (bytes >= GB) {
+    double gbValue = (double)bytes / GB;
+    snprintf(output, sizeof(output), "%.0f GB %.0f MB %.0f KB", 
+             floor(gbValue), // GBの整数部分
+             floor(fmod(bytes, GB) / MB), // GBを除いたMB部分
+             floor(fmod(bytes, MB) / KB)  // MBを除いたKB部分
+            );
+  } else if (bytes >= MB) {
+    double mbValue = (double)bytes / MB;
+    snprintf(output, sizeof(output), "%.0f MB %.0f KB", 
+             floor(mbValue), // MBの整数部分
+             floor(fmod(bytes, MB) / KB)  // MBを除いたKB部分
+            );
+  } else if (bytes >= KB) {
+    double kbValue = (double)bytes / KB;
+    // KBの場合のみ小数点以下第3位まで表示し、それ以降は切り捨て
+    snprintf(output, sizeof(output), "%.3f KB", floor(kbValue * 1000) / 1000);
+  } else {
+    // 1KB未満の場合はバイト単位で表示（小数点はなし）
+    snprintf(output, sizeof(output), "%.0f KB", 0.0); // 0KBと表示
+  }
+
+  // 容量が0バイトの場合、"0 KB"と表示するように調整
+  if (bytes == 0) {
+      return "0 KB";
+  }
+
+  return String(output);
+}
+
 
 bool endsWithTxtOrDbm(String filename) {
   // filename が ".txt" で終わるか、または ".dbm" で終わるかをチェック
@@ -482,6 +715,11 @@ void listSDRootContents(int pagetax,String Directtory) {
   M5.Lcd.clear();
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(File_goukeifont); // フォントサイズをFile_goukeifontに設定
+  if(Directtory != ""){
+    modordir = true;
+  }else{
+    modordir = false;
+  }
   if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) {//SDカード入ってない
     serious_errorsd = true;
     nummempty();
@@ -638,10 +876,7 @@ void listSDRootContents(int pagetax,String Directtory) {
   }
 
   // ページ情報を下部に表示 (表示しているページのみ)
-  M5.Lcd.setCursor(0, M5.Lcd.height() - M5.Lcd.fontHeight());
-  M5.Lcd.setTextFont(1); // Set font size to 1
-  M5.Lcd.printf("Page %d/%d (Press B to continue)", pagetax + 1, maxpage);
-  M5.Lcd.setTextFont(File_goukeifont);
+  
 
 
   
@@ -1414,82 +1649,139 @@ void kanketu(String texx,int frame){
 
 
 
+
+// ポインターの位置を更新し、画面下部にテキストをスクロールさせる関数
 void updatePointer(bool text1cote) {
-  static int prev_positpoint = -1; // 以前のポインター位置を記憶 (-1は初期状態を示す)
-  int old_positpoint = positpoint; // ポインターの現在の位置を保存
- // Serial.println("pp:" + String(imano_page) + "ppm:" + String(goukei_page));
-  if(text1cote){
-    M5.Lcd.setTextFont(3); // フォントサイズを設定
-  }else{
-    M5.Lcd.setTextFont(File_goukeifont); // フォントサイズを設定
-  }
-  
+    static int prev_positpoint = -1; // 以前のポインター位置を記憶 (-1は初期状態を示す)
+    int old_positpoint = positpoint; // ポインターの現在の位置を保存
 
+    // ポインター表示のフォントはFile_goukeifontに固定
+    M5.Lcd.setTextFont(File_goukeifont);
 
-  // ボタンAが押された場合 (上へ移動)
-  if (M5.BtnA.wasPressed()) {
-    positpoint--;
-  }
-  // ボタンCが押された場合 (下へ移動)
-  if (M5.BtnC.wasPressed()) {
-    positpoint++;
-  }
-  if(positpoint ==  positpointmax + 1  && imano_page < goukei_page - 1 ){
-    pagemoveflag = 1;
-    return;
-  }else if(positpoint ==  -1 && imano_page != 0 ){
-    pagemoveflag = 2;
-    return;
-  }else{
-    pagemoveflag = 0;
-  }
-  // ポインターの境界チェック
-  // 負の方向には移動できない (最小値は0)
-  positpoint = std::max(0, positpoint);
+    // ボタンAが押された場合 (上へ移動)
+    if (M5.BtnA.wasPressed()) {
+        positpoint--;
+    }
+    // ボタンCが押された場合 (下へ移動)
+    if (M5.BtnC.wasPressed()) {
+        positpoint++;
+    }
+    if (modordir && positpoint == -1 && imano_page == 0) {
+        pagemoveflag = 3;
+        return;
+    } else if (positpoint == positpointmax + 1 && imano_page < goukei_page - 1) {
+        pagemoveflag = 1;
+        return;
+    } else if (positpoint == -1 && imano_page != 0) {
+        pagemoveflag = 2;
+        return;
+    } else {
+        pagemoveflag = 0;
+    }
+    // ポインターの境界チェック
+    positpoint = std::max(0, positpoint); // 負の方向には移動できない (最小値は0)
 
-  // 正の方向への移動限界を計算
-  // Filelistが0からカウントして、中身が""でない数である（""でなくなったらその時点でカウント終了する）
-
-  int effective_filelist_count = positpointmax + 1;// 有効なアイテム数をカウント
-  if (effective_filelist_count > 0) { // リストに有効なアイテムがある場合のみ上限を適用
-    positpoint = std::min(effective_filelist_count - 1, positpoint); // 最大値は (有効なアイテム数 - 1)
-  } else {
-    positpoint = 0; // リストが空の場合はポインターを0に固定
-  }
- 
-  // ポインターの位置が変更された場合、または初回描画の場合のみ処理
-  if (positpoint != old_positpoint || prev_positpoint == -1) {
-    // 以前のポインターが存在する場合、その位置を黒で塗りつぶして消去
-    if (prev_positpoint != -1) {
-      // ポインターの幅 (フォントサイズ2で半角2マス分)
-      int pointer_width = M5.Lcd.textWidth("  "); 
-     M5.Lcd.fillRect(0, 0, pointer_width, M5.Lcd.height() - M5.Lcd.fontHeight(), BLACK);
+    // 正の方向への移動限界を計算
+    int effective_filelist_count = positpointmax + 1; // 有効なアイテム数をカウント
+    if (effective_filelist_count > 0) { // リストに有効なアイテムがある場合のみ上限を適用
+        positpoint = std::min(effective_filelist_count - 1, positpoint); // 最大値は (有効なアイテム数 - 1)
+    } else {
+        positpoint = 0; // リストが空の場合はポインターを0に固定
     }
 
-    // 新しいポインターを描画
-    M5.Lcd.setTextColor(YELLOW); // 黄色に設定
-    M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight()); // 新しい位置にカーソルを設定
-    M5.Lcd.print(">"); // ポインターアイコンを描画
-    M5.Lcd.setTextColor(WHITE); // 色を白に戻す
+    // ポインターの位置が変更された場合、または初回描画の場合のみ処理
+    if (positpoint != old_positpoint || prev_positpoint == -1) {
+        // 以前のポインターが存在する場合、その位置を黒で塗りつぶして消去
+        if (prev_positpoint != -1) {
+            // ポインターの幅 (フォントサイズ2で半角2マス分)
+            int pointer_width = M5.Lcd.textWidth("  ");
+            // ポインターが描画される行をクリア
+            M5.Lcd.fillRect(0, prev_positpoint * M5.Lcd.fontHeight(), pointer_width, M5.Lcd.fontHeight(), BLACK);
+        }
 
-    prev_positpoint = positpoint; // 現在の位置を次の描画のために記憶
-  }
+        // 新しいポインターを描画
+        M5.Lcd.setTextColor(YELLOW); // 黄色に設定
+        M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight()); // 新しい位置にカーソルを設定
+        M5.Lcd.print(">"); // ポインターアイコンを描画
+        M5.Lcd.setTextColor(WHITE); // 色を白に戻す
+
+        prev_positpoint = positpoint; // 現在の位置を次の描画のために記憶
+    }
+
+    // ここから画面最下部のスクロールテキスト処理
+    unsigned long currentMillis = millis();
+
+    // テキストスクロールを1秒ごとに更新 (1 FPS)
+    if (currentMillis - lastTextScrollTime >= TEXT_SCROLL_INTERVAL_MS) {
+        lastTextScrollTime = currentMillis; // 最終更新時刻をリセット
+
+        // スクロールテキストはフォント1で固定
+        M5.Lcd.setTextFont(1); // ここでフォント1を設定
+        int textWidth = M5.Lcd.textWidth(Tex2);
+        int textHeight = M5.Lcd.fontHeight(); // フォントサイズ1での高さを取得
+
+        // Tex2に内容があるにもかかわらずtextWidthが0の場合、フォントが文字をサポートしていない可能性があります。
+        // その場合、一時的に固定幅を設定してスクロール動作を確認します。
+        if (textWidth == 0 && Tex2.length() > 0) {
+            textWidth = Tex2.length() * 6; // フォント1の一般的な文字幅を仮に6ピクセルとする
+        } else if (Tex2.length() == 0) {
+             textWidth = 0; // テキストが空の場合は幅も0
+        }
+
+        // 画面最下部のY座標を計算
+        int bottomY = M5.Lcd.height() - textHeight;
+
+        // 画面最下部のテキスト表示領域をクリア
+        M5.Lcd.fillRect(0, bottomY, M5.Lcd.width(), textHeight, BLACK);
+
+        // スクロール位置を更新 (左に移動)
+        scrollPos -= SCROLL_SPEED_PIXELS;
+
+        // テキストが完全に画面外に出たら、画面右端から再スタート
+        if (scrollPos < -textWidth) {
+            scrollPos = M5.Lcd.width();
+        }
+
+        // === ここからクリッピング描画のロジック ===
+        // 画面の左端 (X=0) から右端 (X=M5.Lcd.width()) までに表示されるテキストの範囲を計算
+        int visibleStartX = std::max(0, -scrollPos); 
+        int visibleEndX = std::min(textWidth, M5.Lcd.width() - scrollPos); 
+
+        if (visibleStartX < visibleEndX) { // 実際に表示される範囲がある場合のみ描画
+            // 表示されるべき部分文字列を切り出す
+            int charWidthApprox = M5.Lcd.textWidth("A"); 
+            if (charWidthApprox == 0) charWidthApprox = 6; 
+
+            int startIndex = visibleStartX / charWidthApprox;
+            int endIndex = visibleEndX / charWidthApprox;
+
+            String visibleText = Tex2.substring(startIndex, endIndex);
+
+            // 切り出した部分文字列を適切なX座標に描画
+            M5.Lcd.setCursor(std::max(0, scrollPos), bottomY); 
+            M5.Lcd.setTextColor(WHITE); 
+            M5.Lcd.print(visibleText);
+        }
+        // === クリッピング描画のロジックここまで ===
+    }
 }
 
 void shokaipointer(){
   otroot = false;
+  modordir = false;
   listSDRootContents(imano_page,DirecX);
   Serial.println(otroot);
   M5.Lcd.setTextColor(YELLOW);
   M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
   M5.Lcd.print(">");
   M5.Lcd.setTextColor(WHITE);
-  
+  Tex2 = "Press B to Options Now Dir C:/" + DirecX + "  :total bytes:" + formatBytes(SD.totalBytes()) + "  :used bytes:" + formatBytes(SD.usedBytes());
   return;
 }
 
 void shokaipointer(bool yessdd){
   otroot = false;
+  modordir = false;
   nosd = false;
   if(yessdd){
     listSDRootContents(imano_page,DirecX);
@@ -1499,7 +1791,7 @@ void shokaipointer(bool yessdd){
   M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
   M5.Lcd.print(">");
   M5.Lcd.setTextColor(WHITE);
-  
+  Tex2 = "Press B to Options Now Dir C:/" + DirecX + "  :total bytes:" + formatBytes(SD.totalBytes()) + "  :used bytes:" + formatBytes(SD.usedBytes());
   return;
 }
 
@@ -1573,6 +1865,18 @@ void setup() {
   Serial.begin(115200); // シリアル通信の初期化
   wirecheck();
   mainmode = 0;
+    massStorage.onRead(onRead);
+  massStorage.onWrite(onWrite);
+  massStorage.onCapacity(onCapacity);
+  massStorage.onReady(onReady);
+  massStorage.onFlush(onFlush);
+
+  // USB接続/切断コールバックを設定
+  USB.onEvent(onConnect, USB_CONNECTED);
+  USB.onEvent(onDisconnect, USB_DISCONNECTED);
+
+  // 初期のSDカードチェックと初期化
+  initSDCard();
 }
 
 void loop() {
@@ -1733,8 +2037,45 @@ void loop() {
       return;
     }
     if(positpoint == 0 && M5.BtnB.wasPressed()){//make file
-
+    
+        M5.Lcd.fillScreen(BLACK);
+      firstScrollLoop = true;
+        mainmode = 5;
+        entryenter = false;
+        SuperT=".txt";
+        SCROLL_INTERVAL_FRAMES = 1;
+        SCROLL_SPEED_PIXELS = 3;
+        firstScrollLoop = true;
+        cursorIndex = 0;
+      Textex = "If you wanna end,press tab key. If you wanna edit, please end with "".txt""";
+      return;
     }
+    if(positpoint == 3 && M5.BtnB.wasPressed()){//make dir
+      bool bb = areusure();
+      if(bb){
+      M5.Lcd.fillScreen(BLACK);
+        SuperT = "";
+        Textex = "If you wanna end,press tab key.";
+        SCROLL_INTERVAL_FRAMES = 1;
+        SCROLL_SPEED_PIXELS = 3;
+        firstScrollLoop = true;
+        mainmode = 3;
+        cursorIndex = 0;
+        entryenter = false;
+        return;
+
+      }else{
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = holdpositpoint;
+        mainmode = 1;
+
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+      }
+    }
+    
   }
 
   else if(mainmode == 3){
@@ -1953,6 +2294,7 @@ void loop() {
         return;
     }else{
       String imaroot  = DirecX + "/" + Filelist[nowposit()];
+      Serial.println(imaroot + "]" + copymotroot);
 
     }
   }
@@ -1962,7 +2304,7 @@ void loop() {
   // mainmodeの値に基づいて処理を分岐
   else if (mainmode == 1) { // SDリスト表示モードの場合
     
-    delay(3);
+    delay(1);
    // Serial.println((String)maxpage);
     String key = wirecheck(); // wirecheck()は常に呼び出される
     if(key == "TAB"){
@@ -1974,11 +2316,21 @@ void loop() {
 
     //Serial.println("IMA:" + ForDlist[nowposit()] + "bango" + nowposit());
     if(!nosd){ // !nosd の if ブロック開始
-      if (M5.BtnC.wasPressed() && pagemoveflag == 1) {
+
+      if(M5.BtnA.wasPressed() && pagemoveflag == 3){
+        imano_page = 0;
+        positpoint = 0;
+        pagemoveflag = 0;
+        DirecX = maeredirect(DirecX);
+        shokaipointer();
+        mainmode = 1;
+        return;
+      }
+      else if (M5.BtnC.wasPressed() && pagemoveflag == 1) {
 
         imano_page++;
         pagemoveflag = 0;
-        listSDRootContents(imano_page,DirecX); // 次のページを表示
+        
         positpoint = 0;
         shokaipointer();
         mainmode = 1;
@@ -2036,14 +2388,14 @@ void loop() {
         if (M5.BtnC.wasPressed() ) {
         mainmode = 4;
         holdpositpoint = positpoint;
-        positpointmax = 4;
+        positpointmax = 5;
         positpoint = 0;
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
         otroot = false;
-        M5.Lcd.println("   Make File\n   Rename\n   Delete Dir\n   Back Home" );
+        M5.Lcd.println("   Make File\n   Rename\n   Delete Dir\n   Make Dir\n  Back Home" );
         shokaipointer(false);
         return;
 
