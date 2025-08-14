@@ -1876,25 +1876,24 @@ void kanketu(String texx,int frame){
 
 // ポインターの位置を更新し、画面下部にテキストをスクロールさせる関数
 void updatePointer(bool text1cote, bool temmm = false) {
-    // 以前のポインター位置を記憶 (-1は初期状態を示す)
+    // 以前のポインター位置を記憶 (-1は初期状態を示す。これはstaticで一度だけ初期化される)
     static int prev_positpoint = -1;
-    // ポインターの現在の位置を保存
-    int old_positpoint = positpoint;
+    // 関数呼び出し時点のpositpoint（ボタン押下前のpositpoint）を保存
+    int current_positpoint_on_entry = positpoint; 
 
     // ポインター表示のフォントをFile_goukeifontに固定
     M5.Lcd.setTextFont(File_goukeifont);
 
-    // ボタンAが押された場合 (上へ移動)
+    // ポインターの移動処理
     if (M5.BtnA.wasPressed()) {
-        positpoint--;
+        positpoint--; // 上へ移動
     }
-    // ボタンCが押された場合 (下へ移動)
-    if (M5.BtnC.wasPressed() ) {
-        positpoint++;
+    if (M5.BtnC.wasPressed()) {
+        positpoint++; // 下へ移動
     }
 
     // ページ移動フラグのロジック
-    // (modordir、positpointmax、imano_page、goukei_pageは外部で定義されている必要があります)
+    // これらの条件はpositpointが更新された後に評価されるべき
     if (modordir && positpoint == -1 && imano_page == 0) {
         pagemoveflag = 3;
         return;
@@ -1908,54 +1907,50 @@ void updatePointer(bool text1cote, bool temmm = false) {
         pagemoveflag = 0;
     }
 
-    // 特定のモード（maxLinesPerPage2 == 1 && mainmode == 1）ではポインターを0に固定
+    // ポインターの境界チェック
     if(maxLinesPerPage2 == 1 && mainmode == 1){
-      positpoint = 0;
+        positpoint = 0;
     }else{
-      // ポインターの境界チェック
-      // 負の方向には移動できない (最小値は0)
-      positpoint = std::max(0, positpoint);
+        positpoint = std::max(0, positpoint); // 負の方向には移動できない (最小値は0)
 
-      // 正の方向への移動限界を計算
-      // positpointmaxgは有効なアイテム数（外部で定義されている必要があります）
-      int effective_filelist_count = positpointmaxg;
-      if (effective_filelist_count > 0) { // リストに有効なアイテムがある場合のみ上限を適用
-          // 最大値は (有効なアイテム数 - 1)
-          positpoint = std::min(effective_filelist_count - 1, positpoint);
-      } else {
-          positpoint = 0; // リストが空の場合はポインターを0に固定
-      }
+        int effective_filelist_count = positpointmaxg;
+        if (effective_filelist_count > 0) {
+            positpoint = std::min(effective_filelist_count - 1, positpoint); // 最大値は (有効なアイテム数 - 1)
+        } else {
+            positpoint = 0; // リストが空の場合はポインターを0に固定
+        }
     }
     
-    // ポインターの位置が変更された場合、または初回描画の場合のみ処理
-    // ここで、ポインターが移動した場合に、表示領域全体をクリアし、再描画します。
-    if (positpoint != old_positpoint || prev_positpoint == -1) {
-        // スクロールテキストの高さ（フォント1の場合）を取得
-        M5.Lcd.setTextFont(1); // スクロールテキストのフォントに一時的に設定
-        int scroll_text_height = M5.Lcd.fontHeight();
-        M5.Lcd.setTextFont(File_goukeifont); // ポインターフォントに戻す
+    // ポインターの位置が変更された場合、または初回描画時の処理
+    // prev_positpoint と現在の positpoint が異なる場合、または prev_positpoint が初期値(-1)の場合
+    if (prev_positpoint != positpoint) { 
+        // ポインター文字 (">") の幅と高さを取得
+        M5.Lcd.setTextFont(File_goukeifont); // ポインターフォントが設定されていることを確認
+        int pointer_char_width = M5.Lcd.textWidth(">");
+        int font_height = M5.Lcd.fontHeight();
 
-        // クリアする矩形の開始X座標と幅
-        // ユーザーの要求に従い、X座標はFile_goukeifontのスペース文字の幅に設定
-        int clear_x_start = M5.Lcd.textWidth(" ");
-        // ユーザーの要求に従い、幅はポインター表示フォントの高さに設定
-        int clear_width = M5.Lcd.fontHeight() * 1;
-        // クリアする矩形の高さは1行分
-        int clear_height = M5.Lcd.fontHeight();
+        // ポインターとその隣接するスペースをクリアするための幅
+        // ">" とその右側の文字が重なることを避けるため、少し広めに取る
+        int clear_zone_width = pointer_char_width + M5.Lcd.textWidth(" "); 
+        // もし文字の高さが一定でない場合、font_height を使うのが安全
 
         // 以前のポインターを消去
-        // prev_positpointが-1でない場合（つまり初回描画ではない場合）、
-        // または初回描画だがポインターが初期位置から移動した場合、以前のポインターをクリアする
+        // prev_positpoint が -1 でない場合 (つまり、updatePointerが既に一度以上ポインターを描画している場合)
         if (prev_positpoint != -1) {
-            M5.Lcd.fillRect(clear_x_start, prev_positpoint * clear_height, clear_width, clear_height, BLACK);
-        } else if (prev_positpoint == -1 && positpoint != old_positpoint) {
-            // 初回だが、shokaipointerで描画された位置(old_positpoint)が現在のpositpointと異なる場合
-            M5.Lcd.fillRect(clear_x_start, old_positpoint * clear_height, clear_width, clear_height, BLACK);
+            // prev_positpoint の位置のポインターを黒で塗りつぶす
+            M5.Lcd.fillRect(0, prev_positpoint * font_height, clear_zone_width, font_height, BLACK);
+            // ここで、もしリストのコンテンツがポインターによって隠されていた場合、その部分のテキストを白で再描画する必要があるかもしれません。
+            // しかし、現在の問題は「ポインターが消えない」ことなので、まずポインターのクリアに集中します。
+        } else {
+            // updatePointerが初回呼び出し時で、かつshokaipointerが既に初期ポインターを描画している場合
+            // current_positpoint_on_entry (updatePointer呼び出し時のpositpoint) の位置のポインターをクリアする
+            // これは shokaipointer が描画した最初のポインターを消すための措置
+            M5.Lcd.fillRect(0, current_positpoint_on_entry * font_height, clear_zone_width, font_height, BLACK);
         }
 
         // 新しいポインターを描画
-        M5.Lcd.setTextColor(YELLOW); // 色を黄色に設定
-        M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight()); // 新しい位置にカーソルを設定 (X=0)
+        M5.Lcd.setTextColor(YELLOW); // 黄色に設定
+        M5.Lcd.setCursor(0, positpoint * font_height); // 新しい位置にカーソルを設定 (X=0)
         M5.Lcd.print(">"); // ポインターアイコンを描画
         M5.Lcd.setTextColor(WHITE); // 色を白に戻す
 
@@ -1963,47 +1958,37 @@ void updatePointer(bool text1cote, bool temmm = false) {
         prev_positpoint = positpoint;
     }
 
-    // ここから画面最下部のスクロールテキスト処理
-    // (lastTextScrollTime、TEXT_SCROLL_INTERVAL_MS、Tex2、SCROLL_SPEED_PIXELSは外部で定義されている必要があります)
+    // ここから画面最下部のスクロールテキスト処理 (変更なし)
     unsigned long currentMillis = millis();
 
     // テキストスクロールを1秒ごとに更新 (1 FPS)
     if (currentMillis - lastTextScrollTime >= TEXT_SCROLL_INTERVAL_MS) {
-        lastTextScrollTime = currentMillis; // 最終更新時刻をリセット
+        lastTextScrollTime = currentMillis;
 
-        // スクロールテキストはフォント1で固定
         M5.Lcd.setTextFont(1);
         int textWidth = M5.Lcd.textWidth(Tex2);
-        int textHeight = M5.Lcd.fontHeight(); // フォントサイズ1での高さを取得
+        int textHeight = M5.Lcd.fontHeight();
 
-        // Tex2に内容があるにもかかわらずtextWidthが0の場合のフォールバック
         if (textWidth == 0 && Tex2.length() > 0) {
-            textWidth = Tex2.length() * 6; // フォント1の一般的な文字幅を仮に6ピクセルとする
+            textWidth = Tex2.length() * 6;
         } else if (Tex2.length() == 0) {
-            textWidth = 0; // テキストが空の場合は幅も0
+            textWidth = 0;
         }
 
-        // 画面最下部のY座標を計算
         int bottomY = M5.Lcd.height() - textHeight;
 
-        // 画面最下部のテキスト表示領域をクリア
         M5.Lcd.fillRect(0, bottomY, M5.Lcd.width(), textHeight, BLACK);
 
-        // スクロール位置を更新 (左に移動)
         scrollPos -= SCROLL_SPEED_PIXELS;
 
-        // テキストが完全に画面外に出たら、画面右端から再スタート
         if (scrollPos < -textWidth) {
             scrollPos = M5.Lcd.width();
         }
 
-        // === ここからクリッピング描画のロジック ===
-        // 画面の左端 (X=0) から右端 (X=M5.Lcd.width()) までに表示されるテキストの範囲を計算
         int visibleStartX = std::max(0, -scrollPos);
         int visibleEndX = std::min(textWidth, M5.Lcd.width() - scrollPos);
 
-        if (visibleStartX < visibleEndX) { // 実際に表示される範囲がある場合のみ描画
-            // 表示されるべき部分文字列を切り出すための文字幅を推定
+        if (visibleStartX < visibleEndX) {
             int charWidthApprox = M5.Lcd.textWidth("A");
             if (charWidthApprox == 0) charWidthApprox = 6;
 
@@ -2012,34 +1997,14 @@ void updatePointer(bool text1cote, bool temmm = false) {
 
             String visibleText = Tex2.substring(startIndex, endIndex);
 
-            // 切り出した部分文字列を適切なX座標に描画
             M5.Lcd.setCursor(std::max(0, scrollPos), bottomY);
             M5.Lcd.setTextColor(WHITE);
             M5.Lcd.print(visibleText);
         }
-        // === クリッピング描画のロジックここまで ===
     }
 }
 
 
-
-
-
-
-void shokaipointer(){
-  otroot = false;
-  modordir = false;
-  listSDRootContents(imano_page,DirecX);
-  Serial.println(otroot);
-  M5.Lcd.setTextColor(YELLOW);
-  M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
-  M5.Lcd.print(">");
-  M5.Lcd.setTextColor(WHITE);
-  Tex2 = "Press B to Options Now Dir C:/" + DirecX + "  :total bytes:" + formatBytes(SD.totalBytes()) + "  :used bytes:" + formatBytes(SD.usedBytes());
-  
-  positpointmaxg  = (M5.Lcd.height() / M5.Lcd.fontHeight()) - 1; 
-  return;
-}
 
 void shokaipointer(bool yessdd){
   otroot = false;
