@@ -2,181 +2,9 @@
 #include <Wire.h>
 #include<SD.h>
 #include <USB.h> 
-#include<FS.h>
+#include <FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
-#include <USBMSC.h> // USBマスストレージクラス用
-#include <SD_MMC.h>  
-#include <sdmmc_cmd.h>
-#define CARDKB_ADDR 0x5F// Unit CardKB v1.1のI2Cアドレス（要確認）
-
-#pragma region<usbmmc>
-static USBMSC massStorage; // USBマスストレージオブジェクト
-static bool sd_card_initialized = false; // SDカードが初期化されているか
-static bool usb_msc_started = false;     // USBマスストレージが開始されているか
-
-// --- 新しい状態管理フラグ ---
-// USBマスストレージがSD_MMCオブジェクトを直接使用するため、
-// データ転送の正確な検出はライブラリの内部状態に依存します。
-// ここでは、USB接続がアクティブであれば「CONNECT AND SAVING」と表示する簡略化されたロジックを維持します。
-static bool is_data_transferring = false; // データ転送中か
-static bool error_state = false; // エラー状態を示すフラグ
-static bool usb_connected_to_host = false; // USBホストに物理的に接続されているか
-
-// --- USBデバイスがホストに接続されたときに呼び出されるコールバック ---
-void onConnect() {
-  usb_connected_to_host = true;
-  Serial.println("USB Connected to Host");
-  is_data_transferring = false; // 接続時にデータ転送中状態をリセット
-}
-
-// --- USBデバイスがホストから切断されたときに呼び出されるコールバック ---
-void onDisconnect() {
-  usb_connected_to_host = false;
-  Serial.println("USB Disconnected from Host");
-  is_data_transferring = false; // 切断時にデータ転送中状態をリセット
-}
-
-// --- SDカード初期化関数 ---
-bool initSDCard() {
-  Serial.println("Initializing SD card...");
-  M5.Lcd.fillScreen(BLACK); // 画面をクリア
-  M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-  M5.Lcd.println("Initializing SD Card...");
-
-  // SD_MMC.begin() でSDカードを初期化します。
-  // M5Stack CoreS3のSD_MMCピンはデフォルトで設定されているため、引数は不要です。
-  if (!SD_MMC.begin()) {
-    Serial.println("SD Card Mount Failed");
-    M5.Lcd.fillScreen(BLACK); // 画面をクリア
-    M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-    M5.Lcd.println("SD Card Mount Failed");
-    error_state = true;
-    sd_card_initialized = false;
-    return false;
-  }
-
-  // SD_MMC.cardSize() や SD_MMC.cardBlockSize() はfs::SDMMCFSクラスの直接のメンバーではありません。
-  // USBMSCが内部でこれらの情報を使用するため、ここではデバッグ目的の出力も削除します。
-  Serial.println("SD Card initialized successfully.");
-
-  M5.Lcd.fillScreen(BLACK); // 画面をクリア
-  M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-  M5.Lcd.println("SD Card Mounted.");
-  
-  error_state = false;
-  sd_card_initialized = true;
-  return true;
-}
-
-// --- SDカードの初期化解除関数 ---
-void deinitSDCard() {
-  if (sd_card_initialized) {
-    // USBマスストレージがアクティブな場合は先に停止
-    if (usb_msc_started) {
-      massStorage.end();
-      usb_msc_started = false;
-      Serial.println("USB MSC stopped before SD deinit.");
-    }
-    SD_MMC.end(); // SD_MMCを終了
-    Serial.println("SD Card Unmounted.");
-    sd_card_initialized = false;
-  }
-}
-
-// --- sdcmode() 関数 ---
-// この関数はSDカードとUSB MSC接続を管理し、M5Stackのディスプレイに状態を表示します。
-// loop()関数内で繰り返し呼び出す必要があります。
-void sdcmode() {
-  static bool sd_card_present_last_frame = false; // 前のフレームでのSDカードの存在状態
-  bool current_sd_card_present = sd_card_initialized; // 現在のSDカードの存在状態 (初期化されているか)
-
-  // --- エラー状態の表示 ---
-  if (error_state) {
-    M5.Lcd.fillScreen(BLACK); // 画面をクリア
-    M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-    M5.Lcd.println("ERROR!");
-    return; // エラー状態の場合はこれ以上処理しない
-  }
-
-  // --- SDカードの有無と状態変化の検出 ---
-  if (!current_sd_card_present) {
-    // SDカードが現在存在しない
-    if (sd_card_present_last_frame) {
-      // 前のフレームではSDカードがあったが、今はない (取り外された)
-      Serial.println("SD card removed! Attempting to stop USB MSC and disconnect from PC.");
-      M5.Lcd.fillScreen(BLACK); // 画面をクリア
-      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-      M5.Lcd.println("SD REMOVED!");
-      M5.Lcd.println("WILL BE BACK..."); // "will be back" を表示
-      if (usb_msc_started) {
-        massStorage.end(); // USBマスストレージを停止
-        usb_msc_started = false;
-        Serial.println("USB MSC stopped.");
-      }
-      deinitSDCard(); // SDカードを初期化解除
-      // 再度SDカードの初期化を試みる
-      initSDCard(); // SDカードが再挿入された場合に備えて試行
-    } else {
-      // 起動時からSDカードがない、または取り外されたままの状態
-      M5.Lcd.fillScreen(BLACK); // 画面をクリア
-      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-      M5.Lcd.println("NO SD CARD");
-      // SDカードが再挿入されたか確認し、初期化を試みる
-      initSDCard(); // SDカードの再初期化を試みる (成功すればsd_card_initializedがtrueになる)
-    }
-  } else {
-    // SDカードが現在存在する
-    if (!usb_msc_started) {
-      // SDカードは存在するが、USB MSCがまだ開始されていない (PCとの接続待機中)
-      M5.Lcd.fillScreen(BLACK); // 画面をクリア
-      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-      M5.Lcd.println("CONNECT VIA USB");
-      
-      // USBマスストレージを開始 - ここでSD_MMCオブジェクトのポインタとマウントパスを渡す
-      // これにより、USBMassStorageがSDカードのブロックI/Oを直接管理します。
-      // SD_MMCはfs::FSを継承しているため、USBMSC::begin(fs::FS* fs, const char* path) に適合します。
-      massStorage.begin(&SD_MMC, "/sd"); // /sd はSD_MMCのマウントパスの慣例
-      USB.begin(); // USB機能全体を有効化
-      usb_msc_started = true;
-      Serial.println("USB MSC started, waiting for PC connection.");
-    } else {
-      // USB MSCが開始されている場合
-      if (!usb_connected_to_host) {
-        // USB MSCは開始されているが、PCがまだ接続を認識していない (接続試行中)
-        M5.Lcd.fillScreen(BLACK); // 画面をクリア
-        M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-        M5.Lcd.println("CONNECTING BUT NO CONNECTION");
-      } else {
-        // PCと接続済み
-        // データ転送のヒューリスティック: USBが接続されている場合、データ転送の可能性があると仮定
-        is_data_transferring = true; // 接続中はデータ転送の可能性があると仮定
-
-        if (is_data_transferring) {
-          M5.Lcd.fillScreen(BLACK); // 画面をクリア
-          M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-          M5.Lcd.println("CONNECT AND SAVING");
-        } else {
-          M5.Lcd.fillScreen(BLACK); // 画面をクリア
-          M5.Lcd.setCursor(0, 0);   // カーソルをリセット
-          M5.Lcd.println("CONNECTED");
-        }
-      }
-    }
-  }
-
-  // 前のフレームのSDカード状態を更新
-  sd_card_present_last_frame = current_sd_card_present;
-}
-
-#pragma endregion
-
-
-
-
-
-
-
 
 
 
@@ -189,6 +17,10 @@ void sdcmode() {
 String mainprintex = "M5Core3 LAN Activationer";
 String sita = "";
 String sitagar[] = {"Start","SD Files","Configs","text editor","how to"};
+static bool sd_card_initialized = false; // SDカードが初期化されているか
+
+// --- コピー操作キャンセルフラグ ---
+volatile bool cancelCopyOperation = false;
 
 int mainmode = 0;
 int maindex = 0;
@@ -196,6 +28,11 @@ int sizex = 2;
 int address = 0;
 int imano_page = 0;
 int goukei_page = 0;
+int maxpage = 0;
+int maxLinesPerPage = 0;
+int maxLinesPerPageSave = 0;
+int maxLinesPerPage2 = 0;
+int maxLinesPerPage3 = 0;
 int File_goukeifont = 3;
 bool sderror = false;
 int positpoint;
@@ -205,7 +42,7 @@ int positpointmaxg;
 String karadirectname;
 bool filebrat = false;
 bool nosd = false;
-int maxpage;
+
 static int scrollPos = M5.Lcd.width();
 String Tex2;
 bool serious_errorsd = false;
@@ -235,6 +72,7 @@ int NULL_RESET_THRESHOLD = 3;
 int entryenter = 0; 
 bool otroot = false;
 String copymotroot;
+int positpointmain1;
 bool copymotdir;
 bool modordir;
 static int frameCounter = 0;
@@ -634,13 +472,391 @@ if (lastSlashIndex != -1) {
 return extractedName;
 }
 
-int nowposit(){
-  
-    return (positpoint +  ( imano_page * positpointmaxg )) ;
-
-  
-  
+int nowposit() {
+    
+    Serial.println(String(positpoint) + "ff"  + String(imano_page) +"gg" + String(maxLinesPerPage) );
+    
+    return (positpoint + (imano_page * maxLinesPerPage)); // 2以上の場合は元の計算を行う
 }
+int nowpositZ() {
+    
+   // Serial.println(String(positpoint) + "ff"  + String(imano_page) +"gg" + String(maxLinesPerPage) );
+    
+    return (positpointmain1 + (imano_page * maxLinesPerPage)); // 2以上の場合は元の計算を行う
+}
+bool copyFile(const String& sourceFile, const String& destFile) {
+  File source = SD.open(sourceFile, FILE_READ);
+  if (!source) {
+    Serial.printf("Failed to open source file: %s\n", sourceFile.c_str());
+    M5.Lcd.fillScreen(BLACK); // エラー表示のため画面クリア
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.printf("Error: Can't open %s\n", sourceFile.c_str());
+    return false;
+  }
+
+  File dest = SD.open(destFile, FILE_WRITE);
+  if (!dest) {
+    Serial.printf("Failed to open destination file for writing: %s\n", destFile.c_str());
+    M5.Lcd.fillScreen(BLACK); // エラー表示のため画面クリア
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.printf("Error: Can't write to %s\n", destFile.c_str());
+    source.close();
+    return false;
+  }
+
+  long fileSize = source.size();
+  long bytesCopied = 0;
+  uint8_t buf[512]; // コピーバッファ
+  unsigned long lastDisplayTime = 0; // LCD更新間隔を制御
+
+  M5.Lcd.fillScreen(BLACK); // 画面をクリア
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.println("Copying file:"); // 行頭から表示
+  M5.Lcd.println(sourceFile);      // フルパスを表示
+  M5.Lcd.println("to");            // "to" を表示
+  M5.Lcd.println(destFile);        // 宛先パスを表示
+
+  // プログレス表示のための領域を事前に計算 (最大の文字列 "Progress: 100%")
+  // 表示開始位置: ファイルパス表示の下の行から
+  int progressTextY = M5.Lcd.fontHeight() * 4; // 4行目あたりにプログレス表示開始
+  // M5.Lcd.textWidth("Progress: 100%")を使って幅を計算するのではなく、
+  // 画面の幅全体をクリアする方針に変更。
+
+  while (source.available()) {
+    M5.update(); // ボタン状態を更新
+    if (M5.BtnA.wasPressed()) { // キャンセルボタン
+      cancelCopyOperation = true;
+    }
+
+    if (cancelCopyOperation) {
+      Serial.println("Copy cancelled by user.");
+      source.close();
+      dest.close();
+      SD.remove(destFile); // 部分的にコピーされたファイルを削除
+      M5.Lcd.fillScreen(BLACK); // キャンセル表示のため画面クリア
+      M5.Lcd.setCursor(0, 0);
+      M5.Lcd.println("Copy CANCELLED!");
+      delay(2000);
+      return false;
+    }
+
+    size_t bytesRead = source.read(buf, sizeof(buf));
+    if (dest.write(buf, bytesRead) != bytesRead) {
+      Serial.printf("Error writing to file: %s\n", destFile.c_str());
+      M5.Lcd.fillScreen(BLACK); // エラー表示のため画面クリア
+      M5.Lcd.setCursor(0, 0);
+      M5.Lcd.printf("Error writing to %s\n", destFile.c_str());
+      source.close();
+      dest.close();
+      SD.remove(destFile); // エラー発生時は部分的にコピーされたファイルを削除
+      return false;
+    }
+    bytesCopied += bytesRead;
+
+    // 進捗率をLCDに表示 (一定時間ごとに更新)
+    if (millis() - lastDisplayTime > 100 || bytesCopied == fileSize) {
+      int percent = (fileSize > 0) ? (bytesCopied * 100 / fileSize) : 100;
+      M5.Lcd.fillScreen(BLACK); // 画面を毎回クリア
+      M5.Lcd.setCursor(0, 0);   // カーソルをリセット
+      M5.Lcd.println("Copying file:");
+      M5.Lcd.println(sourceFile);
+      M5.Lcd.println("to");
+      M5.Lcd.println(destFile);
+      M5.Lcd.setCursor(0, progressTextY); // ファイルパスの下に表示
+      M5.Lcd.printf("Progress: %d%%\n", percent);
+      lastDisplayTime = millis();
+    }
+  }
+
+  source.close();
+  dest.close();
+  Serial.printf("File copied: %s to %s\n", sourceFile.c_str(), destFile.c_str());
+  return true;
+}
+
+// --- フォルダを再帰的にコピーするヘルパー関数 ---
+bool copyFolderRecursive(const String& sourceDir, const String& destDir) {
+  if (!SD.exists(destDir)) {
+    if (!SD.mkdir(destDir)) {
+      Serial.printf("Failed to create directory: %s\n", destDir.c_str());
+      M5.Lcd.fillScreen(BLACK); // エラー表示のため画面クリア
+      M5.Lcd.setCursor(0, 0);
+      M5.Lcd.printf("Error: Can't create dir %s\n", destDir.c_str());
+      return false;
+    }
+  }
+
+  File root = SD.open(sourceDir);
+  if (!root || !root.isDirectory()) {
+    Serial.printf("Failed to open source directory: %s\n", sourceDir.c_str());
+    M5.Lcd.fillScreen(BLACK); // エラー表示のため画面クリア
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.printf("Error: Can't open dir %s\n", sourceDir.c_str());
+    return false;
+  }
+
+  File entry;
+  while ((entry = root.openNextFile())) {
+    M5.update(); // ボタン状態を更新
+    if (M5.BtnA.wasPressed()) { // キャンセルボタン
+      cancelCopyOperation = true;
+    }
+
+    if (cancelCopyOperation) {
+      Serial.println("Copy cancelled during directory traversal.");
+      root.close();
+      return false;
+    }
+
+    String entryPath = sourceDir + "/" + entry.name();
+    String destPath = destDir + "/" + entry.name();
+
+    if (entry.isDirectory()) {
+      M5.Lcd.fillScreen(BLACK); // 画面をクリア
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Processing folder:");
+      M5.Lcd.println(entry.name());
+      if (!copyFolderRecursive(entryPath, destPath)) {
+        entry.close();
+        root.close();
+        return false;
+      }
+    } else {
+      M5.Lcd.fillScreen(BLACK); // 画面をクリア
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Processing file:");
+      M5.Lcd.println(entry.name());
+
+      if (!copyFile(entryPath, destPath)) {
+        entry.close();
+        root.close();
+        return false;
+      }
+    }
+    entry.close();
+  }
+  root.close();
+  return true;
+}
+
+// --- ファイル・フォルダを再帰的に削除するヘルパー関数 ---
+bool deleteRecursive(const String& path) {
+  M5.Lcd.fillScreen(BLACK); // 画面をクリア
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.println("Deleting:");
+  M5.Lcd.println(path);
+  delay(100); // 画面更新のための短い遅延
+
+  File entry = SD.open(path);
+  if (!entry) {
+    Serial.printf("Failed to open item for deletion: %s\n", path.c_str());
+    return false;
+  }
+
+  if (entry.isDirectory()) {
+    File subEntry;
+    while ((subEntry = entry.openNextFile())) {
+      String subEntryPath = path + "/" + subEntry.name();
+      subEntry.close(); // openNextFileは新しいFileオブジェクトを返すので、都度閉じる
+      if (!deleteRecursive(subEntryPath)) {
+        entry.close();
+        return false;
+      }
+    }
+    entry.close(); // ディレクトリのすべての内容を削除後、ディレクトリ自身を閉じる
+
+    if (!SD.rmdir(path)) {
+      Serial.printf("Failed to remove directory: %s\n", path.c_str());
+      return false;
+    }
+    Serial.printf("Directory removed: %s\n", path.c_str());
+  } else {
+    // ファイルの場合
+    entry.close(); // ファイルを閉じる
+    if (!SD.remove(path)) {
+      Serial.printf("Failed to remove file: %s\n", path.c_str());
+      return false;
+    }
+    Serial.printf("File removed: %s\n", path.c_str());
+  }
+  return true;
+}
+
+
+// --- ペースト処理を実行する関数 ---
+bool pasteOperation(bool iscut) {
+
+ 
+  // コピー元が設定されているか確認
+  if (copymotroot == "") {
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.println("Nothing copied yet!");
+    Serial.println("Error: No source specified for paste operation.");
+    delay(1500); // Show message to user
+    return false;
+  }
+
+  // Use DirecX as the destination directory
+  String destDir = DirecX; 
+  // Add slash to the end of destination path if missing
+  if (!destDir.endsWith("/")) {
+      destDir += "/";
+  }
+
+  // Get the name of the item to copy
+  int lastSlash = copymotroot.lastIndexOf('/');
+  String itemName = (lastSlash != -1) ? copymotroot.substring(lastSlash + 1) : copymotroot;
+
+  // Logic to generate file/folder name for conflict avoidance
+  String baseName = itemName;
+  String extension = "";
+  if (!copymotdir) { // Separate extension only for files
+      int dotIndex = itemName.lastIndexOf('.');
+      if (dotIndex != -1) {
+          baseName = itemName.substring(0, dotIndex);
+          extension = itemName.substring(dotIndex);
+      }
+  }
+
+  String finalDestPath = destDir + itemName; // Initial target path
+  
+  // Check for existing file/folder with the same name and rename
+  if (SD.exists(finalDestPath)) {
+      M5.Lcd.fillScreen(BLACK); // Clear screen
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Name conflict detected.");
+      M5.Lcd.println("Finding unique name...");
+      Serial.printf("Conflict detected for %s. Searching for a unique name.\n", finalDestPath.c_str());
+      delay(500); // Show message to user
+
+      int conflictNum = 0; // Conflict counter
+      for (int i = 1; i <= 100; ++i) { // Try from (1) to (100)
+          String newName;
+          if (copymotdir) { // For folders
+              newName = baseName + "(" + String(i) + ")";
+          } else { // For files
+              newName = baseName + "(" + String(i) + ")" + extension; // Insert (x) before extension
+          }
+          
+          finalDestPath = destDir + newName;
+
+          if (!SD.exists(finalDestPath)) {
+              Serial.printf("Found unique name: %s\n", finalDestPath.c_str());
+              M5.Lcd.fillScreen(BLACK); // Clear screen
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.println("Using unique name:");
+              M5.Lcd.println(newName); // Display the new name
+              delay(500);
+              break; // Unique name found, exit loop
+          }
+          conflictNum = i; // Record the last number tried
+      }
+
+      // If loop exited and conflictNum is 100, and finalDestPath still exists
+      // it means (100) also exists and we're trying to create the 101st
+      if (conflictNum == 100 && SD.exists(finalDestPath)) {
+          Serial.println("Error: Max duplicates (100) reached. Cannot paste.");
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.println("Error: Max duplicates reached (100).");
+          M5.Lcd.println("Cannot paste more copies.");
+          delay(3000);
+          return false; // Exit with error
+      }
+  }
+
+  // If source is a directory, ensure the top-level destination directory exists, create if not.
+  if (copymotdir) {
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0, 0);
+      M5.Lcd.println("Creating destination folder...");
+      Serial.printf("Attempting to create destination directory: %s\n", finalDestPath.c_str());
+
+      // Attempt to create the directory. Only consider it an error if it fails AND it doesn't exist.
+      // If it fails but exists (e.g., already existed), it's fine.
+      if (!SD.mkdir(finalDestPath) && !SD.exists(finalDestPath)) {
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("Error: Failed to create destination folder.");
+          M5.Lcd.println("Aborting paste.");
+          Serial.println("Error: Failed to create destination directory before paste. Aborting.");
+          delay(3000);
+          return false;
+      } else if (SD.exists(finalDestPath)) {
+        Serial.println("Destination directory already exists or created successfully. Proceeding.");
+      } else {
+        // SD.mkdir returned false but directory also does not exist. This is an unexpected state.
+        Serial.println("SD.mkdir returned false but directory does not exist. This is an unexpected state. Aborting.");
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.println("Unexpected Error: Folder Creation.");
+        M5.Lcd.println("Aborting paste.");
+        delay(3000);
+        return false;
+      }
+  }
+
+  M5.Lcd.fillScreen(BLACK); // Final screen clear before starting copy
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.println("Starting Paste Operation...");
+  M5.Lcd.println("Press BtnA to cancel.");
+  Serial.printf("Pasting from: %s to %s\n", copymotroot.c_str(), finalDestPath.c_str()); // Use the corrected path
+
+  cancelCopyOperation = false; // Reset cancel flag at operation start
+  bool pasteSuccess = false;
+
+  if (copymotdir) { // If source is a folder
+    Serial.println("Source is a directory. Calling copyFolderRecursive.");
+    pasteSuccess = copyFolderRecursive(copymotroot, finalDestPath); // Use the corrected path
+  } else { // If source is a file
+    Serial.println("Source is a file. Calling copyFile.");
+    pasteSuccess = copyFile(copymotroot, finalDestPath); // Use the corrected path
+  }
+
+  // Post-paste operation processing
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setCursor(0, 0);
+
+  if (cancelCopyOperation) { // If the operation was cancelled by user (BtnA)
+    M5.Lcd.println("Paste Canceled!"); // Display the specific message for user cancellation
+    M5.Lcd.println("Operation cancelled.");
+    Serial.println("Operation Cancelled by user. (Paste Canceled!)");
+    return false; // Signifies that the operation did not complete successfully
+  } else if (pasteSuccess) { // The copy/paste part was successful
+    Serial.println("Copy/Paste part succeeded.");
+    if (iscut) { // If it was a cut operation, attempt deletion
+      M5.Lcd.fillScreen(BLACK); // Clear screen
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Deleting source...");
+      Serial.printf("Attempting to delete source: %s\n", copymotroot.c_str());
+      if (deleteRecursive(copymotroot)) {
+        M5.Lcd.fillScreen(BLACK); // Clear for final result display
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.println("Move Complete!"); // Message for successful cut-paste
+        Serial.println("Source Deleted! Move Complete!");
+        return true;
+      } else { // Deletion failed after successful paste
+        M5.Lcd.fillScreen(BLACK); // Clear for final result display
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.println("Deletion Failed!"); // Specific error for delete
+        M5.Lcd.println("Source not removed."); // Clarify
+        Serial.println("Error: Failed to delete source after paste.");
+        return false; // Overall move operation considered a failure
+      }
+    } else { // Not a cut operation, just a copy
+      M5.Lcd.println("Paste Complete!");
+      Serial.println("Paste Complete!");
+      return true;
+    }
+  } else { // pasteSuccess is false and cancelCopyOperation is false. This means the copy part failed for other reasons.
+    M5.Lcd.println("Paste Failed!"); // Generic failure for the copy part
+    Serial.println("Paste Failed! (Copy operation failed for unknown reason).");
+    return false;
+  }
+}
+
+
 
 bool areusure(){
   M5.Lcd.clear();
@@ -707,7 +923,9 @@ void nummempty(){
 }
 // Function to list all files and folders in the SD card's root directory
 // SDカードのルートディレクトリの内容をページごとに表示する関数
-void listSDRootContents(int pagetax,String Directtory) {
+void listSDRootContents(int pagetax,String Directtory,bool checkfirstMaxLine = false) {
+  Serial.println("Direcx:"  + Directtory);
+  
   nosd = false;
   mainmode = 1;
   bool numempty = false;
@@ -750,7 +968,9 @@ void listSDRootContents(int pagetax,String Directtory) {
   }
 
   // 現在のフォントサイズ (setTextSize(1) のデフォルト) に基づいて1ページあたりの最大行数を計算
-  int maxLinesPerPage = (M5.Lcd.height() / M5.Lcd.fontHeight()) - 1; 
+ 
+  maxLinesPerPage = (M5.Lcd.height() / M5.Lcd.fontHeight()) - 1; 
+
   positpointmaxg  = maxLinesPerPage;
   std::vector<String> stdfilelist; 
   stdfilelist.clear();
@@ -801,10 +1021,14 @@ void listSDRootContents(int pagetax,String Directtory) {
 
   // ページ数の計算を修正: 端数がある場合でも次のページとしてカウント
   // 例: 11個のファイルがあり、1ページに10行表示できる場合、(11 + 10 - 1) / 10 = 2ページ
-  int maxpage = (maxfileperd + maxLinesPerPage - 1) / maxLinesPerPage;
+ maxpage = (maxfileperd + maxLinesPerPage - 1) / maxLinesPerPage;
   if (maxpage == 0 && maxfileperd > 0) { // ファイルが1つでもあるが、計算上0ページになる場合の補正
       maxpage = 1;
   }
+
+  maxLinesPerPage2 = (int)entries.size();
+  maxLinesPerPage3 = (int)entries.size() % maxLinesPerPage;
+  Serial.println("Nokori Files: " + (String)maxLinesPerPage2 + "g " + (int)entries.size() + "b " + (int)maxpage);
   goukei_page = maxpage; // グローバル変数に合計ページ数を設定
   Serial.println("Total files/dirs: " + String(maxfileperd));
   Serial.println("Max lines per page: " + String(maxLinesPerPage));
@@ -891,7 +1115,7 @@ void listSDRootContents(int pagetax,String Directtory) {
   // Filelistのサイズ制限 (100) を考慮し、超える場合はコピーしない
   for (int i = 0; i < std::min((int)entries.size(), 100); ++i) {
     Filelist[i] = entries[i].first;
-    Serial.println(Filelist[i]); // デバッグ用にファイル名をシリアルモニタに出力
+   // Serial.println(Filelist[i]); // デバッグ用にファイル名をシリアルモニタに出力
   }
 
   for (int i = 0; i < std::min((int)stdfilelist.size(), 100); ++i) {
@@ -903,7 +1127,7 @@ void listSDRootContents(int pagetax,String Directtory) {
   for (int i = 0; i < std::min((int)tempDirectListVector.size(), 100); ++i) {
     directlist[i] = tempDirectListVector[i];
     ForDlist[i] = entries[i].second;
-    Serial.println(directlist[i] + "::" + ForDlist[i]);
+    //Serial.println(directlist[i] + "::" + ForDlist[i]);
   }
 
   delay(5);
@@ -1651,11 +1875,13 @@ void kanketu(String texx,int frame){
 
 
 // ポインターの位置を更新し、画面下部にテキストをスクロールさせる関数
-void updatePointer(bool text1cote) {
-    static int prev_positpoint = -1; // 以前のポインター位置を記憶 (-1は初期状態を示す)
-    int old_positpoint = positpoint; // ポインターの現在の位置を保存
+void updatePointer(bool text1cote, bool temmm = false) {
+    // 以前のポインター位置を記憶 (-1は初期状態を示す)
+    static int prev_positpoint = -1;
+    // ポインターの現在の位置を保存
+    int old_positpoint = positpoint;
 
-    // ポインター表示のフォントはFile_goukeifontに固定
+    // ポインター表示のフォントをFile_goukeifontに固定
     M5.Lcd.setTextFont(File_goukeifont);
 
     // ボタンAが押された場合 (上へ移動)
@@ -1663,13 +1889,16 @@ void updatePointer(bool text1cote) {
         positpoint--;
     }
     // ボタンCが押された場合 (下へ移動)
-    if (M5.BtnC.wasPressed()) {
+    if (M5.BtnC.wasPressed() ) {
         positpoint++;
     }
+
+    // ページ移動フラグのロジック
+    // (modordir、positpointmax、imano_page、goukei_pageは外部で定義されている必要があります)
     if (modordir && positpoint == -1 && imano_page == 0) {
         pagemoveflag = 3;
         return;
-    } else if (positpoint == positpointmax + 1 && imano_page < goukei_page - 1) {
+    } else if (positpoint == positpointmax + 1 && imano_page < goukei_page - 1 ) {
         pagemoveflag = 1;
         return;
     } else if (positpoint == -1 && imano_page != 0) {
@@ -1678,37 +1907,64 @@ void updatePointer(bool text1cote) {
     } else {
         pagemoveflag = 0;
     }
-    // ポインターの境界チェック
-    positpoint = std::max(0, positpoint); // 負の方向には移動できない (最小値は0)
 
-    // 正の方向への移動限界を計算
-    int effective_filelist_count = positpointmax + 1; // 有効なアイテム数をカウント
-    if (effective_filelist_count > 0) { // リストに有効なアイテムがある場合のみ上限を適用
-        positpoint = std::min(effective_filelist_count - 1, positpoint); // 最大値は (有効なアイテム数 - 1)
-    } else {
-        positpoint = 0; // リストが空の場合はポインターを0に固定
+    // 特定のモード（maxLinesPerPage2 == 1 && mainmode == 1）ではポインターを0に固定
+    if(maxLinesPerPage2 == 1 && mainmode == 1){
+      positpoint = 0;
+    }else{
+      // ポインターの境界チェック
+      // 負の方向には移動できない (最小値は0)
+      positpoint = std::max(0, positpoint);
+
+      // 正の方向への移動限界を計算
+      // positpointmaxgは有効なアイテム数（外部で定義されている必要があります）
+      int effective_filelist_count = positpointmaxg;
+      if (effective_filelist_count > 0) { // リストに有効なアイテムがある場合のみ上限を適用
+          // 最大値は (有効なアイテム数 - 1)
+          positpoint = std::min(effective_filelist_count - 1, positpoint);
+      } else {
+          positpoint = 0; // リストが空の場合はポインターを0に固定
+      }
     }
-
+    
     // ポインターの位置が変更された場合、または初回描画の場合のみ処理
+    // ここで、ポインターが移動した場合に、表示領域全体をクリアし、再描画します。
     if (positpoint != old_positpoint || prev_positpoint == -1) {
-        // 以前のポインターが存在する場合、その位置を黒で塗りつぶして消去
+        // スクロールテキストの高さ（フォント1の場合）を取得
+        M5.Lcd.setTextFont(1); // スクロールテキストのフォントに一時的に設定
+        int scroll_text_height = M5.Lcd.fontHeight();
+        M5.Lcd.setTextFont(File_goukeifont); // ポインターフォントに戻す
+
+        // クリアする矩形の開始X座標と幅
+        // ユーザーの要求に従い、X座標はFile_goukeifontのスペース文字の幅に設定
+        int clear_x_start = M5.Lcd.textWidth(" ");
+        // ユーザーの要求に従い、幅はポインター表示フォントの高さに設定
+        int clear_width = M5.Lcd.fontHeight() * 1;
+        // クリアする矩形の高さは1行分
+        int clear_height = M5.Lcd.fontHeight();
+
+        // 以前のポインターを消去
+        // prev_positpointが-1でない場合（つまり初回描画ではない場合）、
+        // または初回描画だがポインターが初期位置から移動した場合、以前のポインターをクリアする
         if (prev_positpoint != -1) {
-            // ポインターの幅 (フォントサイズ2で半角2マス分)
-            int pointer_width = M5.Lcd.textWidth("  ");
-            // ポインターが描画される行をクリア
-            M5.Lcd.fillRect(0, prev_positpoint * M5.Lcd.fontHeight(), pointer_width, M5.Lcd.fontHeight(), BLACK);
+            M5.Lcd.fillRect(clear_x_start, prev_positpoint * clear_height, clear_width, clear_height, BLACK);
+        } else if (prev_positpoint == -1 && positpoint != old_positpoint) {
+            // 初回だが、shokaipointerで描画された位置(old_positpoint)が現在のpositpointと異なる場合
+            M5.Lcd.fillRect(clear_x_start, old_positpoint * clear_height, clear_width, clear_height, BLACK);
         }
 
         // 新しいポインターを描画
-        M5.Lcd.setTextColor(YELLOW); // 黄色に設定
-        M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight()); // 新しい位置にカーソルを設定
+        M5.Lcd.setTextColor(YELLOW); // 色を黄色に設定
+        M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight()); // 新しい位置にカーソルを設定 (X=0)
         M5.Lcd.print(">"); // ポインターアイコンを描画
         M5.Lcd.setTextColor(WHITE); // 色を白に戻す
 
-        prev_positpoint = positpoint; // 現在の位置を次の描画のために記憶
+        // 現在の位置を次の描画のために記憶
+        prev_positpoint = positpoint;
     }
 
     // ここから画面最下部のスクロールテキスト処理
+    // (lastTextScrollTime、TEXT_SCROLL_INTERVAL_MS、Tex2、SCROLL_SPEED_PIXELSは外部で定義されている必要があります)
     unsigned long currentMillis = millis();
 
     // テキストスクロールを1秒ごとに更新 (1 FPS)
@@ -1716,16 +1972,15 @@ void updatePointer(bool text1cote) {
         lastTextScrollTime = currentMillis; // 最終更新時刻をリセット
 
         // スクロールテキストはフォント1で固定
-        M5.Lcd.setTextFont(1); // ここでフォント1を設定
+        M5.Lcd.setTextFont(1);
         int textWidth = M5.Lcd.textWidth(Tex2);
         int textHeight = M5.Lcd.fontHeight(); // フォントサイズ1での高さを取得
 
-        // Tex2に内容があるにもかかわらずtextWidthが0の場合、フォントが文字をサポートしていない可能性があります。
-        // その場合、一時的に固定幅を設定してスクロール動作を確認します。
+        // Tex2に内容があるにもかかわらずtextWidthが0の場合のフォールバック
         if (textWidth == 0 && Tex2.length() > 0) {
             textWidth = Tex2.length() * 6; // フォント1の一般的な文字幅を仮に6ピクセルとする
         } else if (Tex2.length() == 0) {
-             textWidth = 0; // テキストが空の場合は幅も0
+            textWidth = 0; // テキストが空の場合は幅も0
         }
 
         // 画面最下部のY座標を計算
@@ -1744,13 +1999,13 @@ void updatePointer(bool text1cote) {
 
         // === ここからクリッピング描画のロジック ===
         // 画面の左端 (X=0) から右端 (X=M5.Lcd.width()) までに表示されるテキストの範囲を計算
-        int visibleStartX = std::max(0, -scrollPos); 
-        int visibleEndX = std::min(textWidth, M5.Lcd.width() - scrollPos); 
+        int visibleStartX = std::max(0, -scrollPos);
+        int visibleEndX = std::min(textWidth, M5.Lcd.width() - scrollPos);
 
         if (visibleStartX < visibleEndX) { // 実際に表示される範囲がある場合のみ描画
-            // 表示されるべき部分文字列を切り出す
-            int charWidthApprox = M5.Lcd.textWidth("A"); 
-            if (charWidthApprox == 0) charWidthApprox = 6; 
+            // 表示されるべき部分文字列を切り出すための文字幅を推定
+            int charWidthApprox = M5.Lcd.textWidth("A");
+            if (charWidthApprox == 0) charWidthApprox = 6;
 
             int startIndex = visibleStartX / charWidthApprox;
             int endIndex = visibleEndX / charWidthApprox;
@@ -1758,13 +2013,18 @@ void updatePointer(bool text1cote) {
             String visibleText = Tex2.substring(startIndex, endIndex);
 
             // 切り出した部分文字列を適切なX座標に描画
-            M5.Lcd.setCursor(std::max(0, scrollPos), bottomY); 
-            M5.Lcd.setTextColor(WHITE); 
+            M5.Lcd.setCursor(std::max(0, scrollPos), bottomY);
+            M5.Lcd.setTextColor(WHITE);
             M5.Lcd.print(visibleText);
         }
         // === クリッピング描画のロジックここまで ===
     }
 }
+
+
+
+
+
 
 void shokaipointer(){
   otroot = false;
@@ -1776,6 +2036,8 @@ void shokaipointer(){
   M5.Lcd.print(">");
   M5.Lcd.setTextColor(WHITE);
   Tex2 = "Press B to Options Now Dir C:/" + DirecX + "  :total bytes:" + formatBytes(SD.totalBytes()) + "  :used bytes:" + formatBytes(SD.usedBytes());
+  
+  positpointmaxg  = (M5.Lcd.height() / M5.Lcd.fontHeight()) - 1; 
   return;
 }
 
@@ -1850,7 +2112,10 @@ void textexx() {
 
 void setup() {
   auto cfg = M5.config();
-  M5.begin(cfg);
+  Serial.begin(115200);
+  delay(500);
+  M5.begin();
+  Serial.println("M5Stack initialized");
 
     Wire.begin(); 
   Wire.setClock(400000);
@@ -1862,27 +2127,29 @@ void setup() {
   M5.Lcd.setCursor(0, 0);
   sita = "hello";
   textexx();
-  Serial.begin(115200); // シリアル通信の初期化
+ 
   wirecheck();
   mainmode = 0;
-    massStorage.onRead(onRead);
-  massStorage.onWrite(onWrite);
-  massStorage.onCapacity(onCapacity);
-  massStorage.onReady(onReady);
-  massStorage.onFlush(onFlush);
+   
+
 
   // USB接続/切断コールバックを設定
-  USB.onEvent(onConnect, USB_CONNECTED);
-  USB.onEvent(onDisconnect, USB_DISCONNECTED);
 
-  // 初期のSDカードチェックと初期化
-  initSDCard();
+
+  // SDカードの初期化を試みます
+  // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
+  SD.begin();
+
 }
 
 void loop() {
   M5.update(); // ボタン状態を更新
+ delay(1);//serial.println暴走対策
   if(mainmode == 6){
     delay(1);
+    if(maxLinesPerPage2 == 1){
+          positpoint = 0;
+    }
     if(entryenter == 2){
       entryenter = 0;
       mainmode = 1;
@@ -1897,6 +2164,7 @@ void loop() {
       if(filebrat){
           if(isValidWindowsFileName(SuperT)){
         Textex = "renaming file...";
+        
         bool gg = renameSDItem(DirecX + "/" + Filelist[nowposit()], DirecX + "/" + SuperT);
         if(gg){
             entryenter = 0;
@@ -1965,6 +2233,7 @@ void loop() {
           mainmode = 1;
           SuperT = "";
           kanketu("we made it",500);
+          positpoint = 0;
           imano_page = 0;
           // 次のページを表示
           shokaipointer();
@@ -2119,9 +2388,11 @@ void loop() {
   else if(mainmode == 2){
     delay(3);
     String key = wirecheck(); // wirecheck()は常に呼び出される
-    updatePointer(true);
+    updatePointer(true,true);
+   if(positpoint == 0 && M5.BtnA.wasPressed()){
 
-    if(M5.BtnB.wasPressed() && positpoint == 0){//create dir
+   }
+    else if(M5.BtnB.wasPressed() && positpoint == 0){//create dir
       bool dd = areusure();
       if(dd){
         M5.Lcd.fillScreen(BLACK);
@@ -2163,8 +2434,9 @@ void loop() {
       M5.Lcd.fillScreen(BLACK);
       bool dd = areusure();
       if(dd){
-        Serial.println(DirecX + "/" + Filelist[nowposit()]);
-        int result = deleteRightmostSDItem(DirecX + "/" + Filelist[nowposit()]);
+        int positpointgg = positpoint;
+        Serial.println("AAAJJJ   " +DirecX + "/" + Filelist[nowpositZ()] + ":J" + String(nowpositZ()));
+        int result = deleteRightmostSDItem(DirecX + "/" + Filelist[nowpositZ()]);
         if(result == 0){
           kanketu("success deleted file",500);
           DirecX = maeredirect(DirecX);
@@ -2205,7 +2477,7 @@ void loop() {
         mainmode = 6;
         filebrat = true;
         entryenter = false;
-        SuperT=Filelist[nowposit()];
+        SuperT=Filelist[nowpositZ()];
         SCROLL_INTERVAL_FRAMES = 1;
         SCROLL_SPEED_PIXELS = 3;
         firstScrollLoop = true;
@@ -2216,7 +2488,7 @@ void loop() {
   else if(M5.BtnB.wasPressed() && positpoint == 4){ //ファイルコピー
     bool dd = areubunki("Copy this file","Copy this pdir");
     if(dd){//ファイルコピー
-      copymotroot = DirecX + "/" + Filelist[nowposit()];
+      copymotroot = DirecX + "/" + Filelist[nowpositZ()];
       copymotdir = false;
       kanketu("copied",500);
       M5.Lcd.fillScreen(BLACK);
@@ -2239,7 +2511,7 @@ void loop() {
         shokaipointer();
         return;
       }else{
-        copymotroot = DirecX + "/" + Filelist[nowposit()];
+        copymotroot = DirecX + "/" + Filelist[nowpositZ()];
       copymotdir = false;
       kanketu("copied",500);
       M5.Lcd.fillScreen(BLACK);
@@ -2252,6 +2524,106 @@ void loop() {
         return;
       }
     }
+  }
+    else if(M5.BtnB.wasPressed() && positpoint == 5){ //ファイルペースト
+    M5.Lcd.fillScreen(BLACK);
+    if(copymotroot == ""){
+      kanketu("No Copy Dir!",500);
+      M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = holdpositpoint;
+        mainmode = 1;
+
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+    }
+     Serial.println(DirecX + ":::" + copymotroot);
+    bool dd =     areubunki("Cut","No Cut");
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setTextSize(File_goukeifont);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Make File\n   CopyFileorPDir\n   Paste Them\n   Rename/DelPDir\n   FileInfo/Edit\n   Back Home\n  File Property" );
+
+    bool success = pasteOperation(dd); // falseでコピー、trueでカット
+    Serial.printf("Paste operation result: %d\n", success);
+   delay(500);
+    positpoint = 0 ;
+        imano_page = 0;
+
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+    
+    
+  }
+  else if(M5.BtnB.wasPressed() && positpoint == 7){//Delete or Rename Pdir
+    if(DirecX == ""){
+      kanketu("root folder cannot be edited!",500);
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setTextSize(File_goukeifont);
+      positpoint = holdpositpoint;
+      mainmode = 1;
+
+      // SDカードコンテンツの初期表示
+      shokaipointer();
+      return;
+    }
+    bool cc1 = areubunki("Next","Back");
+    if(cc1){
+      bool cc2 = areubunki("Delete Pdir","Rename Pdir");
+      if(cc2){//デリーと
+        DirecX = maeredirect(DirecX);
+        int result = deleteRightmostSDItem(DirecX);
+        if(result == 0){
+          kanketu("success deleted dir",500);
+          DirecX = maeredirect(DirecX);
+          Serial.println(DirecX);
+          positpoint = 0;
+          imano_page = 0;
+
+          shokaipointer();
+          mainmode = 1;
+          return;
+        }else{
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = holdpositpoint;
+        mainmode = 1;
+        }
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+
+      }else{//リネーム
+        DirecX = maeredirect(DirecX);
+        firstScrollLoop = true;
+        mainmode = 6;
+        entryenter = false;
+        SuperT=migidkae(karadirectname);
+        karadirectname = SuperT;
+        Serial.println(SuperT);
+        SCROLL_INTERVAL_FRAMES = 1;
+        SCROLL_SPEED_PIXELS = 3;
+        firstScrollLoop = true;
+        filebrat = false;
+        cursorIndex = 0;
+        Textex = "If you wanna end,press tab key. If you wanna edit, please end with "".txt""";
+        return;
+      }
+    }else{
+      M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = holdpositpoint;
+        mainmode = 1;
+
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+    }
+
+
+
+       
   }
   else if(M5.BtnB.wasPressed() && positpoint == 8){ //戻る
 
@@ -2340,8 +2712,8 @@ void loop() {
 
         imano_page--;
         pagemoveflag = 0;
-        listSDRootContents(imano_page,DirecX); // 次のページを表示
-        positpoint = positpointmax ;
+        
+        positpoint = maxLinesPerPage - 1;
         shokaipointer();
         mainmode = 1;
         return;
@@ -2361,9 +2733,10 @@ void loop() {
           DirecX = DirecX + "/" + Filelist[nowposit()]; // 選択したディレクトリのパスを更新
           Serial.println("DZOON:" + DirecX);
           positpoint = 0;
+          holdpositpoint = 0;
           imano_page = 0;
           shokaipointer();
-
+          
           return;
         }
       } // ここに閉じ括弧を追加しました
@@ -2372,13 +2745,14 @@ void loop() {
         mainmode = 2;
         holdpositpoint = positpoint;
         positpointmax = 9;
+        positpointmain1 = positpoint;
         positpoint = 0;
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
         if(Filelist[nowposit()] )
-        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Make File\n   CopyFileorPDir\n   Paste Them\n   Rename PDir\n   Delete PDir\n   Back Home\n  File Property" );
+        M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Make File\n   CopyFileorPDir\n   Paste Them\n   Rename/DelPDir\n   FileInfo/Edit\n   Back Home\n  File Property" );
         shokaipointer(false);
         return;
       }
@@ -2405,6 +2779,7 @@ void loop() {
           nosd = false;
           DirecX = maeredirect(DirecX); // 一つ前のディレクトリに戻る
           Serial.println(DirecX);
+          holdpositpoint = 0;
           imano_page = 0;
           positpoint = 0;
           otroot = false;
