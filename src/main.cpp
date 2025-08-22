@@ -25,6 +25,7 @@ volatile bool cancelCopyOperation = false;
 int mainmode = 0;
 int maindex = 0;
 int sizex = 2;
+int resercounter = 0;
 int address = 0;
 int imano_page = 0;
 int goukei_page = 0;
@@ -499,6 +500,10 @@ int nowpositZ() {
     
     return (positpointmain1 + (imano_page * maxLinesPerPage)); // 2以上の場合は元の計算を行う
 }
+
+
+
+
 // パスの末尾のスラッシュを削除する関数（ルートディレクトリを除く）
 String cleanPath(String path) {
     if (path == "/") {
@@ -525,10 +530,13 @@ bool createDirRecursive(const char* path) {
     while (slashIndex != -1) {
         currentPath += pathString.substring(start, slashIndex);
         Serial.printf("[DEBUG] createDirRecursive: Checking/Creating segment: %s\n", currentPath.c_str());
+        M5.Lcd.printf("[DEBUG] createDirRecursive: Checking/Creating segment: %s\n", currentPath.c_str());
         if (!SD.exists(currentPath)) {
             Serial.printf("[DEBUG] createDirRecursive: SD.mkdir(%s)\n", currentPath.c_str());
+            M5.Lcd.printf("[DEBUG] createDirRecursive: mkdir %s\n", currentPath.c_str());
             if (!SD.mkdir(currentPath)) {
                 Serial.printf("[ERROR] createDirRecursive: Failed to create directory: %s\n", currentPath.c_str());
+                M5.Lcd.printf("[ERROR] createDirRecursive: Failed to create directory: %s\n", currentPath.c_str());
                 return false;
             }
         }
@@ -539,10 +547,13 @@ bool createDirRecursive(const char* path) {
     // 最後のディレクトリ（パス全体）を作成
     currentPath += pathString.substring(start);
     Serial.printf("[DEBUG] createDirRecursive: Checking/Creating final: %s\n", currentPath.c_str());
+    M5.Lcd.printf("[DEBUG] createDirRecursive: Checking/Creating final: %s\n", currentPath.c_str());
     if (!SD.exists(currentPath)) {
         Serial.printf("[DEBUG] createDirRecursive: SD.mkdir(%s)\n", currentPath.c_str());
+        M5.Lcd.printf("[DEBUG] createDirRecursive: mkdir %s\n", currentPath.c_str());
         if (!SD.mkdir(currentPath)) {
             Serial.printf("[ERROR] createDirRecursive: Failed to create final directory: %s\n", currentPath.c_str());
+            M5.Lcd.printf("[ERROR] createDirRecursive: Failed to create final directory: %s\n", currentPath.c_str());
             return false;
         }
     }
@@ -553,9 +564,11 @@ bool createDirRecursive(const char* path) {
 // フォルダ内の合計サイズを再帰的に計算する関数
 void printDirectorySize(const char* path, uint32_t& totalSize) {
     Serial.printf("[DEBUG] printDirectorySize: SD.open(%s)\n", path);
+    M5.Lcd.printf("[DEBUG] printDirectorySize: SD.open(%s)\n", path);
     File dir = SD.open(path);
     if (!dir) {
         Serial.printf("[ERROR] printDirectorySize: Failed to open directory: %s\n", path);
+        M5.Lcd.printf("[ERROR] printDirectorySize: Failed to open directory: %s\n", path);
         return;
     }
     File file = dir.openNextFile();
@@ -565,7 +578,6 @@ void printDirectorySize(const char* path, uint32_t& totalSize) {
         } else {
             totalSize += file.size();
         }
-        file.close(); // ファイルハンドルを解放
         file = dir.openNextFile();
     }
     dir.close();
@@ -573,8 +585,9 @@ void printDirectorySize(const char* path, uint32_t& totalSize) {
 
 // ファイル名をチェックし、重複する場合は新しい一意な名前を生成する関数
 String checkAndRename(String filePath) {
-    filePath = cleanPath(filePath);
-    Serial.printf("[DEBUG] checkAndRename: Checking existence of: %s\n", filePath.c_str());
+    // filePath自体がクリーンなパス形式であることを前提とする
+    Serial.printf("[DEBUG] checkAndRename: SD.exists(%s)\n", filePath.c_str());
+    M5.Lcd.printf("[DEBUG] checkAndRename: Checking existence of: %s\n", filePath.c_str());
     if (!SD.exists(filePath)) {
         return filePath;
     }
@@ -589,16 +602,62 @@ String checkAndRename(String filePath) {
     
     int slashIndex = baseName.lastIndexOf('/');
     String fileNameOnly = baseName.substring(slashIndex + 1);
-    String directoryPath = (slashIndex > 0) ? baseName.substring(0, slashIndex) : "/";
+    String directoryPath = baseName.substring(0, slashIndex + 1); // 末尾に'/'を含む形式
 
-    for (int i = 1; i <= 1000; i++) {
+    // ディレクトリパスをクリーンアップしてSD.openに適した形式にする
+    directoryPath = cleanPath(directoryPath);
+
+    Serial.printf("[DEBUG] checkAndRename: SD.open(%s) for rename check\n", directoryPath.c_str());
+    M5.Lcd.printf("[DEBUG] checkAndRename: Opening directory for rename check: %s\n", directoryPath.c_str());
+    File dir = SD.open(directoryPath.c_str());
+    if (!dir || !dir.isDirectory()) {
+        dir.close();
+        Serial.printf("[ERROR] checkAndRename: Failed to open directory for rename check: %s\n", directoryPath.c_str());
+        M5.Lcd.printf("[ERROR] checkAndRename: Failed to open directory for rename check: %s\n", directoryPath.c_str());
+        return "";
+    }
+
+    int maxNumber = 0;
+    
+    File file = dir.openNextFile();
+    while (file) {
+        String existingFileName = String(file.name());
+        // 既存ファイル名が fileNameOnly で始まり、連番形式かどうかをチェック
+        if (existingFileName.startsWith(fileNameOnly)) {
+            int startIndex = existingFileName.indexOf('(');
+            int endIndex = existingFileName.indexOf(')');
+            if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+                String numberString = existingFileName.substring(startIndex + 1, endIndex);
+                // 数値のみで構成されているか確認
+                bool isNumeric = true;
+                for (unsigned int k = 0; k < numberString.length(); k++) {
+                    if (!isDigit(numberString.charAt(k))) {
+                        isNumeric = false;
+                        break;
+                    }
+                }
+                if (isNumeric) {
+                    int number = numberString.toInt();
+                    if (number > maxNumber) {
+                        maxNumber = number;
+                    }
+                }
+            }
+        }
+        file = dir.openNextFile();
+    }
+    dir.close();
+
+    // 次の利用可能な連番を探す
+    for (int i = maxNumber + 1; i <= 1000; i++) {
         String newFileName = directoryPath;
-        if (newFileName != "/") {
+        if (newFileName != "/") { // ルートディレクトリ以外の場合にのみスラッシュを追加
             newFileName += "/";
         }
         newFileName += fileNameOnly + "(" + String(i) + ")" + extension;
 
-        Serial.printf("[DEBUG] checkAndRename: Checking new filename: %s\n", newFileName.c_str());
+        Serial.printf("[DEBUG] checkAndRename: SD.exists(%s) for new filename\n", newFileName.c_str());
+        M5.Lcd.printf("[DEBUG] checkAndRename: Checking new filename: %s\n", newFileName.c_str());
         if (!SD.exists(newFileName)) {
             return newFileName;
         }
@@ -607,42 +666,14 @@ String checkAndRename(String filePath) {
     return ""; // 1000個以上重複した場合
 }
 
-// ★★★ 新設 ★★★
-// フォルダ名をチェックし、重複する場合は新しい一意な名前を生成する関数
-String checkAndRenameForDirectory(String dirPath) {
-    dirPath = cleanPath(dirPath); // 末尾のスラッシュを削除
-    Serial.printf("[DEBUG] checkAndRenameForDirectory: Checking existence of: %s\n", dirPath.c_str());
-    if (!SD.exists(dirPath)) {
-        return dirPath;
-    }
-
-    int slashIndex = dirPath.lastIndexOf('/');
-    String parentPath = (slashIndex > 0) ? dirPath.substring(0, slashIndex) : "/";
-    String dirName = dirPath.substring(slashIndex + 1);
-
-    for (int i = 1; i <= 1000; i++) {
-        String newDirPath = parentPath;
-        if (parentPath != "/") {
-            newDirPath += "/";
-        }
-        newDirPath += dirName + "(" + String(i) + ")";
-
-        Serial.printf("[DEBUG] checkAndRenameForDirectory: Checking new path: %s\n", newDirPath.c_str());
-        if (!SD.exists(newDirPath)) {
-            return newDirPath;
-        }
-    }
-
-    return ""; // 適切な名前が見つからなかった
-}
-
-
 // ファイルをコピーする関数（進捗表示付き）
 bool copyFile(const char* sourcePath, const char* destinationPath, uint32_t& totalCopiedSize, uint32_t& totalSize) {
-    Serial.printf("[DEBUG] copyFile: Opening source: %s\n", sourcePath);
+    Serial.printf("[DEBUG] copyFile: SD.open(%s, FILE_READ)\n", sourcePath);
+    M5.Lcd.printf("[DEBUG] copyFile: Opening source: %s\n", sourcePath);
     File sourceFile = SD.open(sourcePath, FILE_READ);
     if (!sourceFile) {
         Serial.printf("[ERROR] Failed to open file for reading: %s\n", sourcePath);
+        M5.Lcd.printf("[ERROR] Failed to open file for reading: %s\n", sourcePath);
         return false;
     }
 
@@ -652,102 +683,61 @@ bool copyFile(const char* sourcePath, const char* destinationPath, uint32_t& tot
     if (lastSlash > 0) { // ルートディレクトリ直下のファイルでない場合
         String parentDir = destFullPath.substring(0, lastSlash);
         Serial.printf("[DEBUG] copyFile: Ensuring parent directory exists: %s\n", parentDir.c_str());
+        M5.Lcd.printf("[DEBUG] copyFile: Ensuring parent directory exists: %s\n", parentDir.c_str());
         if (!createDirRecursive(parentDir.c_str())) {
             Serial.printf("[ERROR] Failed to ensure directory structure for: %s\n", parentDir.c_str());
+            M5.Lcd.printf("[ERROR] Failed to ensure directory structure for: %s\n", parentDir.c_str());
             sourceFile.close();
             return false;
         }
     }
     
-    Serial.printf("[DEBUG] copyFile: Opening destination: %s\n", destinationPath);
+    Serial.printf("[DEBUG] copyFile: SD.open(%s, FILE_WRITE)\n", destinationPath);
+    M5.Lcd.printf("[DEBUG] copyFile: Opening destination: %s\n", destinationPath);
     File destinationFile = SD.open(destinationPath, FILE_WRITE);
     if (!destinationFile) {
         Serial.printf("[ERROR] Failed to open file for writing: %s\n", destinationPath);
+        M5.Lcd.printf("[ERROR] Failed to open file for writing: %s\n", destinationPath);
         sourceFile.close();
         return false;
     }
 
-    uint8_t buffer[512];
-    size_t bytesRead;
-    while ((bytesRead = sourceFile.read(buffer, sizeof(buffer))) > 0) {
-        destinationFile.write(buffer, bytesRead);
-        totalCopiedSize += bytesRead;
-        if (totalSize > 0) {
+    if (totalSize > 0) {
+        uint8_t buffer[512];
+        size_t bytesRead;
+        while ((bytesRead = sourceFile.read(buffer, sizeof(buffer))) > 0) {
+            destinationFile.write(buffer, bytesRead);
+            totalCopiedSize += bytesRead;
             int percent = (int)((float)totalCopiedSize / totalSize * 100);
             M5.Lcd.setCursor(0, 40);
             M5.Lcd.printf("Copying... %d%% ", percent); // 末尾にスペースを追加して前の表示を消す
         }
-    }
-    // 0バイトファイルのコピー完了表示
-    if (totalSize == 0) {
+    } else {
+        totalCopiedSize = 0; 
         M5.Lcd.setCursor(0, 40);
         M5.Lcd.printf("Copying... 100%% ");
     }
-
 
     sourceFile.close();
     destinationFile.close();
     return true;
 }
 
-// フォルダを再帰的にコピーする関数
-bool copyFolder(const char* sourceDir, const char* destinationDir, uint32_t& totalCopiedSize, uint32_t& totalSize) {
-    Serial.printf("[DEBUG] copyFolder: Ensuring destination directory exists: %s\n", destinationDir);
-    // コピー先のフォルダを作成
-    if (!createDirRecursive(destinationDir)) {
-        Serial.printf("[ERROR] Failed to create destination directory: %s\n", destinationDir);
-        return false;
-    }
-    
-    Serial.printf("[DEBUG] copyFolder: Opening source directory: %s\n", sourceDir);
-    File dir = SD.open(sourceDir);
-    if (!dir) {
-        Serial.printf("[ERROR] Failed to open source directory: %s\n", sourceDir);
-        return false;
-    }
-    
-    File file = dir.openNextFile();
-    while (file) {
-        String sourceFilePath = String(file.path()); // file.path()はフルパスを返す
-        String destinationFilePath = String(destinationDir) + "/" + file.name();
-        
-        if (file.isDirectory()) {
-            if (!copyFolder(sourceFilePath.c_str(), destinationFilePath.c_str(), totalCopiedSize, totalSize)) {
-                file.close();
-                dir.close();
-                return false;
-            }
-        } else {
-            // フォルダ内のファイル名重複はチェックしない（上書きする）仕様の場合
-            // もし(1)のようにしたい場合は、ここでもcheckAndRenameを呼び出す
-            // String uniqueDestPath = checkAndRename(destinationFilePath);
-            if (!copyFile(sourceFilePath.c_str(), destinationFilePath.c_str(), totalCopiedSize, totalSize)) {
-                file.close();
-                dir.close();
-                return false;
-            }
-        }
-        file.close();
-        file = dir.openNextFile();
-    }
-    dir.close();
-    return true;
-}
-
 // ファイルまたはフォルダを再帰的に削除する関数（進捗表示付き）
 bool removePath(const char* path, uint32_t& totalRemovedSize, uint32_t& totalSize) {
-    Serial.printf("[DEBUG] removePath: Opening path for removal: %s\n", path);
+    Serial.printf("[DEBUG] removePath: SD.open(%s) for removal\n", path);
+    M5.Lcd.printf("[DEBUG] removePath: Opening path for removal: %s\n", path);
     File item = SD.open(path);
     if (!item) {
         Serial.printf("[ERROR] Failed to open path for removal: %s\n", path);
+        M5.Lcd.printf("[ERROR] Failed to open path for removal: %s\n", path);
         return false;
     }
     
     if (item.isDirectory()) {
         File subItem = item.openNextFile();
         while (subItem) {
-            String subPath = String(subItem.path());
-            subItem.close(); // 先に閉じる
+            String subPath = String(path) + "/" + subItem.name();
             if (!removePath(subPath.c_str(), totalRemovedSize, totalSize)) {
                 item.close();
                 return false;
@@ -755,44 +745,78 @@ bool removePath(const char* path, uint32_t& totalRemovedSize, uint32_t& totalSiz
             subItem = item.openNextFile();
         }
         item.close(); // ディレクトリを閉じてから削除
+        M5.Lcd.setCursor(0, 40);
         Serial.printf("[DEBUG] removePath: SD.rmdir(%s)\n", path);
-        if (!SD.rmdir(path)) {
-            Serial.printf("[ERROR] Failed to remove directory: %s\n", path);
+        M5.Lcd.printf("removePath: Removing directory: %s\n", path);
+        if (SD.rmdir(path)) {
+            M5.Lcd.printf("Removing...100%%");
+            M5.Lcd.printf("\nRemoved directory: %s\n", path);
+        } else {
+            M5.Lcd.printf("\nFailed to remove directory: %s\n", path);
             return false;
         }
     } else {
         uint32_t fileSize = item.size();
         item.close(); // ファイルを閉じてから削除
         Serial.printf("[DEBUG] removePath: SD.remove(%s)\n", path);
+        M5.Lcd.printf("removePath: Removing file: %s\n", path);
         if (SD.remove(path)) {
             totalRemovedSize += fileSize;
-            if (totalSize > 0) {
-                int percent = (int)((float)totalRemovedSize / totalSize * 100);
-                M5.Lcd.setCursor(0, 40);
-                M5.Lcd.printf("Removing... %d%% ", percent);
-            }
+            int percent = (int)((float)totalRemovedSize / totalSize * 100);
+            M5.Lcd.setCursor(0, 40);
+            M5.Lcd.printf("Removing... %d%% ", percent);
         } else {
-            Serial.printf("[ERROR] Failed to remove file: %s\n", path);
+            M5.Lcd.printf("\nFailed to remove file: %s\n", path);
             return false;
         }
     }
     return true;
 }
 
-// メインの処理を実行する関数
-bool smartCopy(String sourcePath, String destinationPath, bool destinationIsDir, bool isCut) {
-    Serial.println("[DEBUG] smartCopy: Initializing...");
+// ユーザーに上書き確認を求める関数
+bool areYouSure(const String& filePath) {
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.printf("Overwrite existing file?\n%s\n", filePath.c_str());
+    M5.Lcd.println("[A]: Yes  [B]: No");
+    Serial.printf("[USER INPUT] Overwrite '%s'? [A]: Yes, [B]: No\n", filePath.c_str());
+    while (true) {
+        M5.update();
+        if (M5.BtnA.wasPressed()) {
+            Serial.println("[USER INPUT] User chose YES.");
+            return true;
+        }
+        if (M5.BtnB.wasPressed()) {
+            Serial.println("[USER INPUT] User chose NO.");
+            return false;
+        }
+        delay(10);
+    }
+}
 
-    sourcePath = cleanPath(sourcePath);
+// メインの処理を実行する関数
+bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
+    Serial.println("[DEBUG] smartCopy: Initializing SD card...");
+    M5.Lcd.println("[DEBUG] smartCopy: Initializing SD card...");
+    if (!SD.begin()) {
+        Serial.println("[ERROR] SD card initialization failed!");
+        M5.Lcd.println("[ERROR] SD card initialization failed!");
+        return false;
+    }
+
+    // パスをクリーンアップ (sourcePathは既に正しい形式と仮定)
     destinationPath = cleanPath(destinationPath);
 
     uint32_t totalSize = 0;
     uint32_t totalCopiedSize = 0;
 
-    Serial.printf("[DEBUG] smartCopy: Opening source path: %s\n", sourcePath.c_str());
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextColor(WHITE);
+
+    Serial.printf("[DEBUG] smartCopy: SD.open(%s) for source path\n", sourcePath.c_str());
+    M5.Lcd.printf("[DEBUG] smartCopy: Opening source path: %s\n", sourcePath.c_str());
     File source = SD.open(sourcePath);
     if (!source) {
         Serial.printf("[ERROR] Source path does not exist: %s\n", sourcePath.c_str());
@@ -800,87 +824,106 @@ bool smartCopy(String sourcePath, String destinationPath, bool destinationIsDir,
         return false;
     }
 
-    bool sourceIsDirectory = source.isDirectory();
-    
-    M5.Lcd.println("Calculating size...");
-    if (sourceIsDirectory) {
-        printDirectorySize(sourcePath.c_str(), totalSize);
-    } else {
-        totalSize = source.size();
+    if (source.isDirectory()) {
+        Serial.printf("[ERROR] Source is a directory. This function only copies files: %s\n", sourcePath.c_str());
+        M5.Lcd.println("[ERROR] Folder copy is not supported."); // フォルダコピーは非対応と明示
+        source.close();
+        return false;
     }
+
+    totalSize = source.size();
     source.close();
     M5.Lcd.printf("Total size: %d bytes\n", totalSize);
 
     M5.Lcd.println("Starting copy process...");
     bool copySuccess = false;
     
-    if (sourceIsDirectory) {
-        // ★★★ 修正箇所 ★★★
-        // コピー先のフォルダパスを生成
-        const char* folderName = strrchr(sourcePath.c_str(), '/');
-        if (folderName == NULL) {
-            folderName = sourcePath.c_str();
-        } else {
-            folderName++;
-        }
-        String newDestinationPath = destinationPath;
-        if (destinationPath != "/") {
-            newDestinationPath += "/";
-        }
-        newDestinationPath += folderName;
-
-        // フォルダ名が重複していないかチェックし、必要ならリネーム
-        String uniqueDestinationPath = checkAndRenameForDirectory(newDestinationPath);
-        if (uniqueDestinationPath == "") {
-            Serial.println("[ERROR] Could not find a unique name for the destination directory!");
-            M5.Lcd.println("[ERROR] Too many duplicates!");
-            return false;
-        }
-        M5.Lcd.printf("Copy to folder: %s\n", uniqueDestinationPath.c_str());
-        copySuccess = copyFolder(sourcePath.c_str(), uniqueDestinationPath.c_str(), totalCopiedSize, totalSize);
+    // コピー先ファイルの最終パスを決定 (連番なしの基本形)
+    const char* fileNameCStr = strrchr(sourcePath.c_str(), '/');
+    String fileNameOnly = (fileNameCStr == NULL) ? sourcePath : String(fileNameCStr + 1);
+    
+    String finalDestinationPath;
+    if (destinationPath == "/") {
+        finalDestinationPath = "/" + fileNameOnly;
     } else {
-        String uniqueDestPath;
-        if (destinationIsDir) {
-            const char* fileName = strrchr(sourcePath.c_str(), '/');
-            String fileNameOnly = (fileName == NULL) ? sourcePath : String(fileName + 1);
-            String newDestinationPath = destinationPath + "/" + fileNameOnly;
-            uniqueDestPath = checkAndRename(newDestinationPath);
-        } else {
-            uniqueDestPath = checkAndRename(destinationPath);
-        }
+        finalDestinationPath = destinationPath + "/" + fileNameOnly;
+    }
+    Serial.printf("[DEBUG] smartCopy: Initial target path: %s\n", finalDestinationPath.c_str());
 
-        if (uniqueDestPath == "") {
-            Serial.println("[ERROR] Too many duplicate files!");
-            M5.Lcd.println("[ERROR] Too many duplicates!");
+
+    String uniqueDestPath = "";
+    // コピー先ファイルがすでに存在するか確認
+    Serial.printf("[DEBUG] smartCopy: SD.exists(%s)\n", finalDestinationPath.c_str());
+    if (SD.exists(finalDestinationPath)) {
+        M5.Lcd.println("Destination exists.");
+        Serial.printf("[DEBUG] smartCopy: Destination file '%s' already exists.\n", finalDestinationPath.c_str());
+        if (areYouSure(finalDestinationPath)) { // 上書きを許可
+            M5.Lcd.println("Overwriting...");
+            Serial.println("[DEBUG] smartCopy: User chose to overwrite.");
+            // 既存ファイルを削除してから、新しい連番ファイル名を生成
+            Serial.printf("[DEBUG] smartCopy: SD.remove(%s)\n", finalDestinationPath.c_str());
+            if (!SD.remove(finalDestinationPath)) {
+                M5.Lcd.println("[ERROR] Failed to remove old file.");
+                Serial.printf("[ERROR] smartCopy: Failed to remove old file: %s\n", finalDestinationPath.c_str());
+                return false;
+            }
+            // 削除後、次に利用可能な連番名を取得 (例えば 22.txt(1) )
+            uniqueDestPath = checkAndRename(finalDestinationPath);
+            if (uniqueDestPath == "") {
+                M5.Lcd.println("[ERROR] Paste overflowed!");
+                Serial.println("[ERROR] smartCopy: Paste overflowed - too many duplicates after overwrite.");
+                return false;
+            }
+        } else { // 上書きを拒否
+            M5.Lcd.println("Paste ignored!");
+            Serial.println("[INFO] smartCopy: Paste ignored by user.");
             return false;
         }
-        M5.Lcd.printf("Copy to: %s\n", uniqueDestPath.c_str());
-        copySuccess = copyFile(sourcePath.c_str(), uniqueDestPath.c_str(), totalCopiedSize, totalSize);
+    } else { // コピー先ファイルが存在しない場合
+        M5.Lcd.println("Creating new file...");
+        Serial.printf("[DEBUG] smartCopy: Destination file '%s' does not exist. Creating new.\n", finalDestinationPath.c_str());
+        uniqueDestPath = checkAndRename(finalDestinationPath); // 連番を考慮した新しいパスを取得
+        if (uniqueDestPath == "") {
+            M5.Lcd.println("[ERROR] Paste overflowed!");
+            Serial.println("[ERROR] smartCopy: Paste overflowed - too many duplicates for new file.");
+            return false;
+        }
     }
+
+    M5.Lcd.printf("Copying to: %s\n", uniqueDestPath.c_str());
+    Serial.printf("[DEBUG] smartCopy: Final copy destination: %s\n", uniqueDestPath.c_str());
+    copySuccess = copyFile(sourcePath.c_str(), uniqueDestPath.c_str(), totalCopiedSize, totalSize);
 
     if (copySuccess) {
         M5.Lcd.setCursor(0, 40);
-        M5.Lcd.println("Copy successful!             "); // スペースで上書き
+        M5.Lcd.println("Copy successful!                    ");
+        Serial.println("[INFO] smartCopy: Copy successful.");
         if (isCut) {
+            M5.Lcd.setCursor(0, 50);
             M5.Lcd.println("Starting removal...");
-            uint32_t totalRemovedSize = 0;
-            // 削除対象のサイズはコピー元のサイズと同じ
+            Serial.printf("[DEBUG] smartCopy: Starting removal of source file: %s\n", sourcePath.c_str());
+            uint32_t totalRemovedSize = 0; // ファイルの削除なのでtotalSizeは利用しないが引数合わせ
             if(removePath(sourcePath.c_str(), totalRemovedSize, totalSize)) {
-                M5.Lcd.setCursor(0, 40);
-                M5.Lcd.println("Move successful!               ");
+                M5.Lcd.setCursor(0, 50);
+                M5.Lcd.println("Move successful!                      ");
+                Serial.println("[INFO] smartCopy: Move (copy + remove) successful.");
             } else {
-                M5.Lcd.setCursor(0, 40);
-                M5.Lcd.println("Removal failed!                ");
+                M5.Lcd.setCursor(0, 50);
+                M5.Lcd.println("[ERROR] Removal failed!                     ");
+                Serial.println("[ERROR] smartCopy: Removal of source failed!");
                 return false; // 移動失敗
             }
         }
     } else {
         M5.Lcd.setCursor(0, 40);
-        M5.Lcd.println("Copy failed!                 ");
+        M5.Lcd.println("[ERROR] Copy failed!                     ");
+        Serial.println("[ERROR] smartCopy: Copy failed!");
     }
 
     return copySuccess;
 }
+
+
 
 
 
@@ -959,7 +1002,7 @@ void listSDRootContents(int pagetax,String Directtory,bool checkfirstMaxLine = f
   M5.Lcd.clear();
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(File_goukeifont); // フォントサイズをFile_goukeifontに設定
-  if(Directtory != ""){
+  if(Directtory != "/"){
     modordir = true;
   }else{
     modordir = false;
@@ -1926,15 +1969,23 @@ void updatePointer(bool text1cote, bool temmm = false) {
     
     // ページ移動フラグのロジック
     // これらの条件はpositpointが更新された後に評価されるべき
-    if (modordir && positpoint == -1 && imano_page == 0) {
+    if(!modordir && positpoint == -1 && imano_page == 0) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
+        pagemoveflag = 4;
+        return;
+    }
+    else if (modordir && positpoint == -1 && imano_page == 0) {
       Serial.println("F" + String(DirecX) + "G" + String(positpoint));
         pagemoveflag = 3;
         return;
     } else if (positpoint == positpointmax + 1 && imano_page < maxpage - 1 ) {
         Serial.println(String("dd") + maxLinesPerPage3 + "sss" + imano_page + "pp" + maxpage + "ss" + positpoint + "ee" + positpointmax);
         if((imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)){
-          pagemoveflag = 0;
-        
+          
+          if(DirecX == "/"){
+            pagemoveflag = 5;
+          }else{
+            pagemoveflag = 0;
+          }
           return;
         
         }else{
@@ -2061,7 +2112,7 @@ void shokaipointer(){
     M5.Lcd.print(">");
     M5.Lcd.setTextColor(WHITE);
     Tex2 = "Press B to Options Now Dir C:/" + DirecX + " :total bytes:" + formatBytes(SD.totalBytes()) + " :used bytes:" + formatBytes(SD.usedBytes());
-    
+    resercounter = 0;
     positpointmaxg  = (M5.Lcd.height() / M5.Lcd.fontHeight()) - 1; 
     return;
 }
@@ -2522,8 +2573,8 @@ void loop() {
       return;
   }
   else if(M5.BtnB.wasPressed() && positpoint == 4){ //ファイルコピー
-    bool dd = areubunki("Copy this file","Copy this pdir");   //フォルダコピーは技術的に難しいため没
-   //bool dd = true;
+   // bool dd = areubunki("Copy this file","Copy this pdir");   //フォルダコピーは技術的に難しいため没
+   bool dd = true;
     if(dd){//ファイルコピー
       copymotroot =  DirecX +  Filelist[nowpositZ()];
       copymotdir = false;
@@ -2591,7 +2642,7 @@ void loop() {
       hh = DirecX.substring(0,DirecX.length() - 1);
     }
     Serial.println("CC: " + copymotroot + "DD: " + hh);
-    bool success = smartCopy(copymotroot,hh,!copymotdir,dd);
+    bool success = smartCopy(copymotroot,hh,!copymotdir);
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextSize(File_goukeifont);
     
@@ -2731,21 +2782,42 @@ void loop() {
   else if (mainmode == 1) { // SDリスト表示モードの場合
     
     delay(1);
-   // Serial.println((String)maxpage);
-    String key = wirecheck(); // wirecheck()は常に呼び出される
-    if(key == "TAB"){
-      Serial.println(ForDlist[nowposit()] + ":bango" + nowposit() + ":page" + imano_page);
-    }
-    if(!otroot && !nosd){
-      updatePointer(false);
-    }
+  
 
     //Serial.println("IMA:" + ForDlist[nowposit()] + "bango" + nowposit());
     if(!nosd){ // !nosd の if ブロック開始
 
-      if(M5.BtnA.wasPressed() && pagemoveflag == 3){
+       // Serial.println((String)maxpage);
+    String key = wirecheck(); // wirecheck()は常に呼び出される
+    
+    if(!otroot && !nosd){
+      updatePointer(false);
+    }
+      
+       if(M5.BtnC.wasPressed() && pagemoveflag == 5){
+          imano_page = 0;
+        positpoint = 0;
+        
+        pagemoveflag = 0;
+        DirecX = maeredirect(DirecX);
+        shokaipointer();
+        mainmode = 1;
+        return;
+       }
+       else if(M5.BtnA.wasPressed() && pagemoveflag == 4){
+          imano_page = maxpage - 1;
+          positpoint = maxLinesPerPage3 - 1;
+          holdpositpoint = positpoint;
+          pagemoveflag = 0;
+          
+          shokaipointer();
+          mainmode = 1;
+          return;
+       }
+      else if(M5.BtnA.wasPressed() && pagemoveflag == 3){
         imano_page = 0;
         positpoint = 0;
+        
         pagemoveflag = 0;
         DirecX = maeredirect(DirecX);
         shokaipointer();
@@ -2784,13 +2856,50 @@ void loop() {
 
           shokaipointer();
           return;
-        }else{
+        }else{//次のファイルに進む。
           DirecX = DirecX  + Filelist[nowposit()] + "/"; // 選択したディレクトリのパスを更新
           Serial.println("DZOON:" + DirecX);
           positpoint = 0;
           holdpositpoint = 0;
           imano_page = 0;
-          shokaipointer();
+          bool ddd = false;
+          M5.Lcd.fillScreen(BLACK);
+          if(M5.BtnB.isPressed()){
+            resercounter = 1;  
+            
+            while(M5.BtnB.isPressed()){
+              delay(1);
+              resercounter++;
+              if(resercounter > 500){
+                ddd = true;
+                break;
+              } 
+            }
+
+           } else{
+             ddd = false;
+           }
+            if(ddd){//ディレクトリの中にディレクトリだけ作った場合に強制的にmainmode2を起動する隠しコマンド
+              mainmode = 2;
+              holdpositpoint = positpoint;
+              positpointmax = 9;
+              positpointmain1 = positpoint;
+             positpoint = 0;
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setTextSize(3);
+              M5.Lcd.setCursor(0, 0);
+              M5.Lcd.setTextColor(WHITE);
+              
+                M5.Lcd.println("   Create Dir\n   Delete File\n   Rename\n   Make File\n   CopyFileorPDir\n   Paste Them\n   Rename/DelPDir\n   FileInfo/Edit\n   Back Home\n  File Property" );
+                shokaipointer(false);
+                return;
+            }else{
+              shokaipointer();
+              return;
+            }
+         
+    
+          
           
           return;
         }
