@@ -51,6 +51,8 @@ String Tex2;
 bool serious_errorsd = false;
 int pagemoveflag = 0;
 String Filelist[100];
+static bool btna = false;
+static bool btnc = false;
 String directlist[100];
 String ForDlist[100];
 String DirecX="";
@@ -79,14 +81,6 @@ int positpointmain1;
 bool copymotdir;
 bool modordir;
 static int frameCounter = 0;
-// 長押し検出用の新しいグローバル変数を追加
-static unsigned long btnA_press_time = 0;
-static unsigned long btnC_press_time = 0;
-const unsigned long LONG_PRESS_THRESHOLD_MS = 100; // 100フレーム * 1ms/フレーム = 100ms
-const unsigned long REPEAT_INTERVAL_MS = 10;       // 10フレーム * 1ms/フレーム = 10ms
-static unsigned long last_repeat_time = 0;
-static bool is_long_pressing = false;
-
 
 struct SdEntryInfo {
   String name;
@@ -1740,148 +1734,161 @@ void kanketu(String texx,int frame){
 bool dexx = false;
 
 //オプション:ファイルソート順番、ファイル拡張子デフォルト、書き込み方式
-
+static int frameright = 1;
+static int frameleft = 1;
 // ポインターの位置を更新し、画面下部にテキストをスクロールさせる関数
 void updatePointer(bool text1cote, bool temmm = false) {
+    // 以前のポインター位置を記憶 (-1は初期状態を示す。これはstaticで一度だけ初期化される)
     static int prev_positpoint = -1;
-    int current_positpoint_on_entry = positpoint;
+    // 関数呼び出し時点のpositpoint（ボタン押下前のpositpoint）を保存
+    int current_positpoint_on_entry = positpoint; 
+    
+    // ポインター表示のフォントをFile_goukeifontに固定
     M5.Lcd.setTextFont(File_goukeifont);
-
-    // 特定のページ/モードでの初期チェック
     if (M5.BtnA.wasPressed() && mainmode == 2 && positpoint == 0) {
         pagemoveflag = 4;
         return;
     }
-    if (M5.BtnC.wasPressed() && DirecX == "/") {
-        pagemoveflag = 5;
+
+    if(M5.BtnA.wasPressed()){
+      btna  = true;
+    }else{
+      btna = false;
+    }
+    if(M5.BtnC.wasPressed()){
+      btnc = true;
+    }else{
+      btnc = false;
+    }
+
+    if(M5.BtnA.isPressed()){
+      if(frameleft < 10000){
+        frameleft++;
+      }
+      
+    }else{
+      frameleft = 1;
+    }
+    if(M5.BtnC.isPressed()){
+      if(frameright < 10000){
+        frameright++;
+      }
+    }else{
+      frameright = 1;
+    }
+    if(frameright % 50 == 0 && DirecX == "/" && imano_page == maxpage - 1 && positpoint  == maxLinesPerPage3 - 1){
+      
+      pagemoveflag = 5;
+      btnc = true;
+      btna = false;
         return;
     }
-
-    // --- ボタンの押下と長押し処理 ---
-    bool moved_by_press = false;
-    unsigned long currentMillis = millis();
-
-    // ボタンが押されていない場合は長押し状態をリセット
-    if (!M5.BtnA.isPressed() && !M5.BtnC.isPressed()) {
-        btnA_press_time = 0;
-        btnC_press_time = 0;
-        is_long_pressing = false;
+    // ポインターの移動処理
+    if (frameleft % 50 == 0) {
+        positpoint--; // 上へ移動
+         Serial.println("F" + String(DirecX) + "G" + String(positpoint));
+         btna  =true;
+         btnc = false;
     }
-
-    // BtnA（上）の処理
-    if (M5.BtnA.isPressed()) {
-        if (btnA_press_time == 0) {
-            btnA_press_time = currentMillis;
-        } else if (currentMillis - btnA_press_time >= LONG_PRESS_THRESHOLD_MS) {
-            // 長押しを検出
-            is_long_pressing = true;
-            if (currentMillis - last_repeat_time >= REPEAT_INTERVAL_MS) {
-                positpoint--;
-                moved_by_press = true;
-                last_repeat_time = currentMillis;
-            }
-        }
+    if ( frameright % 50 == 0 && !(imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)) {
+        positpoint++; // 下へ移動
+        Serial.println("F" + String(DirecX) + "G" + String(positpoint));
+        btna = false;
+        btnc = true;
     }
-    // BtnC（下）の処理
-    if (M5.BtnC.isPressed()) {
-        if (btnC_press_time == 0) {
-            btnC_press_time = currentMillis;
-        } else if (currentMillis - btnC_press_time >= LONG_PRESS_THRESHOLD_MS) {
-            // 長押しを検出
-            is_long_pressing = true;
-            if (currentMillis - last_repeat_time >= REPEAT_INTERVAL_MS) {
-                // 特定の条件で回り込みを防止
-                if (!(imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)) {
-                    positpoint++;
-                    moved_by_press = true;
-                    last_repeat_time = currentMillis;
-                    dexx = false;
-                }
-            }
-        }
+    else{
+      btna = false;
+      btnc = false;
     }
-    // 単押しを処理
-    if (!is_long_pressing) {
-        if (M5.BtnA.wasPressed()) {
-            positpoint--;
-            moved_by_press = true;
-        }
-        if (M5.BtnC.wasPressed()) {
-            if (!(imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)) {
-                positpoint++;
-                moved_by_press = true;
-                dexx = false;
-            }
-        }
+    // ページ移動フラグのロジック
+    // これらの条件はpositpointが更新された後に評価されるべき
+    if(!modordir && positpoint == -1 && imano_page == 0) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
+        pagemoveflag = 4;
+        return;
     }
-
-    // --- 長押し中のポインター移動ループ ---
-    if (is_long_pressing) {
-        while (M5.BtnA.isPressed() || M5.BtnC.isPressed()) {
-            updatePointer(text1cote, temmm); // 動きを続けるために再帰呼び出し
-            M5.update();
-            delay(1); // 1フレームの遅延
+    else if (modordir && positpoint == -1 && imano_page == 0) {
+     // Serial.println("F" + String(DirecX) + "G" + String(positpoint));
+        pagemoveflag = 3;
+        return;
+    } else if (positpoint == positpointmax + 1 && imano_page < maxpage - 1 ) {
+      //  Serial.println(String("dd") + maxLinesPerPage3 + "ss s" + imano_page + "pp" + maxpage + "ss" + positpoint + "ee" + positpointmax);
+        if((imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)){
+          
+          return;
+        
+        }else{
+          pagemoveflag = 1;
+        
+        return;
         }
-    }
-
-    // --- ページ変更ロジック ---
-    if (moved_by_press) {
-        if (!modordir && positpoint == -1 && imano_page == 0) {
-            pagemoveflag = 4;
-            return;
-        } else if (modordir && positpoint == -1 && imano_page == 0) {
-            pagemoveflag = 3;
-            return;
-        } else if (positpoint == positpointmax + 1 && imano_page < maxpage - 1) {
-            if ((imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)) {
-                return;
-            } else {
-                pagemoveflag = 1;
-                return;
-            }
-        } else if (positpoint == -1 && imano_page != 0) {
-            pagemoveflag = 2;
-            return;
-        } else {
-            pagemoveflag = 0;
-        }
-    }
-
-    // --- ポインターの境界チェック ---
-    if (maxLinesPerPage2 == 1 && mainmode == 1) {
-        positpoint = 0;
+        
+        
+        
+    } else if (positpoint == -1 && imano_page != 0) {
+        pagemoveflag = 2;
+        return;
     } else {
-        positpoint = std::max(0, positpoint);
+        pagemoveflag = 0;
+    }
+
+    // ポインターの境界チェック
+    if(maxLinesPerPage2 == 1 && mainmode == 1){
+        positpoint = 0;
+    }else{
+        positpoint = std::max(0, positpoint); // 負の方向には移動できない (最小値は0)
+
         int effective_filelist_count = positpointmaxg;
         if (effective_filelist_count > 0) {
-            positpoint = std::min(effective_filelist_count - 1, positpoint);
+            positpoint = std::min(effective_filelist_count - 1, positpoint); // 最大値は (有効なアイテム数 - 1)
         } else {
-            positpoint = 0;
+            positpoint = 0; // リストが空の場合はポインターを0に固定
         }
     }
-
-    // --- ポインターの描画ロジック ---
-    if (prev_positpoint != positpoint) {
+    
+    // ポインターの位置が変更された場合、または初回描画時の処理
+    // prev_positpoint と現在の positpoint が異なる場合、または prev_positpoint が初期値(-1)の場合
+    if (prev_positpoint != positpoint) { 
+        // ポインター文字 (">") の幅と高さを取得
+        M5.Lcd.setTextFont(File_goukeifont); // ポインターフォントが設定されていることを確認
         int pointer_char_width = M5.Lcd.textWidth(">");
         int font_height = M5.Lcd.fontHeight();
-        int clear_zone_width = pointer_char_width + M5.Lcd.textWidth(" ");
 
+        // ポインターとその隣接するスペースをクリアするための幅
+        // ">" とその右側の文字が重なることを避けるため、少し広めに取る
+        int clear_zone_width = pointer_char_width + M5.Lcd.textWidth(" "); 
+        // もし文字の高さが一定でない場合、font_height を使うのが安全
+
+        // 以前のポインターを消去
+        // prev_positpoint が -1 でない場合 (つまり、updatePointerが既に一度以上ポインターを描画している場合)
         if (prev_positpoint != -1) {
+            // prev_positpoint の位置のポインターを黒で塗りつぶす
             M5.Lcd.fillRect(0, prev_positpoint * font_height, clear_zone_width, font_height, BLACK);
+            // ここで、もしリストのコンテンツがポインターによって隠されていた場合、その部分のテキストを白で再描画する必要があるかもしれません。
+            // しかし、現在の問題は「ポインターが消えない」ことなので、まずポインターのクリアに集中します。
         } else {
+            // updatePointerが初回呼び出し時で、かつshokaipointerが既に初期ポインターを描画している場合
+            // current_positpoint_on_entry (updatePointer呼び出し時のpositpoint) の位置のポインターをクリアする
+            // これは shokaipointer が描画した最初のポインターを消すための措置
             M5.Lcd.fillRect(0, current_positpoint_on_entry * font_height, clear_zone_width, font_height, BLACK);
         }
 
-        M5.Lcd.setTextColor(YELLOW);
-        M5.Lcd.setCursor(0, positpoint * font_height);
-        M5.Lcd.print(">");
-        M5.Lcd.setTextColor(WHITE);
+        // 新しいポインターを描画
+        M5.Lcd.setTextColor(YELLOW); // 黄色に設定
+        M5.Lcd.setCursor(0, positpoint * font_height); // 新しい位置にカーソルを設定 (X=0)
+        M5.Lcd.print(">"); // ポインターアイコンを描画
+        M5.Lcd.setTextColor(WHITE); // 色を白に戻す
+
+        // 現在の位置を次の描画のために記憶
         prev_positpoint = positpoint;
     }
 
-    // --- 画面下部のテキストスクロール処理（変更なし） ---
+    // ここから画面最下部のスクロールテキスト処理 (変更なし)
+    unsigned long currentMillis = millis();
+
+    // テキストスクロールを1秒ごとに更新 (1 FPS)
     if (currentMillis - lastTextScrollTime >= TEXT_SCROLL_INTERVAL_MS) {
         lastTextScrollTime = currentMillis;
+
         M5.Lcd.setTextFont(1);
         int textWidth = M5.Lcd.textWidth(Tex2);
         int textHeight = M5.Lcd.fontHeight();
@@ -1893,7 +1900,9 @@ void updatePointer(bool text1cote, bool temmm = false) {
         }
 
         int bottomY = M5.Lcd.height() - textHeight;
+
         M5.Lcd.fillRect(0, bottomY, M5.Lcd.width(), textHeight, BLACK);
+
         scrollPos -= SCROLL_SPEED_PIXELS;
 
         if (scrollPos < -textWidth) {
@@ -1906,10 +1915,12 @@ void updatePointer(bool text1cote, bool temmm = false) {
         if (visibleStartX < visibleEndX) {
             int charWidthApprox = M5.Lcd.textWidth("A");
             if (charWidthApprox == 0) charWidthApprox = 6;
+
             int startIndex = visibleStartX / charWidthApprox;
             int endIndex = visibleEndX / charWidthApprox;
 
             String visibleText = Tex2.substring(startIndex, endIndex);
+
             M5.Lcd.setCursor(std::max(0, scrollPos), bottomY);
             M5.Lcd.setTextColor(WHITE);
             M5.Lcd.print(visibleText);
@@ -1927,6 +1938,10 @@ void shokaipointer(){
     M5.Lcd.setTextColor(YELLOW);
     M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
     M5.Lcd.print(">");
+    btna = false;
+    btnc = false;
+    frameright = 1;
+    frameleft = 1;
     M5.Lcd.setTextColor(WHITE);
     Tex2 = "Press B to Options Now Dir C:/" + DirecX + " :total bytes:" + formatBytes(SD.totalBytes()) + " :used bytes:" + formatBytes(SD.usedBytes());
     resercounter = 0;
@@ -2360,7 +2375,7 @@ void loop() {
     delay(3);
     String key = wirecheck(); // wirecheck()は常に呼び出される
     updatePointer(true,true);
-   if(pagemoveflag == 4 && M5.BtnA.wasPressed()){
+   if(pagemoveflag == 4 && btna){
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(File_goukeifont);
         positpoint = holdpositpoint;
@@ -2687,7 +2702,7 @@ void loop() {
       updatePointer(false);
     }
       
-       if(M5.BtnC.wasPressed() && pagemoveflag == 5){
+       if(btnc && pagemoveflag == 5){
           imano_page = 0;
         positpoint = 0;
         
@@ -2697,7 +2712,7 @@ void loop() {
         mainmode = 1;
         return;
        }
-       else if(M5.BtnA.wasPressed() && pagemoveflag == 4){
+       else if(btna && pagemoveflag == 4){
           imano_page = maxpage - 1;
           positpoint = maxLinesPerPage3 - 1;
           holdpositpoint = positpoint;
@@ -2707,7 +2722,7 @@ void loop() {
           mainmode = 1;
           return;
        }
-      else if(M5.BtnA.wasPressed() && pagemoveflag == 3){
+      else if(btna && pagemoveflag == 3){
         imano_page = 0;
         positpoint = 0;
         
@@ -2717,7 +2732,7 @@ void loop() {
         mainmode = 1;
         return;
       }
-      else if (M5.BtnC.wasPressed() && pagemoveflag == 1) {
+      else if (btnc && pagemoveflag == 1) {
 
         imano_page++;
         pagemoveflag = 0;
@@ -2728,7 +2743,7 @@ void loop() {
         mainmode = 1;
         return;
 
-      } else if (M5.BtnA.wasPressed()&& pagemoveflag == 2) {
+      } else if (btna && pagemoveflag == 2) {
 
         imano_page--;
         pagemoveflag = 0;
@@ -2814,7 +2829,7 @@ void loop() {
        M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  Rename/DelPDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
         return;
       }
-      else if(DirecX != "/" && M5.BtnA.wasPressed() && imano_page == 0 && positpoint == -1){//前リダイレクトに戻る
+      else if(DirecX != "/" && btna && imano_page == 0 && positpoint == -1){//前リダイレクトに戻る
         DirecX = maeredirect(DirecX); // 一つ前のディレクトリに戻る
           Serial.println(DirecX);
           holdpositpoint = 0;
@@ -2841,7 +2856,7 @@ void loop() {
         shokaipointer(false);
         return;
 
-      }else if( M5.BtnA.wasPressed()){
+      }else if( btna){
         Serial.println(otroot);
 
           nosd = false;
