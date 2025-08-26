@@ -16,7 +16,7 @@
 #pragma region <hensu>
 String mainprintex = "M5Core3 LAN Activationer";
 String sita = "";
-String sitagar[] = {"Start","SD Files","Configs","text editor","how to"};
+String sitagar[] = {"Net Status","SD Files","Configs","text editor","how to","Options","User Management","Log"};
 static bool sd_card_initialized = false; // SDカードが初期化されているか
 
 // --- コピー操作キャンセルフラグ ---
@@ -380,7 +380,26 @@ bool isValidWindowsFileName(String textt) {
 
 
 #pragma endregion <hensu>
+#pragma region <hensu2>
+const int POTLIST_MAX_SIZE = 100;
+String potlist[POTLIST_MAX_SIZE] = {"file extension","string file type","search file/data name","sort type","back"}; // グローバルで定義済み
+int currentPos = 0;
+bool redrawRequired = true; // 再描画が必要かどうかのフラグ
+int lastValidIndex = 0;     // 最後に有効な項目のインデックス
 
+// 点滅関連のグローバル変数
+unsigned long lastBlinkToggleTime = 0;
+bool showAngleBrackets = true; // true: <X> を表示, false: X を表示 (<>なし)
+
+// メインモード変数（テスト用に7に初期化）
+
+
+
+#pragma endregion
+
+
+
+#pragma region <directsystem>
 String maeredirect(String path){
   int lastSlashIndex = path.lastIndexOf('/'); // 右から最初のスラッシュの位置を探す
 
@@ -794,11 +813,7 @@ void listSDRootContents(int pagetax,String Directtory,bool checkfirstMaxLine = f
   M5.Lcd.clear();
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(File_goukeifont); // フォントサイズをFile_goukeifontに設定
-  if(Directtory != "/"){
-    modordir = true;
-  }else{
-    modordir = false;
-  }
+  
   if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) {//SDカード入ってない
     serious_errorsd = true;
     nummempty();
@@ -1736,8 +1751,22 @@ bool dexx = false;
 //オプション:ファイルソート順番、ファイル拡張子デフォルト、書き込み方式
 static int frameright = 1;
 static int frameleft = 1;
+
+bool rightrue(){
+  return frameright % 50 == 0 || frameright == 2;
+}
+bool lefttrue(){
+  return frameleft % 50 == 0 || frameleft == 2;
+}
+
 // ポインターの位置を更新し、画面下部にテキストをスクロールさせる関数
 void updatePointer(bool text1cote, bool temmm = false) {
+
+    if(DirecX != "/"){
+       modordir = true;
+    }else{
+       modordir = false;
+      }
     // 以前のポインター位置を記憶 (-1は初期状態を示す。これはstaticで一度だけ初期化される)
     static int prev_positpoint = -1;
     // 関数呼び出し時点のpositpoint（ボタン押下前のpositpoint）を保存
@@ -1776,21 +1805,45 @@ void updatePointer(bool text1cote, bool temmm = false) {
     }else{
       frameright = 1;
     }
-    if(frameright % 50 == 0 && DirecX == "/" && imano_page == maxpage - 1 && positpoint  == maxLinesPerPage3 - 1){
+    if(rightrue() && mainmode == 1 && DirecX == "/" && imano_page == maxpage - 1 && positpoint  == maxLinesPerPage3 - 1){
       
       pagemoveflag = 5;
       btnc = true;
       btna = false;
         return;
     }
+    
+
+
     // ポインターの移動処理
-    if (frameleft % 50 == 0) {
+    if (lefttrue() && positpoint != 0) {
         positpoint--; // 上へ移動
          Serial.println("F" + String(DirecX) + "G" + String(positpoint));
          btna  =true;
          btnc = false;
+    }else if(lefttrue() && positpoint == 0){
+      btna = true;
+      btnc = false;
+
+      if(!modordir && imano_page == 0 && mainmode == 1 ) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
+        pagemoveflag = 4;
+        return;
+      }
+      else if((mainmode == 2 || mainmode == 4) && positpoint == 0){
+        pagemoveflag = 4;
+        return;
+      }
+      else if(modordir && imano_page == 0 && mainmode == 1) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
+        pagemoveflag = 3;
+        return;
+      }
+      else if(mainmode == 1 && positpoint == 0 && imano_page > 0) {
+        pagemoveflag = 2;
+        return;
+      }
+
     }
-    if ( frameright % 50 == 0 && !(imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)) {
+    if ( rightrue() && !(imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)) {
         positpoint++; // 下へ移動
         Serial.println("F" + String(DirecX) + "G" + String(positpoint));
         btna = false;
@@ -1800,17 +1853,12 @@ void updatePointer(bool text1cote, bool temmm = false) {
       btna = false;
       btnc = false;
     }
+    
     // ページ移動フラグのロジック
     // これらの条件はpositpointが更新された後に評価されるべき
-    if(!modordir && positpoint == -1 && imano_page == 0) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
-        pagemoveflag = 4;
-        return;
-    }
-    else if (modordir && positpoint == -1 && imano_page == 0) {
-     // Serial.println("F" + String(DirecX) + "G" + String(positpoint));
-        pagemoveflag = 3;
-        return;
-    } else if (positpoint == positpointmax + 1 && imano_page < maxpage - 1 ) {
+    
+    
+    if (positpoint == positpointmax + 1 && imano_page < maxpage - 1 ) {
       //  Serial.println(String("dd") + maxLinesPerPage3 + "ss s" + imano_page + "pp" + maxpage + "ss" + positpoint + "ee" + positpointmax);
         if((imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)){
           
@@ -1824,9 +1872,7 @@ void updatePointer(bool text1cote, bool temmm = false) {
         
         
         
-    } else if (positpoint == -1 && imano_page != 0) {
-        pagemoveflag = 2;
-        return;
+    
     } else {
         pagemoveflag = 0;
     }
@@ -1966,7 +2012,7 @@ void shokaipointer(bool yessdd){
     return;
 }
 
-
+#pragma endregion
 //#region Text 1
 void textexx() {
   if(mainmode == 1){
@@ -2016,6 +2062,95 @@ void textexx() {
   }
 }
 
+// オプションリストをSDカードから読み込む関数
+void loadPotlistFromSD() {
+    Serial.println("[DEBUG] loadPotlistFromSD: Starting.");
+    for (int i = 0; i < POTLIST_MAX_SIZE; i++) {
+        potlist[i] = ""; // 全て空文字で初期化
+    }
+    lastValidIndex = 0; // 初期化
+
+    // SD.begin()は既にこの関数の外で成功していると仮定
+    // ここではSDカードが利用可能であることを前提とする
+    // もしSD.begin()が失敗している場合、以下のSDファイル操作も失敗する可能性があります
+
+    File potlistFile = SD.open("/potlist.txt", FILE_READ);
+    if (!potlistFile) {
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.println("potlist.txt not found.");
+        M5.Lcd.println("Using default options.");
+        Serial.println("[ERROR] loadPotlistFromSD: potlist.txt not found.");
+        
+        lastValidIndex = 2; // デフォルト項目の最後のインデックス
+        Serial.printf("[DEBUG] loadPotlistFromSD: File not found, lastValidIndex set to %d.\n", lastValidIndex);
+        return;
+    }
+
+    int i = 0;
+    while (potlistFile.available() && i < POTLIST_MAX_SIZE) {
+        potlist[i] = potlistFile.readStringUntil('\n');
+        potlist[i].trim(); // 前後の空白や改行を削除
+        Serial.printf("[DEBUG] loadPotlistFromSD: Read line %d: '%s'\n", i, potlist[i].c_str());
+        if (!potlist[i].isEmpty()) {
+            lastValidIndex = i; // 有効な項目のインデックスを更新
+        }
+        i++;
+    }
+    potlistFile.close();
+    M5.Lcd.println("Options loaded from SD.");
+    Serial.printf("[INFO] loadPotlistFromSD: Options loaded from SD. Final lastValidIndex: %d\n", lastValidIndex);
+
+    // SDから何も読み込まれなかった場合 (空ファイルなど) の処理
+    if (lastValidIndex == 0 && potlist[0].isEmpty()) {
+        M5.Lcd.println("SD file is empty, using defaults.");
+        Serial.println("[INFO] loadPotlistFromSD: SD file is empty, using defaults.");
+        potlist[0] = "Default Item 1";
+        potlist[1] = "Default Item 2";
+        potlist[2] = "Default Item 3";
+        lastValidIndex = 2;
+    }
+    Serial.printf("[DEBUG] loadPotlistFromSD: Exiting. lastValidIndex is now %d.\n", lastValidIndex);
+
+}
+
+// 画面に項目を描画する関数
+void drawOption(const String& optionText, int yPos) {
+    int screenWidth = M5.Lcd.width();
+    M5.Lcd.setTextSize(3); // フォントサイズを3に設定
+    int textWidth = M5.Lcd.textWidth(optionText);
+    int xPos = (screenWidth - textWidth) / 2; // 中央揃え
+
+    M5.Lcd.setCursor(xPos, yPos);
+    M5.Lcd.print(optionText);
+}
+
+// 画面を部分的に更新する関数 (点滅ロジックを含む)
+void updateDisplay() {
+    // 50msごとに点滅状態を切り替える
+    if (millis() - lastBlinkToggleTime >= 50) {
+        showAngleBrackets = !showAngleBrackets;
+        lastBlinkToggleTime = millis();
+        Serial.printf("[DEBUG] updateDisplay: Blink toggled. showAngleBrackets: %d\n", showAngleBrackets);
+    }
+
+    // 項目表示部分を黒で塗りつぶす (フォントサイズ3, 1行分の高さ)
+    M5.Lcd.setTextSize(3); // フォントサイズを3に設定
+    int textHeight = M5.Lcd.fontHeight() + 2; // フォントの高さ+パディング
+    M5.Lcd.fillRect(0, 0, M5.Lcd.width(), textHeight, BLACK); // 項目表示部分をクリア
+
+    M5.Lcd.setTextColor(WHITE, BLACK);
+
+    String textToDisplay = potlist[currentPos];
+    if (showAngleBrackets) {
+        textToDisplay = "<" + textToDisplay + ">";
+    }
+    
+    // drawOptionを呼び出し
+    drawOption(textToDisplay, 5); // 画面上部、Y座標5に描画
+
+    Serial.printf("[DEBUG] updateDisplay: Drawing item at pos %d: '%s' (Blink:%d)\n", currentPos, textToDisplay.c_str(), showAngleBrackets);
+}
+
 
 //#endregion Text 1
 
@@ -2055,7 +2190,25 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策
-  if(mainmode == 6){
+
+ if(mainmode == 7){
+
+    updateDisplay();
+        if (M5.BtnA.wasPressed()) {
+        currentPos--;
+        if (currentPos < 0) {
+            currentPos = lastValidIndex;
+        }
+    }
+
+    if (M5.BtnC.wasPressed()) {
+        currentPos++;
+        if (currentPos > lastValidIndex || potlist[currentPos].isEmpty()) {
+            currentPos = 0;
+        }
+    }
+ }
+  else if(mainmode == 6){
     delay(1);
     if(maxLinesPerPage2 == 1){
           positpoint = 0;
@@ -2075,7 +2228,7 @@ void loop() {
           if(isValidWindowsFileName(SuperT)){
         Textex = "renaming file...";
         
-        bool gg = renameSDItem(DirecX + Filelist[nowposit()], DirecX + "/" + SuperT);
+        bool gg = renameSDItem(DirecX + Filelist[nowposit()], DirecX + SuperT);
         if(gg){
             entryenter = 0;
           mainmode = 1;
@@ -2097,7 +2250,7 @@ void loop() {
         if(isValidWindowsDirName(SuperT)){
         Textex = "renaming dir...";
         Serial.println(maeredirect(DirecX) + "/" + SuperT + ":" + DirecX);
-        bool gg = renameSDItem(DirecX ,  maeredirect(DirecX) +  "/" +SuperT);
+        bool gg = renameSDItem(DirecX ,  maeredirect(DirecX) +  SuperT);
         if(gg){
             entryenter = 0;
           mainmode = 1;
@@ -2163,6 +2316,16 @@ void loop() {
   }
   else if(mainmode == 4){
     updatePointer(true);
+     if(pagemoveflag == 4 && btna){
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = holdpositpoint;
+        mainmode = 1;
+
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+   }
     if(positpoint == 2 && M5.BtnB.wasPressed()){//delete dir
       // ディレクトリの削除
       bool dd = areusure();
@@ -2701,7 +2864,7 @@ void loop() {
     if(!otroot && !nosd){
       updatePointer(false);
     }
-      
+       
        if(btnc && pagemoveflag == 5){
           imano_page = 0;
         positpoint = 0;
@@ -2852,7 +3015,7 @@ void loop() {
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
         otroot = false;
-        M5.Lcd.println("   Make File\n   Rename\n   Delete Dir\n   Make Dir\n  Paste File\n  Back Home" );
+        M5.Lcd.println("  Make File\n  Rename\n  Delete Dir\n  Make Dir\n  Paste File\n  Back Home" );
         shokaipointer(false);
         return;
 
@@ -2892,7 +3055,7 @@ void loop() {
 
     if (M5.BtnA.wasPressed() ) {
       if (maindex == 0) {
-        maindex = 4; // 最後のオプションへループ
+       maindex = sizeof(sitagar) / sizeof(sitagar[0]);
       } else {
         maindex--;
       }
@@ -2910,8 +3073,18 @@ void loop() {
         copymotroot = "";
         shokaipointer();
         return;//mainmode0フラグ誤作動対策
-      } else {
-        // その他のボタンBのアクション
+      } else  if(maindex == 4){
+        if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) {//SDカード入ってない
+          serious_errorsd = true;
+          kanketu("No SD Card!",500);
+    
+          return;
+        }
+        M5.Lcd.fillScreen(BLACK); // 画面をクリア
+        mainmode = 7; // モードをSDリスト表示モードに切り替え
+        
+        
+        return;//mainmode0フラグ誤作動対策
       }
       // ボタンBが押された場合、sitaを"button1"に設定し、textexx()を呼び出す
       // これはメニューモードでのみ行われる
@@ -2923,7 +3096,7 @@ void loop() {
 
     // ボタンCが押された場合の処理 (メニューを下に移動)
     if (M5.BtnC.wasPressed()) {
-      if (maindex < 4) { // 最後のオプション (インデックス4) まで移動
+      if (maindex < sizeof(sitagar) / sizeof(sitagar[0])) { // 最後のオプション (インデックス4) まで移動
         maindex++;
       } else {
         maindex = 0; // 最初のオプションへループ
