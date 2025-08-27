@@ -5,7 +5,7 @@
 #include <FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
-
+#include <map>      // std::mapを使用するため
 
 
 
@@ -381,11 +381,19 @@ bool isValidWindowsFileName(String textt) {
 
 #pragma endregion <hensu>
 #pragma region <hensu2>
-const int POTLIST_MAX_SIZE = 100;
-String potlist[POTLIST_MAX_SIZE] = {"file extension","string file type","search file/data name","sort type","back"}; // グローバルで定義済み
+
+bool isStart = true;
+String potlist[] = {"fileext","stringtype","search dir","sort type","back"}; // グローバルで定義済み
+int numMenuItems = sizeof(potlist) / sizeof(potlist[0]); 
 int currentPos = 0;
 bool redrawRequired = true; // 再描画が必要かどうかのフラグ
 int lastValidIndex = 0;     // 最後に有効な項目のインデックス
+// 追加するグローバル変数
+String JJ = "Test JJ Text"; // JJの初期値
+String currentPosDisplayText = ""; // 最下部に表示されるCurrentPosのテキスト
+// 再描画最適化のための変数
+String lastDrawnJj = ""; 
+String lastDrawnCurrentPosText = "";
 
 // 点滅関連のグローバル変数
 unsigned long lastBlinkToggleTime = 0;
@@ -2062,93 +2070,469 @@ void textexx() {
   }
 }
 
-// オプションリストをSDカードから読み込む関数
+
+#pragma region <potlist>
+// --- オプションリストをSDカードから読み込む関数 ---
 void loadPotlistFromSD() {
-    Serial.println("[DEBUG] loadPotlistFromSD: Starting.");
-    for (int i = 0; i < POTLIST_MAX_SIZE; i++) {
-        potlist[i] = ""; // 全て空文字で初期化
-    }
-    lastValidIndex = 0; // 初期化
-
     // SD.begin()は既にこの関数の外で成功していると仮定
-    // ここではSDカードが利用可能であることを前提とする
-    // もしSD.begin()が失敗している場合、以下のSDファイル操作も失敗する可能性があります
-
     File potlistFile = SD.open("/potlist.txt", FILE_READ);
-    if (!potlistFile) {
-        M5.Lcd.setCursor(0, 0);
-        M5.Lcd.println("potlist.txt not found.");
-        M5.Lcd.println("Using default options.");
-        Serial.println("[ERROR] loadPotlistFromSD: potlist.txt not found.");
-        
-        lastValidIndex = 2; // デフォルト項目の最後のインデックス
-        Serial.printf("[DEBUG] loadPotlistFromSD: File not found, lastValidIndex set to %d.\n", lastValidIndex);
-        return;
-    }
+    // !potlistFile のチェックは削除されたため、ファイルは必ず開けると仮定します。
+    // もしファイルが実際に存在しない場合、SD.open()はNULLを返し、この後の処理で問題が発生する可能性があります。
+    // その場合、potlistは空のままでメニュー項目も空文字列が表示されます。
 
     int i = 0;
-    while (potlistFile.available() && i < POTLIST_MAX_SIZE) {
-        potlist[i] = potlistFile.readStringUntil('\n');
-        potlist[i].trim(); // 前後の空白や改行を削除
-        Serial.printf("[DEBUG] loadPotlistFromSD: Read line %d: '%s'\n", i, potlist[i].c_str());
-        if (!potlist[i].isEmpty()) {
-            lastValidIndex = i; // 有効な項目のインデックスを更新
+    if (potlistFile) { // ファイルが正常に開けた場合のみ読み込み
+        while (potlistFile.available() && i < numMenuItems) { // numMenuItems (配列全長) まで読み込みを試みる
+            potlist[i] = potlistFile.readStringUntil('\n');
+            potlist[i].trim(); // 前後の空白や改行を削除
+            i++;
         }
-        i++;
+        potlistFile.close();
+    } else {
+        // デフォルト項目を設定 (numMenuItemsは変更せず、配列に値をセット)
+        potlist[0] = "Default A";
+        potlist[1] = "Default B is very very very long text for testing overflow";
+        potlist[2] = "Default C";
+        potlist[3] = "Default D"; // 4つ目の項目
     }
-    potlistFile.close();
-    M5.Lcd.println("Options loaded from SD.");
-    Serial.printf("[INFO] loadPotlistFromSD: Options loaded from SD. Final lastValidIndex: %d\n", lastValidIndex);
-
-    // SDから何も読み込まれなかった場合 (空ファイルなど) の処理
-    if (lastValidIndex == 0 && potlist[0].isEmpty()) {
-        M5.Lcd.println("SD file is empty, using defaults.");
-        Serial.println("[INFO] loadPotlistFromSD: SD file is empty, using defaults.");
-        potlist[0] = "Default Item 1";
-        potlist[1] = "Default Item 2";
-        potlist[2] = "Default Item 3";
-        lastValidIndex = 2;
-    }
-    Serial.printf("[DEBUG] loadPotlistFromSD: Exiting. lastValidIndex is now %d.\n", lastValidIndex);
-
 }
 
-// 画面に項目を描画する関数
-void drawOption(const String& optionText, int yPos) {
+// --- 画面に項目を描画する関数 (純粋な描画部分) ---
+// Y座標を指定してテキストを中央揃えで描画
+void drawCenteredText(const String& text, int yPos) {
     int screenWidth = M5.Lcd.width();
-    M5.Lcd.setTextSize(3); // フォントサイズを3に設定
-    int textWidth = M5.Lcd.textWidth(optionText);
+    M5.Lcd.setTextSize(3); // 描画前に必ずテキストサイズを設定
+    int textWidth = M5.Lcd.textWidth(text);
     int xPos = (screenWidth - textWidth) / 2; // 中央揃え
 
     M5.Lcd.setCursor(xPos, yPos);
-    M5.Lcd.print(optionText);
+    M5.Lcd.print(text);
 }
 
-// 画面を部分的に更新する関数 (点滅ロジックを含む)
-void updateDisplay() {
+// --- JJテキストの描画を管理する関数 ---
+void drawJjText(int yPos, int charHeight, int padding) {
+    String currentJjText = JJ; // グローバル変数JJの現在の値を取得
+    if (currentJjText != lastDrawnJj) { // JJが変更された場合のみ再描画
+        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK); 
+        M5.Lcd.setTextColor(YELLOW, BLACK); // JJは黄色に
+        drawCenteredText(currentJjText, yPos); // JJを上下・左右真ん中に描画
+        lastDrawnJj = currentJjText; // 描画内容を記憶
+    }
+}
+
+// --- CurrentPosテキストの描画を管理する関数 ---
+void drawCurrentPosText(int yPos, int charHeight, int padding) {
+    String currentCurrentPosText = potlist[currentPos]; // currentPosの現在のテキストを取得
+    if (currentCurrentPosText != lastDrawnCurrentPosText) { // CurrentPosテキストが変更された場合のみ再描画
+        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK); 
+        M5.Lcd.setTextColor(GREEN, BLACK); // CurrentPosは緑色に
+
+        // currentPosTextContentも画面幅に合わせて切り詰める
+        int screenWidth = M5.Lcd.width();
+        int maxCurrentPosTextWidth = screenWidth - 10; // 左右5pxずつ余白
+        while (M5.Lcd.textWidth(currentCurrentPosText) > maxCurrentPosTextWidth && currentCurrentPosText.length() > 0) {
+            currentCurrentPosText = currentCurrentPosText.substring(0, currentCurrentPosText.length() - 1);
+        }
+        drawCenteredText(currentCurrentPosText, yPos); // 最下部の真ん中に描画
+        lastDrawnCurrentPosText = currentCurrentPosText; // 描画内容を記憶
+    }
+}
+
+
+// --- ポインターの変動と画面更新を行う関数 ---
+// ril: 0=なし, 1=BtnA, 2=BtnC, 3=BtnB
+// isStart: trueの場合、すべての要素を強制的に再描画する
+void updatePointerAndDisplay(int ril, bool isStart = false) {
+    bool pointerChanged = false;
+
+    if (ril == 1) { // BtnAが押された場合
+        currentPos--;
+        if (currentPos < 0) {
+            currentPos = numMenuItems - 1; // 最後の項目へ
+        }
+        pointerChanged = true;
+    } else if (ril == 2) { // BtnCが押された場合
+        currentPos++;
+        if (currentPos >= numMenuItems) {
+            currentPos = 0; // 最初の項目へ
+        }
+        pointerChanged = true;
+    } else if (ril == 3) { // BtnBが押された場合 (現在の要件では何もしない)
+        // デバッグ出力
+    }
+
+    // ポインターが変更されたか、点滅のタイミングが来た場合にのみ描画を更新
     // 50msごとに点滅状態を切り替える
     if (millis() - lastBlinkToggleTime >= 50) {
         showAngleBrackets = !showAngleBrackets;
         lastBlinkToggleTime = millis();
-        Serial.printf("[DEBUG] updateDisplay: Blink toggled. showAngleBrackets: %d\n", showAngleBrackets);
+        // Serial.printf("[DEBUG] updatePointerAndDisplay: Blink toggled. showAngleBrackets: %d\n", showAngleBrackets);
+        pointerChanged = true; // 点滅トグルも再描画を必要とする
     }
 
-    // 項目表示部分を黒で塗りつぶす (フォントサイズ3, 1行分の高さ)
-    M5.Lcd.setTextSize(3); // フォントサイズを3に設定
-    int textHeight = M5.Lcd.fontHeight() + 2; // フォントの高さ+パディング
-    M5.Lcd.fillRect(0, 0, M5.Lcd.width(), textHeight, BLACK); // 項目表示部分をクリア
-
-    M5.Lcd.setTextColor(WHITE, BLACK);
-
-    String textToDisplay = potlist[currentPos];
-    if (showAngleBrackets) {
-        textToDisplay = "<" + textToDisplay + ">";
+    // isStartがtrueの場合、強制的に全再描画
+    if (isStart) {
+        pointerChanged = true;
+        lastDrawnJj = ""; // JJを強制的に再描画させる
+        lastDrawnCurrentPosText = ""; // CurrentPosTextを強制的に再描画させる
     }
     
-    // drawOptionを呼び出し
-    drawOption(textToDisplay, 5); // 画面上部、Y座標5に描画
+    // ボタンが押された時のみ、デバッグ情報を出力
+    if (ril != 0) {
+        Serial.printf("[DEBUG] updatePointerAndDisplay: Button pressed. ril: %d, New currentPos: %d, Item: '%s'\n", ril, currentPos, potlist[currentPos].c_str());
+    }
 
-    Serial.printf("[DEBUG] updateDisplay: Drawing item at pos %d: '%s' (Blink:%d)\n", currentPos, textToDisplay.c_str(), showAngleBrackets);
+
+    M5.Lcd.setTextSize(3); // 描画前に必ずテキストサイズを設定
+    int charHeight = M5.Lcd.fontHeight(); // 1文字の高さ
+    int padding = 2; // パディング
+
+    // --- 1. 最上部メニュー項目領域をクリア & 描画 ---
+    // Y座標5から、後2行下（charHeight * 2分）にずらす
+    int menuYPos = 5 + (charHeight + padding) * 2; 
+    
+    // ポインターが変更された、または点滅がトグルされた場合のみ描画
+    if (pointerChanged) { 
+        M5.Lcd.fillRect(0, menuYPos, M5.Lcd.width(), charHeight + padding, BLACK); 
+        M5.Lcd.setTextColor(WHITE, BLACK); // メニュー項目は白に
+
+        String rawText = potlist[currentPos];
+        String textToDisplay = rawText;
+        
+        // テキストの幅をチェックし、はみ出す場合は切り詰める
+        int screenWidth = M5.Lcd.width();
+        M5.Lcd.setTextSize(3); // textWidth計算のために再度設定
+        
+        // <>を含んだ状態での最大表示幅を考慮して切り詰める
+        int angleBracketWidth = M5.Lcd.textWidth("<>"); // "<>"の合計幅
+        int maxTextWidthExcludingBrackets = screenWidth - angleBracketWidth - 4; // 左右に2pxずつ余白
+        
+        while (M5.Lcd.textWidth(rawText) > maxTextWidthExcludingBrackets && rawText.length() > 0) {
+            rawText = rawText.substring(0, rawText.length() - 1);
+        }
+
+        if (showAngleBrackets) {
+            textToDisplay = "<" + rawText + ">";
+        } else {
+            textToDisplay = rawText; 
+        }
+        drawCenteredText(textToDisplay, menuYPos); // 画面上部、Y座標をずらして描画
+    }
+    // --- メニュー項目描画終了 ---
+
+
+    // --- 2. JJ文字列を上下・左右真ん中に描画 ---
+    // isStartがfalseでも常に呼び出すように変更
+    int JjYPos = (M5.Lcd.height() / 2) - (charHeight / 2); 
+    drawJjText(JjYPos, charHeight, padding);
+
+
+    // --- 3. CurrentPosのテキストを最下部の真ん中に描画 ---
+    // isStartがfalseでも常に呼び出すように変更
+    int footerHeight = M5.Lcd.fontHeight() * 2 + padding; // setTextSize(2) + padding
+    int CurrentPosYPos = M5.Lcd.height() - footerHeight - charHeight - padding; 
+    drawCurrentPosText(CurrentPosYPos, charHeight, padding);
+
+    // ボタンが押された場合のみ点滅をリセット
+    if (ril != 0) { 
+        lastBlinkToggleTime = millis(); 
+        showAngleBrackets = true;       
+    }
+}
+
+#pragma endregion
+
+
+
+
+
+
+// メタデータファイルから抽出された変数情報を保持する構造体
+struct MettVariableInfo {
+    String variableName; // 変数名 (例: "projectName")
+    String dataType;     // データ型 (例: "String", "int", "double", "StringVector"など)
+    String valueString;  // 値の文字表現 (例: "MyProject", "123", "tag1,tag2")
+};
+
+// 単一のメタデータファイルの情報を保持する構造体
+struct FileMettData {
+    String fileName;                      // ファイル名 (例: "/data/my_data.mett")
+    size_t fileSize;                      // ファイルサイズ（バイト）
+    std::vector<MettVariableInfo> variables; // ファイル内に格納されている変数のリスト
+};
+
+// メタデータ保存/読み込み用のマップ型
+// キー: 変数名, 値: 値の文字列
+typedef std::map<String, String> MettDataMap;
+
+/**
+ * @brief メタデータファイルを指定されたフォルダに作成し、マップに格納された変数を保存します。
+ *
+ * @param fs SDカードファイルシステムオブジェクト。
+ * @param DirecD ファイルを保存するディレクトリパス (例: "/data")。
+ * @param filename 保存するファイルの名前 (拡張子なし、例: "my_data")。
+ * @param data 保存するMettDataMapの参照。
+ */
+void saveMettFile(fs::FS &fs, const String& DirecD, const String& filename, const MettDataMap& data) {
+    String fullPath = DirecD + "/" + filename + ".mett";
+    
+    // ファイルを追記モードで開く
+    File file = fs.open(fullPath.c_str(), FILE_APPEND);
+    if (!file) {
+        Serial.println("Error: Failed to open file for writing.");
+        return;
+    }
+
+    // マップの各要素を '変数名:値' の形式でファイルに書き込む
+    file.println("--- NEW DATA SET ---"); // データの区切りとしてマークを追加
+    for(const auto& pair : data) {
+        file.printf("%s:%s\n", pair.first.c_str(), pair.second.c_str());
+    }
+    file.println(); // 改行を追加して次のデータセットと区切る
+
+    file.close();
+    Serial.printf("Info: File saved: %s\n", fullPath.c_str());
+}
+
+/**
+ * @brief 文字列からデータ型を推測するヘルパー関数。
+ * @param valueString 値の文字列。
+ * @return 推測されたデータ型名 (String)。
+ */
+String inferDataType(const String& valueString) {
+    // 空文字列はStringとして扱う
+    if (valueString.isEmpty()) {
+        return "String";
+    }
+
+    // カンマが含まれているかチェック
+    if (valueString.indexOf(',') != -1) {
+        // カンマで分割して要素をチェック
+        int commaIndex = 0;
+        bool isIntArray = true;
+        bool isDoubleArray = true;
+        bool isStringArray = false;
+        String tempValue = valueString;
+
+        while (tempValue.length() > 0) {
+            commaIndex = tempValue.indexOf(',');
+            String element;
+            if (commaIndex == -1) {
+                element = tempValue;
+                tempValue = "";
+            } else {
+                element = tempValue.substring(0, commaIndex);
+                tempValue = tempValue.substring(commaIndex + 1);
+            }
+            
+            element.trim();
+
+            if (element.indexOf('.') != -1) {
+                // 小数点がある場合はintではない
+                isIntArray = false;
+            }
+            
+            // isdigit()を使って数値かどうかチェック
+            bool isNumber = true;
+            for(size_t i = 0; i < element.length(); i++) {
+                if (element.charAt(i) != '-' && !isdigit(element.charAt(i)) && element.charAt(i) != '.') {
+                    isNumber = false;
+                    break;
+                }
+            }
+            if (!isNumber) {
+                isIntArray = false;
+                isDoubleArray = false;
+                isStringArray = true;
+            }
+        }
+        
+        if (isIntArray && !isStringArray) {
+            return "IntArray";
+        }
+        if (isDoubleArray && !isStringArray) {
+            return "DoubleArray";
+        }
+        return "StringArray";
+    }
+
+    // カンマがない場合
+    bool isInt = true;
+    bool isDouble = false;
+    for(size_t i = 0; i < valueString.length(); i++) {
+        if (valueString.charAt(i) == '.') {
+            isDouble = true;
+        } else if (!isdigit(valueString.charAt(i)) && valueString.charAt(i) != '-') {
+            isInt = false;
+            isDouble = false; // 数字でないため、intでもdoubleでもない
+            break;
+        }
+    }
+    
+    if (isInt) {
+        return "int";
+    }
+    if (isDouble) {
+        return "double";
+    }
+    return "String";
+}
+
+
+/**
+ * @brief SDカード上の指定されたディレクトリからメタデータファイル (.mett) をスキャンし、
+ * ファイル名、容量、およびファイル内のすべての変数データをリストとして返します。
+ *
+ * @param fs SDカードファイルシステムオブジェクト。
+ * @param DirecD スキャンするディレクトリパス (例: "/data")。
+ * @return std::vector<FileMettData> スキャン結果のリスト。
+ */
+std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD) {
+    std::vector<FileMettData> allMettFilesData; // 結果を格納するベクター
+
+    File root = fs.open(DirecD.c_str());
+    if (!root) {
+        Serial.printf("Error: Failed to open directory: %s\n", DirecD.c_str());
+        return allMettFilesData; // 空のベクターを返す
+    }
+    if (!root.isDirectory()) {
+        Serial.printf("Error: Not a directory: %s\n", DirecD.c_str());
+        return allMettFilesData; // 空のベクターを返す
+    }
+
+    File file = root.openNextFile();
+    while(file){
+        if (file.isDirectory()) {
+            Serial.printf("Info: Skipping directory: %s\n", file.name());
+        } else {
+            String fileName = file.name();
+            // 拡張子が ".mett" のファイルのみを処理
+            if (fileName.endsWith(".mett")) {
+                FileMettData currentFileData;
+                currentFileData.fileName = DirecD + "/" + fileName; // フルパス
+                currentFileData.fileSize = file.size();
+
+                Serial.printf("Info: Processing mett file: %s (Size: %u bytes)\n", currentFileData.fileName.c_str(), currentFileData.fileSize);
+
+                // ファイルを読み込みモードで再度開く
+                File mettFile = fs.open(currentFileData.fileName.c_str());
+                if (!mettFile) {
+                    Serial.printf("Error: Failed to open mett file for reading: %s\n", currentFileData.fileName.c_str());
+                    file = root.openNextFile(); // 次のファイルへ
+                    continue;
+                }
+
+                // ファイルの内容を一行ずつ読み込み、変数情報を抽出
+                while(mettFile.available()){
+                    String line = mettFile.readStringUntil('\n');
+                    line.trim(); // 前後の空白を削除
+
+                    if (line.startsWith("#") || line.isEmpty() || line.startsWith("---")) {
+                        continue; // コメント行、空行、区切り行は無視
+                    }
+
+                    // '変数名:値' の形式を解析
+                    int colonIndex = line.indexOf(':');
+
+                    if (colonIndex == -1) {
+                        Serial.printf("Warning: Invalid mett line format: %s\n", line.c_str());
+                        continue; // 不正な形式の行は無視
+                    }
+                    
+                    MettVariableInfo varInfo;
+                    varInfo.variableName = line.substring(0, colonIndex);
+                    varInfo.valueString = line.substring(colonIndex + 1);
+
+                    varInfo.variableName.trim();
+                    varInfo.valueString.trim();
+
+                    // データ型を推測して設定
+                    varInfo.dataType = inferDataType(varInfo.valueString);
+
+                    currentFileData.variables.push_back(varInfo);
+                }
+                mettFile.close();
+                allMettFilesData.push_back(currentFileData); // 抽出したファイル情報をリストに追加
+            }
+        }
+        file = root.openNextFile();
+    }
+    return allMettFilesData;
+}
+
+/**
+ * @brief SDカードを初期化し、必要なディレクトリとファイルを作成します。
+ * @param filePath 存在を確認・作成するファイルのフルパス。
+ * @return bool 初期化が成功した場合はtrue、失敗した場合はfalseを返します。
+ */
+bool initializeSDCard(const String& filePath) {
+    Serial.println("\n--- Initializing SD Card and Directories ---");
+    
+    // SDカードの容量表示
+    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+    Serial.printf("Info: SD Card Size: %lluMB\n", cardSize);
+    M5.Lcd.printf("SD Card: %lluMB\n", cardSize);
+    
+    // パスからディレクトリ名とファイル名を抽出
+    int lastSlash = filePath.lastIndexOf('/');
+    String direcD = filePath.substring(0, lastSlash);
+
+    // 保存ディレクトリが存在しない場合は作成
+    if (!SD.exists(direcD)) {
+        if (!SD.mkdir(direcD)) {
+            Serial.printf("Error: Failed to create directory: %s\n", direcD.c_str());
+            return false;
+        }
+        Serial.printf("Info: Directory created: %s\n", direcD.c_str());
+    }
+
+    // 特定のファイルが存在しない場合は空ファイルを作成
+    if (!SD.exists(filePath)) {
+        File file = SD.open(filePath.c_str(), FILE_WRITE);
+        if (!file) {
+            Serial.printf("Error: Failed to create file: %s\n", filePath.c_str());
+            return false;
+        }
+        file.close();
+        Serial.printf("Info: Empty file created: %s\n", filePath.c_str());
+    }
+
+    Serial.println("--- SD Card Initialization Complete ---");
+    return true;
+}
+
+/**
+ * @brief 抽出されたメタデータリストの内容をシリアルモニタに出力します。
+ * @param extractedDataList 抽出されたデータのベクター。
+ */
+void printExtractedData(const std::vector<FileMettData>& extractedDataList) {
+    if (extractedDataList.empty()) {
+        Serial.println("Info: No .mett files found or data extracted.");
+    } else {
+        Serial.println("\n--- Extracted Data Summary ---");
+        for (const auto& fileData : extractedDataList) {
+            Serial.printf("File: %s (Size: %u bytes)\n", fileData.fileName.c_str(), fileData.fileSize);
+            // ファイル内のすべてのデータセットをループ
+            for (const auto& var : fileData.variables) {
+                // 変数名、データ形式、データ内容を出力
+                Serial.printf("  - Variable: %s, Data Type: %s, Value: %s\n",
+                              var.variableName.c_str(), var.dataType.c_str(), var.valueString.c_str());
+            }
+            Serial.println("--------------------");
+        }
+    }
+}
+
+// updateMenuDisplay(ril)関数の修正版
+void updateMenuDisplay(int ril) {
+    // 画面をクリアして文字を描画
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.println("Initial run text."); // ここに表示したい文字を描画
+    
+    // ここにrilを処理する本来のロジックを実装
+    // 例: ポインタの更新など
 }
 
 
@@ -2158,16 +2542,25 @@ void updateDisplay() {
 void setup() {
   auto cfg = M5.config();
   Serial.begin(115200);
-  delay(500);
+  
   M5.begin();
+  SD.begin();
+  
   Serial.println("M5Stack initialized");
 
     Wire.begin(); 
   Wire.setClock(400000);
+  
+  // SDカードの初期化を試みます
+  // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
+  updatePointerAndDisplay(0,true);
+
+  
+
   // 文字のサイズと色を設定（小さめで表示）
   M5.Lcd.setTextSize(sizex);
   M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
-  
+  M5.Lcd.fillScreen(BLACK); // 画面全体を黒でクリア
   // 左上すれすれ (0,0) に表示
   M5.Lcd.setCursor(0, 0);
   sita = "hello";
@@ -2177,13 +2570,11 @@ void setup() {
   mainmode = 0;
    
 
-
+  
   // USB接続/切断コールバックを設定
 
 
-  // SDカードの初期化を試みます
-  // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
-  SD.begin();
+  
 
 }
 
@@ -2193,20 +2584,28 @@ void loop() {
 
  if(mainmode == 7){
 
-    updateDisplay();
-        if (M5.BtnA.wasPressed()) {
-        currentPos--;
-        if (currentPos < 0) {
-            currentPos = lastValidIndex;
-        }
-    }
+   M5.update(); // ボタン状態を更新
+int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
 
-    if (M5.BtnC.wasPressed()) {
-        currentPos++;
-        if (currentPos > lastValidIndex || potlist[currentPos].isEmpty()) {
-            currentPos = 0;
+    
+        if (M5.BtnA.wasPressed()) {
+            ril = 1; // BtnAが押された
+        } else if (M5.BtnC.wasPressed()) {
+            ril = 2; // BtnCが押された
         }
-    }
+
+        updatePointerAndDisplay(ril,false); // rilの値に応じてポインターを更新し、表示
+        if(M5.BtnB.wasPressed()){
+          if(currentPos == 0){
+            M5.Lcd.fillScreen(BLACK);
+            
+          
+            
+
+
+          }
+        }
+
  }
   else if(mainmode == 6){
     delay(1);
@@ -3077,9 +3476,19 @@ void loop() {
         if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) {//SDカード入ってない
           serious_errorsd = true;
           kanketu("No SD Card!",500);
-    
+          mainmode = 0;
+
+          M5.Lcd.setCursor(0, 0);
+        sita = "hello";
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+       
+
           return;
         }
+       updatePointerAndDisplay(0,true);
         M5.Lcd.fillScreen(BLACK); // 画面をクリア
         mainmode = 7; // モードをSDリスト表示モードに切り替え
         
