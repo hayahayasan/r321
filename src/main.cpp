@@ -2113,8 +2113,9 @@ void drawCenteredText(const String& text, int yPos) {
 void drawJjText(int yPos, int charHeight, int padding) {
     String currentJjText = JJ; // グローバル変数JJの現在の値を取得
     if (currentJjText != lastDrawnJj) { // JJが変更された場合のみ再描画
-        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK); 
         M5.Lcd.setTextColor(YELLOW, BLACK); // JJは黄色に
+        // JJテキストは左右無制限に塗りつぶす
+        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK); 
         drawCenteredText(currentJjText, yPos); // JJを上下・左右真ん中に描画
         lastDrawnJj = currentJjText; // 描画内容を記憶
     }
@@ -2124,7 +2125,6 @@ void drawJjText(int yPos, int charHeight, int padding) {
 void drawCurrentPosText(int yPos, int charHeight, int padding) {
     String currentCurrentPosText = potlist[currentPos]; // currentPosの現在のテキストを取得
     if (currentCurrentPosText != lastDrawnCurrentPosText) { // CurrentPosテキストが変更された場合のみ再描画
-        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK); 
         M5.Lcd.setTextColor(GREEN, BLACK); // CurrentPosは緑色に
 
         // currentPosTextContentも画面幅に合わせて切り詰める
@@ -2133,6 +2133,8 @@ void drawCurrentPosText(int yPos, int charHeight, int padding) {
         while (M5.Lcd.textWidth(currentCurrentPosText) > maxCurrentPosTextWidth && currentCurrentPosText.length() > 0) {
             currentCurrentPosText = currentCurrentPosText.substring(0, currentCurrentPosText.length() - 1);
         }
+        // CurrentPosテキストも左右無制限に塗りつぶす
+        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK);
         drawCenteredText(currentCurrentPosText, yPos); // 最下部の真ん中に描画
         lastDrawnCurrentPosText = currentCurrentPosText; // 描画内容を記憶
     }
@@ -2141,8 +2143,7 @@ void drawCurrentPosText(int yPos, int charHeight, int padding) {
 
 // --- ポインターの変動と画面更新を行う関数 ---
 // ril: 0=なし, 1=BtnA, 2=BtnC, 3=BtnB
-// isStart: trueの場合、すべての要素を強制的に再描画する
-void updatePointerAndDisplay(int ril, bool isStart = false) {
+void updatePointerAndDisplay(int ril) {
     bool pointerChanged = false;
 
     if (ril == 1) { // BtnAが押された場合
@@ -2170,12 +2171,6 @@ void updatePointerAndDisplay(int ril, bool isStart = false) {
         pointerChanged = true; // 点滅トグルも再描画を必要とする
     }
 
-    // isStartがtrueの場合、強制的に全再描画
-    if (isStart) {
-        pointerChanged = true;
-        lastDrawnJj = ""; // JJを強制的に再描画させる
-        lastDrawnCurrentPosText = ""; // CurrentPosTextを強制的に再描画させる
-    }
     
     // ボタンが押された時のみ、デバッグ情報を出力
     if (ril != 0) {
@@ -2222,13 +2217,13 @@ void updatePointerAndDisplay(int ril, bool isStart = false) {
 
 
     // --- 2. JJ文字列を上下・左右真ん中に描画 ---
-    // isStartがfalseでも常に呼び出すように変更
+    // 常に呼び出すように変更
     int JjYPos = (M5.Lcd.height() / 2) - (charHeight / 2); 
     drawJjText(JjYPos, charHeight, padding);
 
 
     // --- 3. CurrentPosのテキストを最下部の真ん中に描画 ---
-    // isStartがfalseでも常に呼び出すように変更
+    // 常に呼び出すように変更
     int footerHeight = M5.Lcd.fontHeight() * 2 + padding; // setTextSize(2) + padding
     int CurrentPosYPos = M5.Lcd.height() - footerHeight - charHeight - padding; 
     drawCurrentPosText(CurrentPosYPos, charHeight, padding);
@@ -2239,6 +2234,9 @@ void updatePointerAndDisplay(int ril, bool isStart = false) {
         showAngleBrackets = true;       
     }
 }
+
+
+
 
 #pragma endregion
 
@@ -2500,7 +2498,6 @@ bool initializeSDCard(const String& filePath) {
     Serial.println("--- SD Card Initialization Complete ---");
     return true;
 }
-
 /**
  * @brief 抽出されたメタデータリストの内容をシリアルモニタに出力します。
  * @param extractedDataList 抽出されたデータのベクター。
@@ -2553,7 +2550,7 @@ void setup() {
   
   // SDカードの初期化を試みます
   // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
-  updatePointerAndDisplay(0,true);
+ 
 
   
 
@@ -2594,7 +2591,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
             ril = 2; // BtnCが押された
         }
 
-        updatePointerAndDisplay(ril,false); // rilの値に応じてポインターを更新し、表示
+        updatePointerAndDisplay(ril); // rilの値に応じてポインターを更新し、表示
         if(M5.BtnB.wasPressed()){
           if(currentPos == 0){
             M5.Lcd.fillScreen(BLACK);
@@ -3484,12 +3481,28 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
         positpoint = 0;
         holdpositpoint = 0;
         imano_page = 0;
-       
+          
 
           return;
         }
-       updatePointerAndDisplay(0,true);
+       
         M5.Lcd.fillScreen(BLACK); // 画面をクリア
+        if(!initializeSDCard){
+          kanketu("SD File Create Failed!",600);
+          mainmode = 0;
+
+          M5.Lcd.setCursor(0, 0);
+        sita = "hello";
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+          
+
+          return;
+        }
+
+
         mainmode = 7; // モードをSDリスト表示モードに切り替え
         
         
