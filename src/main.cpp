@@ -2100,10 +2100,7 @@ void loadPotlistFromSD() {
         potlistFile.close();
     } else {
         // デフォルト項目を設定 (numMenuItemsは変更せず、配列に値をセット)
-        potlist[0] = "Default A";
-        potlist[1] = "Default B is very very very long text for testing overflow";
-        potlist[2] = "Default C";
-        potlist[3] = "Default D"; // 4つ目の項目
+        
     }
 }
 
@@ -2255,6 +2252,7 @@ void updatePointerAndDisplay(int ril) {
 
 
 # pragma region <Metload>
+
 // メタデータファイルから抽出された変数情報を保持する構造体
 struct MettVariableInfo {
     String variableName; // 変数名 (例: "projectName")
@@ -2431,6 +2429,13 @@ bool containsInvalidTableNameChars(const String& name) {
  */
 void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
     isError = false; // エラーフラグを初期化
+
+    // ファイルパスが絶対パスであることを確認
+    if (!fullFilePath.startsWith("/")) {
+        Serial.printf("Error: 保存できません。ファイルパスは絶対パスでなければなりません (例: /%s)。\n", fullFilePath.c_str());
+        isError = true;
+        return;
+    }
 
     // ファイル拡張子を抽出
     int dotIndex = fullFilePath.lastIndexOf('.');
@@ -2646,6 +2651,14 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     success = false;   // 初期状態は失敗
     isEmpty = true;    // 初期状態は空と仮定
 
+    // ファイルパスが絶対パスであることを確認
+    if (!fullFilePath.startsWith("/")) {
+        Serial.printf("Error: ロードできません。ファイルパスは絶対パスでなければなりません (例: /%s)。\n", fullFilePath.c_str());
+        success = false;
+        isEmpty = true;
+        return;
+    }
+
     // ファイル拡張子を抽出
     int dotIndex = fullFilePath.lastIndexOf('.');
     String extension = "";
@@ -2786,6 +2799,142 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     Serial.printf("Info: Mett file loaded successfully: %s (isEmpty: %s, Loaded Variables: %d)\n", fullFilePath.c_str(), isEmpty ? "true" : "false", variables.size());
 }
 
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値を文字列として取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は値のString、見つからない場合は空のString。
+ */
+String getVariableString(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    for (const auto& var : variables) {
+        if (var.variableName == varName) {
+            return var.valueString;
+        }
+    }
+    return ""; // 見つからない場合は空のStringを返す
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値をintとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は変換されたint値、見つからない場合は0。
+ */
+int getVariableInt(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    String value = getVariableString(variables, varName);
+    return value.toInt();
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値をcharとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は値の最初の文字、見つからない場合は'\0'。
+ */
+char getVariableChar(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    String value = getVariableString(variables, varName);
+    if (value.length() > 0) {
+        return value.charAt(0);
+    }
+    return '\0';
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値をdoubleとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は変換されたdouble値、見つからない場合は0.0。
+ */
+double getVariableDouble(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    String value = getVariableString(variables, varName);
+    return value.toDouble();
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値を文字列のベクターとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は値の文字列のベクター、見つからない場合は空のベクター。
+ */
+std::vector<String> getVariableStringArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    std::vector<String> result;
+    String value = getVariableString(variables, varName);
+    if (!value.isEmpty()) {
+        int lastIndex = 0;
+        int commaIndex;
+        while ((commaIndex = value.indexOf(',', lastIndex)) != -1) {
+            String element = value.substring(lastIndex, commaIndex);
+            element.trim();
+            result.push_back(element);
+            lastIndex = commaIndex + 1;
+        }
+        String lastElement = value.substring(lastIndex);
+        lastElement.trim();
+        result.push_back(lastElement);
+    }
+    return result;
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値をintのベクターとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は値のintのベクター、見つからない場合は空のベクター。
+ */
+std::vector<int> getVariableIntArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    std::vector<int> result;
+    std::vector<String> stringArray = getVariableStringArray(variables, varName);
+    for (const auto& s : stringArray) {
+        result.push_back(s.toInt());
+    }
+    return result;
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値をcharのベクターとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は値のcharのベクター、見つからない場合は空のベクター。
+ */
+std::vector<char> getVariableCharArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    std::vector<char> result;
+    std::vector<String> stringArray = getVariableStringArray(variables, varName);
+    for (const auto& s : stringArray) {
+        if (s.length() > 0) {
+            result.push_back(s.charAt(0));
+        } else {
+            result.push_back('\0');
+        }
+    }
+    return result;
+}
+
+/**
+ * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値をdoubleのベクターとして取得します。
+ * @param variables 検索対象のMettVariableInfoのベクター。
+ * @param varName 検索する変数名。
+ * @return 見つかった場合は値のdoubleのベクター、見つからない場合は空のベクター。
+ */
+std::vector<double> getVariableDoubleArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
+    std::vector<double> result;
+    std::vector<String> stringArray = getVariableStringArray(variables, varName);
+    for (const auto& s : stringArray) {
+        result.push_back(s.toDouble());
+    }
+    return result;
+}
+
+/**
+ * @brief 文字列をブール値に変換します。
+ * "true", "1", "yes" (大文字小文字を区別しない) は true と見なされます。
+ * @param valueString 変換する文字列。
+ * @return 変換されたブール値。
+ */
+bool stringToBool(const String& valueString) {
+    String lowerCase = valueString;
+    lowerCase.toLowerCase();
+    return (lowerCase == "true" || lowerCase == "1" || lowerCase == "yes");
+}
 
 /**
  * @brief SDカードを初期化し、必要なディレクトリとファイルを作成します。
@@ -2852,16 +3001,16 @@ bool initializeSDCard(const String& filePath) {
  * @param variables テーブルに保存されたMettVariableInfoのベクター。
  */
 void printTable(const String& fileName, const String& tableName, const std::vector<MettVariableInfo>& variables) {
+    Serial.printf("\n--- ファイル: %s のテーブル '%s' のデータ概要 ---\n", fileName.c_str(), tableName.c_str());
     if (variables.empty()) {
         Serial.printf("Info: ファイル '%s' のテーブル '%s' にはロードされた変数がありません。\n", fileName.c_str(), tableName.c_str());
     } else {
-        Serial.printf("\n--- ファイル: %s のテーブル '%s' のデータ概要 ---\n", fileName.c_str(), tableName.c_str());
         for (const auto& var : variables) {
             Serial.printf("   - 変数: %s, データ型: %s, 値: %s\n",
                           var.variableName.c_str(), var.dataType.c_str(), var.valueString.c_str());
         }
-        Serial.println("--------------------");
     }
+    Serial.println("--------------------");
 }
 
 /**
@@ -2869,10 +3018,10 @@ void printTable(const String& fileName, const String& tableName, const std::vect
  * @param extractedDataList 抽出されたFileMettDataのベクター。
  */
 void printFileM(const std::vector<FileMettData>& extractedDataList) {
+    Serial.println("\n--- フォルダ内の.mettファイルとテーブル名一覧 ---");
     if (extractedDataList.empty()) {
         Serial.println("Info: .mettファイルが見つからないか、データが抽出されませんでした。");
     } else {
-        Serial.println("\n--- フォルダ内の.mettファイルとテーブル名一覧 ---");
         for (const auto& fileData : extractedDataList) {
             Serial.printf("ファイル: %s (サイズ: %u バイト)\n", fileData.fileName.c_str(), fileData.fileSize);
             
@@ -2895,6 +3044,44 @@ void printFileM(const std::vector<FileMettData>& extractedDataList) {
     }
 }
 
+/**
+ * @brief std::vectorの要素をカンマ区切りのStringに結合します。
+ * @param vec 結合するベクター。
+ * @return 結合されたString。
+ */
+template <typename T>
+String joinVectorToString(const std::vector<T>& vec) {
+    if (vec.empty()) {
+        return "";
+    }
+    String result = "";
+    for (size_t i = 0; i < vec.size(); ++i) {
+        result += String(vec[i]);
+        if (i < vec.size() - 1) {
+            result += ",";
+        }
+    }
+    return result;
+}
+
+/**
+ * @brief std::vector<String>の要素をカンマ区切りのStringに結合します。
+ * @param vec 結合するStringのベクター。
+ * @return 結合されたString。
+ */
+String joinVectorToString(const std::vector<String>& vec) {
+    if (vec.empty()) {
+        return "";
+    }
+    String result = "";
+    for (size_t i = 0; i < vec.size(); ++i) {
+        result += vec[i];
+        if (i < vec.size() - 1) {
+            result += ",";
+        }
+    }
+    return result;
+}
 
 // updateMenuDisplay(ril)関数の修正版
 void updateMenuDisplay(int ril) {
@@ -2911,9 +3098,9 @@ void updateMenuDisplay(int ril) {
 #pragma endregion
 //#endregion Text 1
 
+String optiontxt[4];
 
-
-void loadmett(){
+bool loadmett(){
   // SDカード上の全`.mett`ファイルをスキャンしてデータを抽出
     Serial.println("\n--- 全.mettファイルのデータ抽出 ---");
     std::vector<FileMettData> allExtractedData = scanAndExtractMettData(SD, "/data");
@@ -2933,19 +3120,55 @@ void loadmett(){
             dataToSave["stringtype"] = "unicode";
             dataToSave["sorttype"] = "nameasc";
             dataToSave["onlinetype"] = "only pass";
-            saveMettFile(SD, "save/save1.mett", "TestTable", dataToSave, loadSuccess); 
+            std::vector<int> sensorInts = {1, 2, 3, -132};
+            dataToSave["sensorInts_test"] = joinVectorToString(sensorInts);
+            Serial.printf("Info: Saving IntArray: %s\n", dataToSave["sensorInts_test"].c_str());
+             saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess); 
+           
             if(loadSuccess){
                 Serial.println("Info: 初期データを保存しました。");
+                  optiontxt[0] = "txt";
+                  optiontxt[1] = "unicode";
+                  optiontxt[2] = "nameasc";
+                  optiontxt[3] = "only pass";
+                return true;
+            }else{
+              return false;
             }
-            return;
+            
         } else {
             printTable("/save/save1.mett", "TestOpt1", loadedVariables);
-        
+            Serial.println("Info: プリント済み");
+            loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+
+            if (loadSuccess) {
+                Serial.println("Info: ロード成功");
+                String buildNumber = getVariableString(loadedVariables, "file_ext");
+                String buildNumber2 = getVariableString(loadedVariables, "stringtype");
+                String buildNumber3 = getVariableString(loadedVariables, "sorttype");
+                String buildNumber4 = getVariableString(loadedVariables, "onlinetype");
+                std::vector<int> sensorInts = getVariableIntArray(loadedVariables, "sensorInts_test");
+                //Serial.printf("Info: Loaded file_ext: %s\n", buildNumber.c_str());
+                //Serial.printf("Info: Loaded sensorInts_test: %s\n", joinVectorToString(sensorInts).c_str());
+                optiontxt[0] = buildNumber;
+                optiontxt[1] = buildNumber2;
+                optiontxt[2] = buildNumber3;
+                optiontxt[3] = buildNumber4;
+
+                return true;
+            } else {
+                Serial.println("ロードエラー");
+
+
+                return false;
+            }
+
         }
     } else {
         Serial.println("Error: ファイルのロードに失敗しました。");
+        return false;
     }
-    return;
+    return false;
 }
 
 void setup() {
@@ -3926,7 +4149,12 @@ else if (mainmode == 0) { // メニューモードの場合
           return;
         }
 
-        loadmett();
+        bool ss = loadmett();
+        if(!ss){
+
+        }else{
+          
+        }
         mainmode = 7; // モードをSDリスト表示モードに切り替え
         
         
