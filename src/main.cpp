@@ -384,7 +384,7 @@ bool isValidWindowsFileName(String textt) {
 #pragma region <hensu2>
 
 bool isStart = true;
-String potlist[] = {"fileext","stringtype","search dir","sort type","wifipasstype","back"}; // グローバルで定義済み
+String potlist[] = {"fileext","stringtype","(dummy)","sort type","wifipasstype","back"}; // グローバルで定義済み
 int numMenuItems = sizeof(potlist) / sizeof(potlist[0]); 
 int currentPos = 0;
 bool redrawRequired = true; // 再描画が必要かどうかのフラグ
@@ -395,6 +395,7 @@ String currentPosDisplayText = ""; // 最下部に表示されるCurrentPosの�
 // 再描画最適化のための変数
 String lastDrawnJj = ""; 
 String lastDrawnCurrentPosText = "";
+String optiontxt[6];
 
 // 点滅関連のグローバル変数
 unsigned long lastBlinkToggleTime = 0;
@@ -1776,13 +1777,15 @@ bool boolmax(){
 
 
 // ポインターの位置を更新し、画面下部にテキストをスクロールさせる関数
-void updatePointer(bool text1cote, bool temmm = false) {
-
-    if(DirecX != "/"){
-       modordir = true;
+void updatePointer(bool notext = false) {
+    if(notext){
+      delay(1);
+    }
+    if(DirecX != "/" && mainmode == 1){
+        modordir = true;
     }else{
-       modordir = false;
-      }
+        modordir = false;
+    }
     // 以前のポインター位置を記憶 (-1は初期状態を示す。これはstaticで一度だけ初期化される)
     static int prev_positpoint = -1;
     // 関数呼び出し時点のpositpoint（ボタン押下前のpositpoint）を保存
@@ -1829,19 +1832,34 @@ void updatePointer(bool text1cote, bool temmm = false) {
         return;
     }
     
+    if(mainmode == 8){
+        Serial.println("r" + String(btna) + "l" + String(btnc) + " " + positpoint + "  " + frameright + frameleft);
+    }
 
-
+    
+    if ( rightrue() && !(imano_page == maxpage - 1 && mainmode == 1 && boolmax())) {
+      Serial.println("F" + String(DirecX) + "G" + String(positpoint));
+        btna = false;
+        btnc = true;  
+      
+      if(!(notext && positpoint == positpointmax)){
+          positpoint++; // 下へ移動
+        }
+        
+        
+    }
+    
     // ポインターの移動処理
-    if (lefttrue() && positpoint != 0) {
+    else if (lefttrue() && positpoint != 0) {
         positpoint--; // 上へ移動
-         Serial.println("F" + String(DirecX) + "G" + String(positpoint));
-         btna  =true;
-         btnc = false;
+          Serial.println("F" + String(DirecX) + "G" + String(positpoint));
+          btna  =true;
+          btnc = false;
     }else if(lefttrue() && positpoint == 0){
       btna = true;
       btnc = false;
-
-      if(!modordir && imano_page == 0 && mainmode == 1 ) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
+      if(!notext){
+        if(!modordir && imano_page == 0 && mainmode == 1 ) { //ルートフォルダでこれ使うと強制的に最後のページに逆算できる
         pagemoveflag = 4;
         return;
       }
@@ -1857,18 +1875,19 @@ void updatePointer(bool text1cote, bool temmm = false) {
         pagemoveflag = 2;
         return;
       }
+      }else{
+        if( positpoint == 0){
+          return;
+        }
+      }
+      
 
-    }
-    if ( rightrue() && !(imano_page == maxpage - 1 && mainmode == 1 && boolmax())) {
-        positpoint++; // 下へ移動
-        Serial.println("F" + String(DirecX) + "G" + String(positpoint));
-        btna = false;
-        btnc = true;
-    }
-    else{
+    }else {
       btna = false;
       btnc = false;
     }
+    
+    
     
     // ページ移動フラグのロジック
     // これらの条件はpositpointが更新された後に評価されるべき
@@ -1890,7 +1909,7 @@ void updatePointer(bool text1cote, bool temmm = false) {
         
     
     } else {
-        pagemoveflag = 0;
+      pagemoveflag = 0;
     }
 
     // ポインターの境界チェック
@@ -1900,11 +1919,12 @@ void updatePointer(bool text1cote, bool temmm = false) {
         positpoint = std::max(0, positpoint); // 負の方向には移動できない (最小値は0)
 
         int effective_filelist_count = positpointmaxg;
-        if (effective_filelist_count > 0) {
-            positpoint = std::min(effective_filelist_count - 1, positpoint); // 最大値は (有効なアイテム数 - 1)
-        } else {
-            positpoint = 0; // リストが空の場合はポインターを0に固定
-        }
+
+        // notextがtrueの場合、画面最下部のテキストがないため、
+        // ポインターの最大可動範囲を1つ追加し、`fillRect`や描画位置をその分下にずらします。
+        
+
+        
     }
     
     // ポインターの位置が変更された場合、または初回描画時の処理
@@ -1943,8 +1963,8 @@ void updatePointer(bool text1cote, bool temmm = false) {
         // 現在の位置を次の描画のために記憶
         prev_positpoint = positpoint;
     }
-
-    // ここから画面最下部のスクロールテキスト処理 (変更なし)
+    
+        // ここから画面最下部のスクロールテキスト処理 (変更なし)
     unsigned long currentMillis = millis();
 
     // テキストスクロールを1秒ごとに更新 (1 FPS)
@@ -1988,6 +2008,8 @@ void updatePointer(bool text1cote, bool temmm = false) {
             M5.Lcd.print(visibleText);
         }
     }
+    
+    
 }
 
 
@@ -2024,6 +2046,10 @@ void shokaipointer(bool yessdd){
     M5.Lcd.setCursor(0, positpoint * M5.Lcd.fontHeight());
     M5.Lcd.print(">");
     M5.Lcd.setTextColor(WHITE);
+    btna = false;
+    btnc = false;
+    frameright = 1;
+    frameleft = 1;
     Tex2 = "Press B to Options Now Dir C:/" + DirecX + " :total bytes:" + formatBytes(SD.totalBytes()) + " :used bytes:" + formatBytes(SD.usedBytes());
     return;
 }
@@ -2082,13 +2108,10 @@ void textexx() {
 
 
 #pragma region <potlist>
-// --- オプションリストをSDカードから読み込む関数 ---
+// --- SDカードからオプションリストを読み込む関数 ---
 void loadPotlistFromSD() {
     // SD.begin()は既にこの関数の外で成功していると仮定
     File potlistFile = SD.open("/potlist.txt", FILE_READ);
-    // !potlistFile のチェックは削除されたため、ファイルは必ず開けると仮定します。
-    // もしファイルが実際に存在しない場合、SD.open()はNULLを返し、この後の処理で問題が発生する可能性があります。
-    // その場合、potlistは空のままでメニュー項目も空文字列が表示されます。
 
     int i = 0;
     if (potlistFile) { // ファイルが正常に開けた場合のみ読み込み
@@ -2100,145 +2123,138 @@ void loadPotlistFromSD() {
         potlistFile.close();
     } else {
         // デフォルト項目を設定 (numMenuItemsは変更せず、配列に値をセット)
-        
+        // ここにデフォルト設定のコードを追加
     }
 }
 
-// --- 画面に項目を描画する関数 (純粋な描画部分) ---
-// Y座標を指定してテキストを中央揃えで描画
+// --- 画面にテキストを中央揃えで描画する汎用関数 ---
+// 引数で受け取ったテキストをyPosの位置に描画します
 void drawCenteredText(const String& text, int yPos) {
     int screenWidth = M5.Lcd.width();
-    M5.Lcd.setTextSize(3); // 描画前に必ずテキストサイズを設定
+    M5.Lcd.setTextSize(3);
     int textWidth = M5.Lcd.textWidth(text);
     int xPos = (screenWidth - textWidth) / 2; // 中央揃え
 
     M5.Lcd.setCursor(xPos, yPos);
-    M5.Lcd.print(text);
+    M5.Lcd.print(text); // 引数で受け取ったtextを描画
 }
 
-// --- JJテキストの描画を管理する関数 ---
-void drawJjText(int yPos, int charHeight, int padding) {
-    String currentJjText = JJ; // グローバル変数JJの現在の値を取得
-    if (currentJjText != lastDrawnJj) { // JJが変更された場合のみ再描画
-        M5.Lcd.setTextColor(YELLOW, BLACK); // JJは黄色に
-        // JJテキストは左右無制限に塗りつぶす
-        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK); 
-        drawCenteredText(currentJjText, yPos); // JJを上下・左右真ん中に描画
-        lastDrawnJj = currentJjText; // 描画内容を記憶
+// --- 画面上部にpotlist[currentPos]を描画する関数 ---
+// 点滅ロジックを含む
+void drawTopText(bool showAngleBrackets) {
+    int yPos = 10;
+    int screenWidth = M5.Lcd.width();
+    int charHeight = M5.Lcd.fontHeight();
+    int padding = 2;
+    
+    // 画面の該当領域をクリア
+    M5.Lcd.fillRect(0, yPos, screenWidth, charHeight + padding, BLACK);
+    
+    M5.Lcd.setTextColor(GREEN, BLACK);
+    
+    String rawText = potlist[currentPos];
+    String textToDisplay = rawText;
+    
+    // テキストの幅をチェックし、はみ出す場合は切り詰める
+    M5.Lcd.setTextSize(3);
+    int angleBracketWidth = M5.Lcd.textWidth("<>");
+    int maxTextWidthExcludingBrackets = screenWidth - angleBracketWidth - 4;
+    
+    while (M5.Lcd.textWidth(rawText) > maxTextWidthExcludingBrackets && rawText.length() > 0) {
+        rawText = rawText.substring(0, rawText.length() - 1);
     }
+
+    if (showAngleBrackets) {
+        textToDisplay = "<" + rawText + ">";
+    } else {
+        textToDisplay = rawText; 
+    }
+    drawCenteredText(textToDisplay, yPos);
 }
 
-// --- CurrentPosテキストの描画を管理する関数 ---
-void drawCurrentPosText(int yPos, int charHeight, int padding) {
-    String currentCurrentPosText = potlist[currentPos]; // currentPosの現在のテキストを取得
-    if (currentCurrentPosText != lastDrawnCurrentPosText) { // CurrentPosテキストが変更された場合のみ再描画
-        M5.Lcd.setTextColor(GREEN, BLACK); // CurrentPosは緑色に
+// --- 画面中央に"Test"を描画する関数 ---
+void drawCenterText() {
+    int yPos = (M5.Lcd.height() / 2) - (M5.Lcd.getTextSizeY() / 2); // getTextSizeY()に置き換え
+    int screenWidth = M5.Lcd.width();
+    int charHeight = M5.Lcd.fontHeight();
+    int padding = 2;
 
-        // currentPosTextContentも画面幅に合わせて切り詰める
-        int screenWidth = M5.Lcd.width();
-        int maxCurrentPosTextWidth = screenWidth - 10; // 左右5pxずつ余白
-        while (M5.Lcd.textWidth(currentCurrentPosText) > maxCurrentPosTextWidth && currentCurrentPosText.length() > 0) {
-            currentCurrentPosText = currentCurrentPosText.substring(0, currentCurrentPosText.length() - 1);
-        }
-        // CurrentPosテキストも左右無制限に塗りつぶす
-        M5.Lcd.fillRect(0, yPos, M5.Lcd.width(), charHeight + padding, BLACK);
-        drawCenteredText(currentCurrentPosText, yPos); // 最下部の真ん中に描画
-        lastDrawnCurrentPosText = currentCurrentPosText; // 描画内容を記憶
+    M5.Lcd.fillRect(0, yPos, screenWidth, charHeight + padding, BLACK);
+    M5.Lcd.setTextColor(YELLOW, BLACK);
+    drawCenteredText("Test", yPos);
+}
+
+// --- 画面下部にoptiontxt[currentPos]を描画する関数 ---
+// --- 画面下部にoptiontxt[currentPos]を描画する関数 ---
+void drawBottomText() {
+    // 描画位置を上に少しずらす
+    int yPos = M5.Lcd.height() - M5.Lcd.getTextSizeY() - 30; 
+    String currentOptionText = optiontxt[currentPos]; // optionlistをoptiontxtに置き換え
+    if(currentPos == 0){
+       currentOptionText = optiontxt[0];
+    }else if(currentPos == 1){
+      currentOptionText = optiontxt[1];
+    }else if(currentPos == 2){
+      currentOptionText = " ";
+    }else if(currentPos == 3){
+      currentOptionText = optiontxt[2];
+    }else if(currentPos == 4){
+      currentOptionText = optiontxt[3]; 
+    }else if(currentPos == 5){
+      currentOptionText = " ";
     }
+    // テキストが画面幅からはみ出さないように切り詰める
+    int screenWidth = M5.Lcd.width();
+    int maxTextWidth = screenWidth - 10;
+    while (M5.Lcd.textWidth(currentOptionText) > maxTextWidth && currentOptionText.length() > 0) {
+        currentOptionText = currentOptionText.substring(0, currentOptionText.length() - 1);
+    }
+    
+    // 描画する行の左右全体を塗りつぶす
+    M5.Lcd.fillRect(0, yPos, screenWidth, M5.Lcd.height() - yPos, BLACK);
+    M5.Lcd.setTextColor(WHITE, BLACK);
+    drawCenteredText(currentOptionText, yPos);
 }
 
 
 // --- ポインターの変動と画面更新を行う関数 ---
-// ril: 0=なし, 1=BtnA, 2=BtnC, 3=BtnB
 void updatePointerAndDisplay(int ril) {
     bool pointerChanged = false;
 
     if (ril == 1) { // BtnAが押された場合
         currentPos--;
         if (currentPos < 0) {
-            currentPos = numMenuItems - 1; // 最後の項目へ
+            currentPos = numMenuItems - 1;
         }
         pointerChanged = true;
     } else if (ril == 2) { // BtnCが押された場合
         currentPos++;
         if (currentPos >= numMenuItems) {
-            currentPos = 0; // 最初の項目へ
+            currentPos = 0;
         }
         pointerChanged = true;
-    } else if (ril == 3) { // BtnBが押された場合 (現在の要件では何もしない)
-        // デバッグ出力
     }
 
-    // ポインターが変更されたか、点滅のタイミングが来た場合にのみ描画を更新
-    // 50msごとに点滅状態を切り替える
     if (millis() - lastBlinkToggleTime >= 50) {
         showAngleBrackets = !showAngleBrackets;
         lastBlinkToggleTime = millis();
-        // Serial.printf("[DEBUG] updatePointerAndDisplay: Blink toggled. showAngleBrackets: %d\n", showAngleBrackets);
-        pointerChanged = true; // 点滅トグルも再描画を必要とする
+        pointerChanged = true;
     }
 
-    
-    // ボタンが押された時のみ、デバッグ情報を出力
     if (ril != 0) {
         Serial.printf("[DEBUG] updatePointerAndDisplay: Button pressed. ril: %d, New currentPos: %d, Item: '%s'\n", ril, currentPos, potlist[currentPos].c_str());
     }
 
-
-    M5.Lcd.setTextSize(3); // 描画前に必ずテキストサイズを設定
-    int charHeight = M5.Lcd.fontHeight(); // 1文字の高さ
-    int padding = 2; // パディング
-
-    // --- 1. 最上部メニュー項目領域をクリア & 描画 ---
-    // Y座標5から、後2行下（charHeight * 2分）にずらす
-    int menuYPos = 5 + (charHeight + padding) * 2; 
-    
-    // ポインターが変更された、または点滅がトグルされた場合のみ描画
-    if (pointerChanged) { 
-        M5.Lcd.fillRect(0, menuYPos, M5.Lcd.width(), charHeight + padding, BLACK); 
-        M5.Lcd.setTextColor(WHITE, BLACK); // メニュー項目は白に
-
-        String rawText = potlist[currentPos];
-        String textToDisplay = rawText;
-        
-        // テキストの幅をチェックし、はみ出す場合は切り詰める
-        int screenWidth = M5.Lcd.width();
-        M5.Lcd.setTextSize(3); // textWidth計算のために再度設定
-        
-        // <>を含んだ状態での最大表示幅を考慮して切り詰める
-        int angleBracketWidth = M5.Lcd.textWidth("<>"); // "<>"の合計幅
-        int maxTextWidthExcludingBrackets = screenWidth - angleBracketWidth - 4; // 左右に2pxずつ余白
-        
-        while (M5.Lcd.textWidth(rawText) > maxTextWidthExcludingBrackets && rawText.length() > 0) {
-            rawText = rawText.substring(0, rawText.length() - 1);
-        }
-
-        if (showAngleBrackets) {
-            textToDisplay = "<" + rawText + ">";
-        } else {
-            textToDisplay = rawText; 
-        }
-        drawCenteredText(textToDisplay, menuYPos); // 画面上部、Y座標をずらして描画
+    if (pointerChanged) {
+        M5.Lcd.setTextSize(3); // 描画前に必ずテキストサイズを設定
+        drawTopText(showAngleBrackets);
+        drawCenterText();
+        drawBottomText();
     }
-    // --- メニュー項目描画終了 ---
-
-
-    // --- 2. JJ文字列を上下・左右真ん中に描画 ---
-    // 常に呼び出すように変更
-    int JjYPos = (M5.Lcd.height() / 2) - (charHeight / 2); 
-    drawJjText(JjYPos, charHeight, padding);
-
-
-    // --- 3. CurrentPosのテキストを最下部の真ん中に描画 ---
-    // 常に呼び出すように変更
-    int footerHeight = M5.Lcd.fontHeight() * 2 + padding; // setTextSize(2) + padding
-    int CurrentPosYPos = M5.Lcd.height() - footerHeight - charHeight - padding; 
-    drawCurrentPosText(CurrentPosYPos, charHeight, padding);
-
-    // ボタンが押された場合のみ点滅をリセット
+    
     if (ril != 0) { 
         lastBlinkToggleTime = millis(); 
-        showAngleBrackets = true;       
+        showAngleBrackets = true;
     }
 }
 
@@ -3095,10 +3111,21 @@ void updateMenuDisplay(int ril) {
     // 例: ポインタの更新など
 }
 
+// ロードされた変数（vector）をMettDataMapにコピーする新しい関数
+MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
+    MettDataMap dataMap;
+    for (const auto& var : variables) {
+        // 変数名と値の文字列をマップに挿入
+        dataMap[var.variableName] = var.valueString;
+    }
+    return dataMap;
+}
+
+
+
 #pragma endregion
 //#endregion Text 1
 
-String optiontxt[4];
 
 bool loadmett(){
   // SDカード上の全`.mett`ファイルをスキャンしてデータを抽出
@@ -3213,10 +3240,210 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策
+ if(mainmode == 11){
+   updatePointer(true);
+  
+   if(M5.BtnB.wasPressed()){
+      String gg = "";
+      if(positpoint == 0){
+          gg = "nameasc";
+      }else if(positpoint == 1){
+          gg = "namedesc";
+      }else if (positpoint == 2){
+          gg  ="dateasc";
+      }
+      
+      bool loadSuccess = false;
+    bool fileIsEmpty = false;
+    std::vector<MettVariableInfo> loadedVariables;
+    M5.Lcd.fillScreen(BLACK);   
+    loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+       if(loadSuccess){
+        MettDataMap dataToSave = copyVectorToMap(loadedVariables);
+        dataToSave["onlinetype"] = gg;
+        saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
+        if(!loadSuccess){
+          kanketu("save success!",500);
+         
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }else{
+          kanketu("save error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }
+       }else{
+          kanketu("load error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+       }
+   }
 
- if(mainmode == 7){
 
-   M5.update(); // ボタン状態を更新
+
+
+
+ }
+  else if(mainmode == 10){
+   updatePointer(true);
+  
+   if(M5.BtnB.wasPressed()){
+      String gg = "";
+      if(positpoint == 0){
+          gg = "nameasc";
+      }else if(positpoint == 1){
+          gg = "namedesc";
+      }else if (positpoint == 2){
+          gg  ="dateasc";
+      }else if(positpoint == 3){
+          gg = "datedesc";
+      }else if(positpoint == 4){
+        gg = "sizeasc";
+      }else if(positpoint == 5){
+          gg = "sizedesc";
+      }
+      
+      bool loadSuccess = false;
+    bool fileIsEmpty = false;
+    std::vector<MettVariableInfo> loadedVariables;
+    M5.Lcd.fillScreen(BLACK);   
+    loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+       if(loadSuccess){
+        MettDataMap dataToSave = copyVectorToMap(loadedVariables);
+        dataToSave["sorttype"] = gg;
+        saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
+        if(!loadSuccess){
+          kanketu("save success!",500);
+         
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }else{
+          kanketu("save error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }
+       }else{
+          kanketu("load error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+       }
+   }
+
+
+
+
+
+ }
+ else if(mainmode == 9){
+   updatePointer(true);
+  
+   if(M5.BtnB.wasPressed()){
+      String gg = "";
+      if(positpoint == 0){
+          gg = "uni";
+      }else if(positpoint == 1){
+          gg = "ansi";
+      }else if (positpoint == 2){
+          gg  ="utf8";
+      }else if(positpoint == 3){
+          gg = "utf16";
+      }
+      bool loadSuccess = false;
+    bool fileIsEmpty = false;
+    std::vector<MettVariableInfo> loadedVariables;
+    M5.Lcd.fillScreen(BLACK);   
+    loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+       if(loadSuccess){
+        MettDataMap dataToSave = copyVectorToMap(loadedVariables);
+        dataToSave["stringtype"] = gg;
+        saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
+        if(!loadSuccess){
+          kanketu("save success!",500);
+         
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }else{
+          kanketu("save error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }
+       }else{
+          kanketu("load error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+       }
+   }
+
+
+
+
+
+ }
+else if(mainmode == 8){
+   updatePointer(true);
+  
+   if(M5.BtnB.wasPressed()){
+      String gg = "";
+      if(positpoint == 0){
+          gg = "txt";
+      }else if(positpoint == 1){
+          gg = "mett";
+      }else if (positpoint == 2){
+          gg  ="tbl";
+      }else if(positpoint == 3){
+          gg = "yourself";
+      }
+      bool loadSuccess = false;
+    bool fileIsEmpty = false;
+    std::vector<MettVariableInfo> loadedVariables;
+    M5.Lcd.fillScreen(BLACK);   
+    loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+       if(loadSuccess){
+        MettDataMap dataToSave = copyVectorToMap(loadedVariables);
+        dataToSave["file_ext"] = gg;
+        saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
+        if(!loadSuccess){
+          kanketu("save success!",500);
+         
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }else{
+          kanketu("save error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+        }
+       }else{
+          kanketu("load error!",500);
+          M5.Lcd.fillScreen(BLACK);
+          mainmode = 7;
+          return;
+       }
+   }
+
+
+
+
+
+ }
+
+
+
+
+
+ else if(mainmode == 7){  
+
+   
 int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
 
     
@@ -3231,10 +3458,91 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
           if(currentPos == 0){
             M5.Lcd.fillScreen(BLACK);
             
-          
+            mainmode = 8;
+            positpoint = 0;
+            holdpositpoint = 0;
+            positpointmax = 3;
+            maxpage = 1;
+            imano_page = 0;
+            M5.Lcd.fillScreen(BLACK);
+         
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("  .txt\n  .mett\n  .tbl\n  .(yourself)");
+            shokaipointer(false);
+            
+            return;
             
 
 
+          }
+          else if(currentPos == 1){
+            M5.Lcd.fillScreen(BLACK);
+            
+            mainmode = 9;
+            positpoint = 0;
+            holdpositpoint = 0;
+            positpointmax = 3;
+            maxpage = 1;
+            imano_page = 0;
+            M5.Lcd.fillScreen(BLACK);
+         
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("  unicode\n  ANSI\n  UTF8\n  UTF16");
+            shokaipointer(false);
+            
+            return;
+            
+
+
+          }
+          else if(currentPos == 3){
+            M5.Lcd.fillScreen(BLACK);
+            
+            mainmode = 10;
+            positpoint = 0;
+            holdpositpoint = 0;
+            positpointmax = 5;
+            maxpage = 1;
+            imano_page = 0;
+            M5.Lcd.fillScreen(BLACK);
+         
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("  name asc\n  name desc\n  date asc\n date desc\n size asc\n size desc");
+            shokaipointer(false);
+            
+            return;
+            
+
+
+          }
+          else if(currentPos == 4){
+            M5.Lcd.fillScreen(BLACK);
+            
+            mainmode = 11;
+            positpoint = 0;
+            holdpositpoint = 0;
+            positpointmax = 2;
+            maxpage = 1;
+            imano_page = 0;
+            M5.Lcd.fillScreen(BLACK);
+         
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("  only pass\n  no pass\n  passandusid");
+            shokaipointer(false);
+            
+            return;
+            
+
+
+          }else if(currentPos == 5){
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0, 0);
+            sita = "hello";
+            textexx();
+            positpoint = 0;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 0;
           }
         }
 
@@ -3348,7 +3656,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
   }
   }
   else if(mainmode == 4){
-    updatePointer(true);
+    updatePointer();
      if(pagemoveflag == 4 && btna){
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(File_goukeifont);
@@ -3570,7 +3878,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
   else if(mainmode == 2){
     delay(3);
     String key = wirecheck(); // wirecheck()は常に呼び出される
-    updatePointer(true,true);
+    updatePointer(false);
    if(pagemoveflag == 4 && btna){
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(File_goukeifont);
@@ -4151,11 +4459,24 @@ else if (mainmode == 0) { // メニューモードの場合
 
         bool ss = loadmett();
         if(!ss){
+          kanketu("load Error!",500);
+          mainmode = 0;
 
-        }else{
+          M5.Lcd.setCursor(0, 0);
+        sita = "hello";
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+          
+
+          return;
+        }
+        else{
+          mainmode = 7; // モードをSDリスト表示モードに切り替え
           
         }
-        mainmode = 7; // モードをSDリスト表示モードに切り替え
+        
         
         
         return;//mainmode0フラグ誤作動対策
