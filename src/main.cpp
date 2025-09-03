@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <map>      // std::mapを使用するため
 #include <set>
-
+#include <datafile.cpp>
 
 
 
@@ -25,6 +25,7 @@ volatile bool cancelCopyOperation = false;
 
 int mainmode = 0;
 int maindex = 0;
+String maereposit = "";
 int sizex = 2;
 int resercounter = 0;
 int address = 0;
@@ -544,7 +545,7 @@ String cleanPath(String path) {
     }
     return path;
 }
-
+#pragma region <directory_creation>
 // ネストされたディレクトリを再帰的に作成する関数
 bool createDirRecursive(const char* path) {
     String currentPath = "";
@@ -1687,7 +1688,7 @@ void textluck() {
 // String入力、bool出力（エラー用）
 bool renameSDItem(String oldPath, String newPath) {
   M5.Lcd.printf("Renaming: %s to %s\n", oldPath.c_str(), newPath.c_str());
-
+  Serial.println("Renaming: " + oldPath + " to " + newPath);
   if (SD.rename(oldPath.c_str(), newPath.c_str())) {
     Serial.println("  Rename successful.");
     return true; // 成功
@@ -1745,6 +1746,9 @@ int deleteRightmostSDItem(String itemPath) {
   }
 }
 
+#pragma endregion
+
+
 void kanketu(String texx,int frame){
    M5.Lcd.fillScreen(BLACK); // 画面を黒でクリア
     M5.Lcd.setTextColor(WHITE); // テキストの色を白に設定
@@ -1755,6 +1759,9 @@ void kanketu(String texx,int frame){
     M5.Lcd.fillScreen(BLACK); // 画面を黒でクリア
     M5.Lcd.setTextFont(File_goukeifont); // フォントサイズを元に戻す
 }
+
+
+
 //#endregion
 bool dexx = false;
 
@@ -2108,6 +2115,8 @@ void textexx() {
 
 
 #pragma region <potlist>
+
+
 // --- SDカードからオプションリストを読み込む関数 ---
 void loadPotlistFromSD() {
     // SD.begin()は既にこの関数の外で成功していると仮定
@@ -3121,8 +3130,6 @@ MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
     return dataMap;
 }
 
-
-
 #pragma endregion
 //#endregion Text 1
 
@@ -3240,7 +3247,30 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策
- if(mainmode == 11){
+
+if(mainmode == 13){
+
+}
+ else if(mainmode == 12){
+    if(M5.BtnA.wasPressed()){
+      M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = holdpositpoint;
+        mainmode = 1;
+
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+    }
+    if(Filelist[positpoint].endsWith(".mett") && M5.BtnB.wasPressed()){
+      M5.Lcd.fillScreen(BLACK);
+      mainmode = 13;
+      return;
+    }
+ }
+ #pragma region <optmodee>
+ 
+ else if(mainmode == 11){
    updatePointer(true);
   
    if(M5.BtnB.wasPressed()){
@@ -3547,7 +3577,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
         }
 
  }
-
+#pragma endregion
  # pragma region <filemode>
   else if(mainmode == 6){
     delay(1);
@@ -3568,7 +3598,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
       if(filebrat){
           if(isValidWindowsFileName(SuperT)){
         Textex = "renaming file...";
-        
+        Serial.println("jj" + DirecX + Filelist[nowposit()] + " J" + nowposit());
         bool gg = renameSDItem(DirecX + Filelist[nowposit()], DirecX + SuperT);
         if(gg){
             entryenter = 0;
@@ -3591,7 +3621,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
         if(isValidWindowsDirName(SuperT)){
         Textex = "renaming dir...";
         Serial.println(maeredirect(DirecX) + "/" + SuperT + ":" + DirecX);
-        bool gg = renameSDItem(DirecX ,  maeredirect(DirecX) +  SuperT);
+        bool gg = renameSDItem(DirecX + maereposit,  maeredirect(DirecX) +  SuperT);
         if(gg){
             entryenter = 0;
           mainmode = 1;
@@ -4073,7 +4103,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
     
     
   }
-  else if(M5.BtnB.wasPressed() && positpoint == 7){//Delete or Rename Pdir
+  else if(M5.BtnB.wasPressed() && positpoint == 6){//Delete or Rename Pdir
     if(DirecX == "/"){
       kanketu("root folder cannot be edited!",500);
       M5.Lcd.fillScreen(BLACK);
@@ -4187,6 +4217,25 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
 
     }
   }
+  else if(M5.BtnB.wasPressed() && positpoint == 7){ //戻る
+     File myFile = SD.open(DirecX + Filelist[positpoint]);
+     long fileSize = myFile.size();
+     time_t lastWriteTime = myFile.getLastWrite(); // getLastWrite()の代わりにgetWriteTime()の場合もあります
+      struct tm *timeinfo;
+      timeinfo = localtime(&lastWriteTime);
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.printf("File Size: %ld bytes\n", fileSize);
+      M5.Lcd.printf("Last Write: %04d/%02d/%02d %02d:%02d:%02d\n",
+                    timeinfo->tm_year + 1900, timeinfo->tm_mon + 1,
+                    timeinfo->tm_mday, timeinfo->tm_hour,
+                    timeinfo->tm_min, timeinfo->tm_sec);
+      mainmode = 12;
+      if(DirecX.endsWith(".mett") || DirecX.endsWith(".tbl") || DirecX.endsWith(".txt")){
+        M5.Lcd.printf("Wanna Edit? Press BtnB\n");
+      }
+      return;
+  }
 
 
 }
@@ -4280,7 +4329,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
           holdpositpoint = 0;
           imano_page = 0;
           bool ddd = false;
-          
+          maereposit = Filelist[nowposit()];
            
             resercounter = 1;  
             M5.Lcd.fillScreen(BLACK);
