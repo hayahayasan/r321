@@ -3137,6 +3137,7 @@ M5.Lcd.fillScreen(BLACK);
     } else {
         positpointmax = itemsPerPage;
     }
+    Serial.println("jfe" + positpointmax);
 
     // Use positpointmax for the loop
     int start = pageNum * itemsPerPage;
