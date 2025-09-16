@@ -63,5 +63,48 @@ extern int SCROLL_INTERVAL_FRAMES;
 extern int SCROLL_SPEED_PIXELS;
 bool checkSDCardOnly() ;
 bool boolmax();
-
+bool areusure();
+bool areubunki(String texta,String textb);
+void nummempty();
+void listSDRootContents(int pagetax,String Directtory,bool tt = false);
+bool copyFileContent(String sourcePath, String destinationPath);
+void moveDir(String srcDir, String destDir, bool keepOriginal) ;
+void createTestFiles(String dirPath);
+int createFile(String fileNameToCreate, String targetDirectoryPath);
+int createDirectory(String SuperTT, String DirecXX);
+int getCharWidth();
+int getFontHeight() ;
+struct CursorPosInfo {
+    int pixelX;
+    int pixelY;
+    int lineNum;
+    int charInLine;
+};
+struct LineInfo {
+    int startIndex; // 行の開始インデックス
+    int length;     // 行の文字数（改行文字を除く）
+};
+LineInfo getCurrentLineInfo(int index, const String& text);
+CursorPosInfo calculateCursorPixelPos(int index, const String& text);
+LineInfo getPreviousLineInfo(int currentIndex, const String& text) ;
+LineInfo getNextLineInfo(int currentIndex, const String& text);
+int findIndexFromPixelX(int targetPixelX, int lineStartIndex, int lineLength, const String& text);
+void performArrowKeyAction(const String& key);
+void adjustScroll();
+extern bool nosd;
+extern bool serious_errorsd;
+extern String karadirectname;
+extern int goukei_page;
+extern int cursorPixelY;
+extern int cursorPixelX;
+extern String SuperT;
+extern bool otroot;
+extern int cursorIndex;
+extern int offsetX;
+extern int offsetY;
+extern bool needsRedraw;
+extern bool renameSDItem(String oldPath, String newPath);
+extern int deleteRightmostSDItem(String itemPath) ;
+extern void kanketu(String texx,int frame);
+extern void updatePointer2();
 #endif // SHARED_H
