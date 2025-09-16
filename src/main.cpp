@@ -7,11 +7,25 @@
 #include <algorithm>
 #include <map>      // std::mapを使用するため
 #include <set>
-#include <datafile.cpp>
+#include "shares.h"
 
 
+int SCROLL_INTERVAL_FRAMES = 1;
+int SCROLL_SPEED_PIXELS = 3;
+int frameright;
+String RESERVED_NAMES[] = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+};
+int frameleft;
+bool btna;
+bool btnc;
+unsigned long lastTextScrollTime;
 
+unsigned long TEXT_SCROLL_INTERVAL_MS;
 
+int scrollPos;
 //後で実装　ファイルのゴミ箱移動オプション
 //ファイルコピペ時に、ペースト後「カットしますか」を出す
 #pragma region <hensu>
@@ -50,13 +64,12 @@ bool nosd = false;
 String g_copySourcePath; // コピー元パス (ファイルまたはフォルダ)
 String g_destinationDirPath; // ペースト先ディレクトリのパス
 bool g_isSourceFolder; // コピー元がフォルダであるかどうかのフラグ
-static int scrollPos = M5.Lcd.width();
+
 String Tex2;
 bool serious_errorsd = false;
 int pagemoveflag = 0;
 String Filelist[100];
-static bool btna = false;
-static bool btnc = false;
+
 String directlist[100];
 String ForDlist[100];
 String DirecX="";
@@ -67,13 +80,12 @@ bool isArrowKeyRepeating = false;  // キーが現在連続実行状態である
 int nullCount = 0; 
 int lastDrawnCursorScreenX = -9999; 
 int lastDrawnCursorScreenY = -9999;
-const unsigned long TEXT_SCROLL_INTERVAL_MS = 40; 
-static unsigned long lastTextScrollTime = 0;
+
+
 String Textex = "!"; // 最下部にスクロール表示するテキスト
 int scrollOffset = 0; // スクロールテキストの描画オフセット
 int scrollFrameCounter = 0; // スクロールフレームカウンター
-int SCROLL_INTERVAL_FRAMES = 10; // スクロール間隔 (フレーム数)
-int SCROLL_SPEED_PIXELS = 4;
+
 bool firstScrollLoop = false;
 int LONG_PRESS_THRESHOLD_FRAMES = 50; // 長押しと判断するまでのフレーム数 (変更: 500 -> 50)
 int REPEAT_INTERVAL_FRAMES = 30;      // 連続実行の間隔フレーム数 (変更: 400 -> 30)
@@ -101,310 +113,6 @@ bool needsRedraw = false;
 
 const int CURSOR_BLINK_INTERVAL = 10; // カーソル点滅のフレーム間隔
 const int MAX_STRING_LENGTH = 65535; // SuperTに格納可能な最大文字数
-bool checkSDCardOnly() {
-    Serial.println("\n--- SDカードの初期化チェックを開始 ---");
-
-    // SD.begin()の成功・失敗のみを確認
-    if (!SD.begin()) {
-        M5.Lcd.fillScreen(RED);
-        M5.Lcd.setCursor(0, 0);
-        M5.Lcd.setTextColor(WHITE);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.println("Error: SDカードの初期化に失敗しました。");
-        Serial.println("Error: SDカードの初期化に失敗しました。カードが挿入されているか確認してください。");
-        return false;
-    }
-
-    // 初期化成功
-    M5.Lcd.fillScreen(GREEN);
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextColor(BLACK);
-    M5.Lcd.setTextSize(2);
-    M5.Lcd.println("SDカードが正常に認識されました。");
-    Serial.println("Info: SDカードが正常に認識されました。");
-
-    Serial.println("--- SDカードの初期化チェックが完了しました ---");
-    return true;
-}
-
-// 矢印キー長押し処理用のグローバル変数
-// （重複定義を削除しました）
-
-String formatBytes(uint64_t bytes) {
-  const uint64_t KB = 1024ULL;
-  const uint64_t MB = KB * 1024ULL;
-  const uint64_t GB = MB * 1024ULL;
-  const uint64_t TB = GB * 1024ULL;
-
-  char output[50]; // 結果を格納するバッファ
-
-  if (bytes >= TB) {
-    double tbValue = (double)bytes / TB;
-    // TBの場合、MB/KBの詳細は表示しないため、小数点以下は表示しない
-    // 必要であればここでtbValueの表示形式を調整してください (例: 1.23 TB)
-    snprintf(output, sizeof(output), "%.0f TB %.0f GB %.0f MB %.0f KB", 
-             floor(tbValue), // TBの整数部分
-             floor(fmod(bytes, TB) / GB), // TBを除いたGB部分
-             floor(fmod(bytes, GB) / MB), // GBを除いたMB部分
-             floor(fmod(bytes, MB) / KB)  // MBを除いたKB部分
-            );
-  } else if (bytes >= GB) {
-    double gbValue = (double)bytes / GB;
-    snprintf(output, sizeof(output), "%.0f GB %.0f MB %.0f KB", 
-             floor(gbValue), // GBの整数部分
-             floor(fmod(bytes, GB) / MB), // GBを除いたMB部分
-             floor(fmod(bytes, MB) / KB)  // MBを除いたKB部分
-            );
-  } else if (bytes >= MB) {
-    double mbValue = (double)bytes / MB;
-    snprintf(output, sizeof(output), "%.0f MB %.0f KB", 
-             floor(mbValue), // MBの整数部分
-             floor(fmod(bytes, MB) / KB)  // MBを除いたKB部分
-            );
-  } else if (bytes >= KB) {
-    double kbValue = (double)bytes / KB;
-    // KBの場合のみ小数点以下第3位まで表示し、それ以降は切り捨て
-    snprintf(output, sizeof(output), "%.3f KB", floor(kbValue * 1000) / 1000);
-  } else {
-    // 1KB未満の場合はバイト単位で表示（小数点はなし）
-    snprintf(output, sizeof(output), "%.0f KB", 0.0); // 0KBと表示
-  }
-
-  // 容量が0バイトの場合、"0 KB"と表示するように調整
-  if (bytes == 0) {
-      return "0 KB";
-  }
-
-  return String(output);
-}
-
-
-bool endsWithTxtOrDbm(String filename) {
-  // filename が ".txt" で終わるか、または ".dbm" で終わるかをチェック
-  return filename.endsWith(".txt") || filename.endsWith(".dbm");
-}
-const char FORBIDDEN_CHARS[] = {'"', '<', '>', '|', '*', ':', '?', '\\', '/'};
-
-// Windowsの予約名 (大文字小文字を区別しない)
-// これらの名前は、単独でファイル名やディレクトリ名として使用できません。
-const String RESERVED_NAMES[] = {
-    "CON", "PRN", "AUX", "NUL",
-    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
-};
-const int NUM_RESERVED_NAMES = sizeof(RESERVED_NAMES) / sizeof(RESERVED_NAMES[0]);
-
-/**
- * @brief 文字列がWindowsのファイル名またはディレクトリ名として共通の無効な文字を含んでいるかチェックします。
- * @param name チェックする文字列
- * @return 無効な文字が含まれていれば true、そうでなければ false
- */
-bool containsForbiddenChars(String name) {
-  for (int i = 0; i < sizeof(FORBIDDEN_CHARS); ++i) {
-    if (name.indexOf(FORBIDDEN_CHARS[i]) != -1) {
-      return true; // 禁止文字が含まれている
-    }
-  }
-  return false;
-}
-
-/**
- * @brief 文字列がWindowsの予約名と一致するかチェックします (大文字小文字を区別しない)。
- * 通常、ファイル名やディレクトリ名のベース名部分に適用されます。
- * @param name チェックする文字列
- * @return 予約名と一致すれば true、そうでなければ false
- */
-bool isReservedName(String name) {
-  String upperName = name;
-  upperName.toUpperCase(); // 大文字に変換して比較
-
-  for (int i = 0; i < NUM_RESERVED_NAMES; ++i) {
-    if (upperName.equals(RESERVED_NAMES[i])) {
-      return true; // 予約名と一致
-    }
-  }
-  return false;
-}
-
-/**
- * @brief 文字列がWindowsのディレクトリ名として有効かチェックします。
- * ルール:
- * - 禁止文字を含まない
- * - 1文字以上である
- * - 複数行でない
- * - 末尾がピリオド (.) でない
- * - 拡張子のような形式 (例: ".txt") で終わらない (ディレクトリ名には通常拡張子がないため)
- * - 予約名と一致しない
- * - 最大長 (255文字) を超えない
- * - 空白文字のみでない
- * @param textt チェックする文字列
- * @return 有効なディレクトリ名であれば true、そうでなければ false
- */
-bool isValidWindowsDirName(String textt) {
-  // 1. 空文字列でないこと
-  if (textt.length() == 0) {
-    return false;
-  }
-
-  // 新規追加: 2. 空白文字のみでないこと
-  // String.trim() は Arduino の String クラスにはないため、手動でトリムしてチェックします。
-  bool allWhitespace = true;
-  for (int i = 0; i < textt.length(); ++i) {
-    if (!isspace(textt.charAt(i))) {
-      allWhitespace = false;
-      break;
-    }
-  }
-  if (allWhitespace) {
-    return false;
-  }
-
-  // 3. 禁止文字を含まないこと
-  if (containsForbiddenChars(textt)) {
-    return false;
-  }
-
-  // 4. 複数行でないこと (改行文字を含まないこと)
-  if (textt.indexOf('\n') != -1 || textt.indexOf('\r') != -1) {
-    return false;
-  }
-
-// 5. 末尾がピリオド (.) でないこと
-if (textt.endsWith(".")) {
-  return false;
-}
-
-  // 6. 拡張子のような形式で終わらないこと (ディレクトリ名には通常拡張子がないため)
-  //    例: "MyFolder.txt" のような形式を拒否
-  int lastDotIndex = textt.lastIndexOf('.');
-  if (lastDotIndex != -1 && lastDotIndex > 0) { // ドットがあり、かつ最初の文字ではない場合
-    // ドット以降に文字があるか、かつその文字が拡張子のように見えるか
-    if (lastDotIndex < textt.length() - 1) {
-      // ドット以降の文字列がすべて英数字の場合、拡張子とみなして拒否
-      bool isExtensionLike = true;
-      for (int i = lastDotIndex + 1; i < textt.length(); ++i) {
-        if (!isalnum(textt.charAt(i))) {
-          isExtensionLike = false; // 英数字以外が含まれる場合は拡張子ではないと判断
-          break;
-        }
-      }
-      if (isExtensionLike) {
-        return false;
-      }
-    }
-  
-  }
-
-  // 7. 予約名と一致しないこと
-  if (isReservedName(textt)) {
-    return false;
-  }
-
-  // 8. 最大長 (Windowsの標準は255文字) を超えないこと
-  //    ただし、ここでは一般的な入力の妥当性としてより短い制限を設けることも可能です。
-  //    Windowsのファイルシステムでは個々の名前は255文字まで可能です。
-  if (textt.length() > 255) { // Windowsの一般的なファイル/ディレクトリ名の最大長
-    return false;
-  }
-
-  for(int ii = 0;ii < 100;ii++){
-    if(Filelist[ii] == textt && ForDlist[ii] == "1"){
-      return false;
-    }
-  }
-  if(containsForbiddenChars(textt)){
-      return false;
-  }
-  return true; // すべてのチェックを通過
-}
-
-
-
-/**
- * @brief 文字列がWindowsのファイル名として有効かチェックします。
- * ルール:
- * - 禁止文字を含まない
- * - 1文字以上である
- * - 複数行でない
- * - 末尾がピリオド (.) でない
- * - 末尾がスペースでない
- * - 拡張子 (例: ".txt") を持つこと (ドットが1つ以上あり、ドットが最初でも最後でもない)
- * - 予約名と一致しない (拡張子を除くベース名でチェック)
- * - 最大長 (255文字) を超えない
- * @param textt チェックする文字列
- * @return 有効なファイル名であれば true、そうでなければ false
- */
-// Windowsのファイル名として有効かどうかをチェックする関数
-bool isValidWindowsFileName(String textt) {
-  // 1. 空文字列でないこと
-  if (textt.length() == 0) {
-    return false;
-  }
-
-  // 2. 禁止文字を含まないこと
-  // (containsForbiddenChars関数は別途定義されていると仮定)
-  if (containsForbiddenChars(textt)) {
-    return false;
-  }
-
-  // 3. 複数行でないこと (改行文字を含まないこと)
-  if (textt.indexOf('\n') != -1 || textt.indexOf('\r') != -1) {
-    return false;
-  }
-
-  // 4. 末尾がピリオド (.) でないこと
-  if (textt.endsWith(".")) {
-    return false;
-  }
-
-  // 5. 末尾がスペースでないこと
-  if (textt.endsWith(" ")) {
-    return false;
-  }
-
-  // 6. 拡張子を持つこと (xxx.ttt の形式)
-  int lastDotIndex = textt.lastIndexOf('.');
-  // ドットがない、またはドットが最初の文字、またはドットが最後の文字の場合は無効
-  if (lastDotIndex == -1 || lastDotIndex == 0 || lastDotIndex == textt.length() - 1) {
-    return false; // 拡張子がないか、形式が不正
-  }
-
-  // 新しいチェック: .の右側に来る文字が「A~Z」「a~z」「0~9」のみであること
-  String extension = textt.substring(lastDotIndex + 1);
-  for (int i = 0; i < extension.length(); i++) {
-    char c = extension.charAt(i);
-    // 文字が英数字でない場合、無効とする
-    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) {
-      return false;
-    }
-  }
-
-  // 7. 予約名と一致しないこと (拡張子を除くベース名でチェック)
-  String baseName = textt.substring(0, lastDotIndex); // 最後のドットまでの部分を取得
-  // (isReservedName関数は別途定義されていると仮定)
-  if (isReservedName(baseName)) {
-    return false;
-  }
-
-  // 8. 最大長 (Windowsの標準は255文字) を超えないこと
-  if (textt.length() > 255) { // Windowsの一般的なファイル/ディレクトリ名の最大長
-    return false;
-  }
-
-  // 9. 既存のファイルリストとの重複チェック (FilelistとForDlistが定義されていると仮定)
-  // この部分の変数 (Filelist, ForDlist) は、この関数が動作する環境で適切に定義されている必要があります。
-  // 例: String[] Filelist; String[] ForDlist;
-  for(int ii = 0;ii < 100;ii++){
-    // ForDlist[ii] == "0" はファイルを示していると仮定
-    if(Filelist[ii] == textt && ForDlist[ii] == "0"){
-      return false; // 同じ名前のファイルが既に存在する場合
-    }
-  }
-  if(containsForbiddenChars(textt)){
-      return false;
-  }
-  return true; // すべてのチェックを通過
-}
 
 
 #pragma endregion <hensu>
@@ -423,7 +131,7 @@ String currentPosDisplayText = ""; // 最下部に表示されるCurrentPosの�
 String lastDrawnJj = ""; 
 String lastDrawnCurrentPosText = "";
 String optiontxt[6];
-
+String AllName[100];
 // 点滅関連のグローバル変数
 unsigned long lastBlinkToggleTime = 0;
 bool showAngleBrackets = true; // true: <X> を表示, false: X を表示 (<>なし)
@@ -433,343 +141,16 @@ bool showAngleBrackets = true; // true: <X> を表示, false: X を表示 (<>な
 
 
 #pragma endregion
+#pragma region <funcdef>
+
+
+
+#pragma endregion
 
 
 
 #pragma region <directsystem>
-String maeredirect(String path){
-  int lastSlashIndex = path.lastIndexOf('/'); // 右から最初のスラッシュの位置を探す
 
-
-  if (lastSlashIndex != -1) { // スラッシュが見つかった場合
-
-
-//変換前:/ああ/aa/(最後の/はいらないので二回カット)
-    String ss = path.substring(0, lastSlashIndex);
-    
-    if(ss == ""){
-      ss = "/";
-    }else{
-      lastSlashIndex = ss.lastIndexOf('/');
-      ss = path.substring(0, lastSlashIndex);
-      ss = ss + "/";
-    }
-    return(ss);
-    
-  } else { // スラッシュが見つからなかった場合（例: "hhhhh"）
-    return("error");
-  }
-}
-
-String wirecheck() {
-    delay(1); // 1msのディレイ
-    byte error, address;
-    int ndevices = 0;
-    // Wire.begin()とWire.setClock()はsetup()で一度だけ行うべきですが、
-    // ここでは毎フレーム呼ばれることを前提としているため、
-    // 厳密にはここではなくsetup()で行うのが適切です。
-    // しかし、ユーザーの指示によりsetup()が削除されているため、
-    // 互換性を保つためにこの関数内に残します。
-    // 実際の運用では、M5.begin()の後に一度だけ呼び出すようにしてください。
-    // Wire.begin();
-    // Wire.setClock(400000); 
-
-    address = 95; // CardKB1.1のI2Cアドレス
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission(); // デバイスの存在を確認
-
-    if (error == 0) { // デバイスが正常に検知された場合
-        //Serial.println("I2Cデバイス検知開始"); // デバッグ用
-        if (address == 95) {
-            //Serial.println("CardKB1.1検知完了"); // デバッグ用
-            ndevices++;
-            int milcounter = 0;
-            // データが利用可能になるまで待機、またはタイムアウト
-            while (!Wire.available()) {
-                Wire.requestFrom(95, 1); // 1バイトのリクエスト
-                milcounter++;
-                delay(1);
-                if (milcounter > 10) break; // 100msでタイムアウト
-            }
-
-            if (Wire.available()) { // データが利用可能かチェック
-                char key = Wire.read(); // データを読み取る
-                if (key != 0) { // 非ゼロデータはキープレスを示す可能性
-                    switch ((int)key) {
-                        case 13: return "ENT";   // Enterキー
-                        case 8:  return "BACK";  // Backspaceキー
-                        case 27: return "ESC";   // ESCキー
-                        case 32: return "SPACE"; // スペースキー
-                        case 9:  return "TAB";   // Tabキー
-                        case 181: return "UP";    // 上矢印キー
-                        case 183: return "RIGHT"; // 右矢印キー
-                        case 182: return "DOWN";  // 下矢印キー
-                        case 180: return "LEFT";  // 左矢印キー
-                        default:
-                            //Serial.println("その他の文字キー: " + String(key)); // デバッグ用
-                            return String(key); // その他の文字キー
-                    }
-                } else {
-                    //Serial.println("osaretenai"); // デバッグ用
-                    return "NULL"; // キーが押されていない (キーコードが0)
-                }
-            }
-        }
-    } else if (error == 4) {
-        // Serial.println("I2Cデバイスが見つかりません"); // デバッグ用
-        return "error"; // デバイスが見つからないエラー
-    } else {
-        // Serial.println("えらー" + String(error)); // デバッグ用
-        return "error"; // その他のI2Cエラー
-    }
-
-    if (ndevices == 0) {
-        // Serial.println("なんも接続されていません"); // デバッグ用
-        return "nokey"; // デバイスが何も接続されていない
-    }
-
-    return "whattf"; // 何らかの予期せぬ状態
-}
-
-String migidkae(String karac){
-  int lastSlashIndex = karac.lastIndexOf('/');
-String extractedName;
-
-if (lastSlashIndex != -1) {
-  // スラッシュが見つかった場合、その次の文字から最後までを抽出
-  extractedName = karac.substring(lastSlashIndex + 1);
-} else {
-  // スラッシュが見つからなかった場合（例: "filename.txt"）、文字列全体が名前
-  extractedName = karac;
-}
-
-return extractedName;
-}
-
-int nowposit() {
-    
-    Serial.println(String(positpoint) + "ff"  + String(imano_page) +"gg" + String(maxLinesPerPage) );
-    
-    return (positpoint + (imano_page * maxLinesPerPage)); // 2以上の場合は元の計算を行う
-}
-int nowpositZ() {
-    
-   // Serial.println(String(positpoint) + "ff"  + String(imano_page) +"gg" + String(maxLinesPerPage) );
-    
-    return (positpointmain1 + (imano_page * maxLinesPerPage)); // 2以上の場合は元の計算を行う
-}
-
-
-
-// パスの末尾のスラッシュを削除する関数（ルートディレクトリを除く）
-String cleanPath(String path) {
-    if (path == "/") {
-        return path;
-    }
-    if (path.length() > 1 && path.endsWith("/")) {
-        return path.substring(0, path.length() - 1);
-    }
-    return path;
-}
-#pragma region <directory_creation>
-// ネストされたディレクトリを再帰的に作成する関数
-bool createDirRecursive(const char* path) {
-    String currentPath = "";
-    String pathString = String(path);
-    int start = 0;
-    if (pathString.startsWith("/")) {
-        currentPath += "/";
-        start = 1;
-    }
-    int slashIndex = pathString.indexOf('/', start);
-    while (slashIndex != -1) {
-        currentPath += pathString.substring(start, slashIndex);
-        if (!SD.exists(currentPath)) {
-            if (!SD.mkdir(currentPath)) return false;
-        }
-        currentPath += "/";
-        start = slashIndex + 1;
-        slashIndex = pathString.indexOf('/', start);
-    }
-    currentPath += pathString.substring(start);
-    if (!SD.exists(currentPath)) {
-        if (!SD.mkdir(currentPath)) return false;
-    }
-    return true;
-}
-
-// ファイル名をチェックし、重複する場合は新しい一意な名前を生成する関数
-String checkAndRename(String filePath) {
-    if (!SD.exists(filePath)) {
-        return filePath;
-    }
-
-    int dotIndex = filePath.lastIndexOf('.');
-    String baseName = filePath;
-    String extension = "";
-    if (dotIndex != -1) {
-        baseName = filePath.substring(0, dotIndex);
-        extension = filePath.substring(dotIndex);
-    }
-    
-    int slashIndex = baseName.lastIndexOf('/');
-    String fileNameOnly = baseName.substring(slashIndex + 1);
-    String directoryPath = baseName.substring(0, slashIndex + 1);
-    directoryPath = cleanPath(directoryPath);
-
-    for (int i = 1; i <= 1000; i++) {
-        String newFileName = directoryPath;
-        if (newFileName != "/") {
-            newFileName += "/";
-        }
-        newFileName += fileNameOnly + "(" + String(i) + ")" + extension;
-        if (!SD.exists(newFileName)) {
-            return newFileName;
-        }
-    }
-    
-    return "";
-}
-
-// ファイルをコピーする関数（進捗表示付き）
-bool copyFile(const char* sourcePath, const char* destinationPath, uint32_t totalSize) {
-    File sourceFile = SD.open(sourcePath, FILE_READ);
-    if (!sourceFile) {
-        return false;
-    }
-    String destFullPath = String(destinationPath);
-    int lastSlash = destFullPath.lastIndexOf('/');
-    if (lastSlash > 0) {
-        String parentDir = destFullPath.substring(0, lastSlash);
-        if (!createDirRecursive(parentDir.c_str())) {
-            sourceFile.close();
-            return false;
-        }
-    }
-    
-    File destinationFile = SD.open(destinationPath, FILE_WRITE);
-    if (!destinationFile) {
-        sourceFile.close();
-        return false;
-    }
-
-    uint32_t totalCopiedSize = 0;
-    uint8_t buffer[512];
-    size_t bytesRead;
-    while ((bytesRead = sourceFile.read(buffer, sizeof(buffer))) > 0) {
-        destinationFile.write(buffer, bytesRead);
-        totalCopiedSize += bytesRead;
-        if (totalSize > 0) {
-            int percent = (int)((float)totalCopiedSize / totalSize * 100);
-            M5.Lcd.setCursor(0, 40);
-            M5.Lcd.printf("Copying... %d%% ", percent);
-        }
-    }
-    if (totalSize == 0) {
-        M5.Lcd.setCursor(0, 40);
-        M5.Lcd.printf("Copying... 100%% ");
-    }
-
-    sourceFile.close();
-    destinationFile.close();
-    return true;
-}
-
-// ファイルまたはフォルダを再帰的に削除する関数
-bool removePath(const char* path) {
-    File item = SD.open(path);
-    if (!item) return false;
-    if (item.isDirectory()) {
-        File subItem = item.openNextFile();
-        while (subItem) {
-            String subPath = String(path) + "/" + subItem.name();
-            if (!removePath(subPath.c_str())) {
-                item.close();
-                return false;
-            }
-            subItem = item.openNextFile();
-        }
-        item.close();
-        return SD.rmdir(path);
-    } else {
-        item.close();
-        return SD.remove(path);
-    }
-}
-
-// メインの処理を実行する関数
-bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
-    M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.println("Initializing SD card...");
-    if (!SD.begin()) {
-        M5.Lcd.println("[ERROR] SD card initialization failed!");
-        return false;
-    }
-
-    sourcePath = cleanPath(sourcePath);
-    destinationPath = cleanPath(destinationPath);
-    
-    // 1. コピー元ファイルの存在を確実に確認
-    M5.Lcd.printf("Checking source: %s\n", sourcePath.c_str());
-    if (!SD.exists(sourcePath)) {
-        M5.Lcd.println("[ERROR] Source path does not exist.");
-        return false;
-    }
-    File source = SD.open(sourcePath);
-    if (source.isDirectory()) {
-        M5.Lcd.println("[ERROR] Folder copy is not supported.");
-        source.close();
-        return false;
-    }
-    uint32_t totalSize = source.size();
-    source.close();
-    M5.Lcd.printf("File size: %d bytes\n", totalSize);
-
-    // 2. コピー先の最終パスを決定
-    int lastSlash = sourcePath.lastIndexOf('/');
-    String fileNameOnly = sourcePath.substring(lastSlash + 1);
-    String finalDestinationPath;
-    if (destinationPath == "/") {
-        finalDestinationPath = "/" + fileNameOnly;
-    } else {
-        finalDestinationPath = destinationPath + "/" + fileNameOnly;
-    }
-    
-    // 3. 連番付きのファイルパスを取得
-    String uniqueDestPath = checkAndRename(finalDestinationPath);
-    if (uniqueDestPath == "") {
-        M5.Lcd.println("[ERROR] Paste overflowed!");
-        return false;
-    }
-    M5.Lcd.printf("Copying to: %s\n", uniqueDestPath.c_str());
-
-    // コピー処理を実行
-    if (!copyFile(sourcePath.c_str(), uniqueDestPath.c_str(), totalSize)) {
-        M5.Lcd.setCursor(0, 40);
-        M5.Lcd.println("[ERROR] Copy failed!");
-        return false;
-    }
-    M5.Lcd.setCursor(0, 40);
-    M5.Lcd.println("Copy successful!                    ");
-    
-    // 4. isCutがtrueの場合、コピー元を削除
-    if (isCut) {
-        M5.Lcd.setCursor(0, 50);
-        M5.Lcd.println("Starting removal...");
-        if(removePath(sourcePath.c_str())) {
-            M5.Lcd.setCursor(0, 50);
-            M5.Lcd.println("Move successful!                      ");
-        } else {
-            M5.Lcd.setCursor(0, 50);
-            M5.Lcd.println("[ERROR] Removal failed!");
-            return false;
-        }
-    }
-
-    return true;
-}
 
 
 
@@ -1793,8 +1174,7 @@ void kanketu(String texx,int frame){
 bool dexx = false;
 
 //オプション:ファイルソート順番、ファイル拡張子デフォルト、書き込み方式
-static int frameright = 1;
-static int frameleft = 1;
+
 
 bool rightrue(){
   return frameright % 50 == 0 || frameright == 2;
@@ -2252,7 +1632,38 @@ void drawBottomText() {
     drawCenteredText(currentOptionText, yPos);
 }
 
+/**
+ * @brief Initializes the SD card and creates a file at the specified path if it does not exist.
+ * @param ss The full file path to initialize.
+ */
+bool initializeSDCard(String ss) {
+    Serial.println("\n--- SD Card Initializing ---");
+    if (!SD.begin()) {
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextColor(RED);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.println("Error: SD Card init failed.");
+        Serial.println("Error: SD Card init failed.");
+        return false;
+    }
+    Serial.println("SD Card init success.");
 
+    if (!SD.exists(ss)) {
+        File file = SD.open(ss.c_str(), FILE_WRITE);
+        if (file) {
+            Serial.printf("Info: New file created: %s\n", ss.c_str());
+            file.close();
+            return true;
+        } else {
+            Serial.printf("Error: Failed to create file: %s\n", ss.c_str());
+            return false;
+        }
+    } else {
+        Serial.printf("Info: File already exists: %s\n", ss.c_str());
+        return true;
+    }
+}
 // --- ポインターの変動と画面更新を行う関数 ---
 void updatePointerAndDisplay(int ril) {
     bool pointerChanged = false;
@@ -2305,64 +1716,34 @@ void updatePointerAndDisplay(int ril) {
 
 # pragma region <Metload>
 
-// メタデータファイルから抽出された変数情報を保持する構造体
+// Struct to hold variable information extracted from a metadata file
 struct MettVariableInfo {
-    String variableName; // 変数名 (例: "projectName")
-    String dataType;     // データ型 (例: "String", "int", "double", "StringArray"など)
-    String valueString;  // 値の文字表現 (例: "MyProject", "123", "tag1,tag2")
-    String tableName;    // この変数が属するテーブルの名前 (例: "ProjectSettings")
+    String variableName;
+    String dataType;
+    String valueString;
+    String tableName;
 };
 
-// 単一のメタデータファイルの情報を保持する構造体
+// Struct to hold information about a single metadata file
 struct FileMettData {
-    String fileName;      // ファイル名 (例: "/data/my_data.mett")
-    size_t fileSize;      // ファイルサイズ（バイト）
-    std::vector<MettVariableInfo> variables; // ファイル内に格納されている変数のリスト
+    String fileName;
+    size_t fileSize;
+    std::vector<MettVariableInfo> variables;
 };
 
-// メタデータ保存/読み込み用のマップ型
-// キー: 変数名, 値: 値の文字列
+// Map type for saving/loading metadata
+// Key: variable name, Value: value string
 typedef std::map<String, String> MettDataMap;
 
-// グローバル変数
-bool sdCardInitialized = false;
+// Global variables
+const int itemsPerPage = 8; // Number of items to display on a page
 std::vector<String> allTableNames;
-const int itemsPerPage = 6; // 1ページあたりの表示項目数
 
-// プロトタイプ宣言
-String inferDataType(const String& valueString);
-bool containsInvalidVariableNameChars(const String& name);
-bool containsInvalidTableNameChars(const String& name);
-void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError);
-std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD);
-void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& success, bool& isEmpty, std::vector<MettVariableInfo>& variables);
-String getVariableString(const std::vector<MettVariableInfo>& variables, const String& varName);
-int getVariableInt(const std::vector<MettVariableInfo>& variables, const String& varName);
-char getVariableChar(const std::vector<MettVariableInfo>& variables, const String& varName);
-double getVariableDouble(const std::vector<MettVariableInfo>& variables, const String& varName);
-std::vector<String> getVariableStringArray(const std::vector<MettVariableInfo>& variables, const String& varName);
-std::vector<int> getVariableIntArray(const std::vector<MettVariableInfo>& variables, const String& varName);
-std::vector<char> getVariableCharArray(const std::vector<MettVariableInfo>& variables, const String& varName);
-std::vector<double> getVariableDoubleArray(const std::vector<MettVariableInfo>& variables, const String& varName);
-bool stringToBool(const String& valueString);
-bool initializeSDCard(const String& filePath);
-void printTable(const String& fileName, const String& tableName, const std::vector<MettVariableInfo>& variables);
-void printFileM(const std::vector<FileMettData>& extractedDataList);
-template <typename T>
-String joinVectorToString(const std::vector<T>& vec);
-String joinVectorToString(const std::vector<String>& vec);
-void updateMenuDisplay(int ril);
-MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables);
-std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath);
-bool getVariablesFromTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName, std::vector<String>& variableNames, std::vector<String>& dataTypes);
-void printAllStringsInVector(const std::vector<MettVariableInfo>& variables);
-
-bool checkSDAndDataIntegrity();
 
 /**
- * @brief 文字列からデータ型を推測するヘルパー関数。
- * @param valueString 値の文字列。
- * @return 推測されたデータ型名 (String)。
+ * @brief Helper function to infer data type from a string value.
+ * @param valueString The string value.
+ * @return The inferred data type name (String).
  */
 String inferDataType(const String& valueString) {
     if (valueString.isEmpty()) {
@@ -2451,9 +1832,9 @@ String inferDataType(const String& valueString) {
 }
 
 /**
- * @brief 変数名に不正な文字が含まれているかチェックするヘルパー関数。
- * @param name チェックする変数名。
- * @return 不正な文字が含まれていれば true、そうでなければ false。
+ * @brief Helper function to check if a variable name contains invalid characters.
+ * @param name The variable name to check.
+ * @return true if invalid characters are found, otherwise false.
  */
 bool containsInvalidVariableNameChars(const String& name) {
     for (size_t i = 0; i < name.length(); i++) {
@@ -2466,9 +1847,9 @@ bool containsInvalidVariableNameChars(const String& name) {
 }
 
 /**
- * @brief テーブル名に不正な文字が含まれているかチェックするヘルパー関数。
- * @param name チェックするテーブル名。
- * @return 不正な文字が含まれていれば true、そうでなければ false。
+ * @brief Helper function to check if a table name contains invalid characters.
+ * @param name The table name to check.
+ * @return true if invalid characters are found, otherwise false.
  */
 bool containsInvalidTableNameChars(const String& name) {
     for (size_t i = 0; i < name.length(); i++) {
@@ -2481,17 +1862,17 @@ bool containsInvalidTableNameChars(const String& name) {
 }
 
 /**
- * @brief メタデータファイルを指定されたパスに作成または追記し、マップに格納された変数を保存します。
- * @param fs SDカードファイルシステムオブジェクト。
- * @param fullFilePath 保存するファイルのフルパス。
- * @param tableName ファイル内に保存するテーブルの名前。
- * @param data 保存するMettDataMapの参照。
- * @param isError エラーが発生した場合はtrue、それ以外はfalseを返します。
+ * @brief Creates or appends a metadata file at the specified path and saves variables from a map.
+ * @param fs The SD card filesystem object.
+ * @param fullFilePath The full path of the file to save.
+ * @param tableName The name of the table to save within the file.
+ * @param data The reference to the MettDataMap to save.
+ * @param isError Reference to a boolean that will be set to true if an error occurs, false otherwise.
  */
 void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
     isError = false;
     if (!fullFilePath.startsWith("/")) {
-        Serial.printf("Error: 保存できません。ファイルパスは絶対パスでなければなりません (例: /%s)。\n", fullFilePath.c_str());
+        Serial.printf("Error: Cannot save. File path must be an absolute path (e.g., /%s).\n", fullFilePath.c_str());
         isError = true;
         return;
     }
@@ -2501,14 +1882,14 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         extension = fullFilePath.substring(dotIndex);
     }
     if (extension != ".mett") {
-        Serial.printf("Error: 保存できません。'.mett' 以外のファイル拡張子はサポートされていません: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: Cannot save. File extension other than '.mett' is not supported: %s\n", fullFilePath.c_str());
         isError = true;
         return;
     }
     if (SD.exists(fullFilePath.c_str())) {
         File checkFile = fs.open(fullFilePath.c_str());
         if (checkFile && checkFile.isDirectory()) {
-            Serial.printf("Error: 保存できません。指定されたパスはディレクトリです: %s\n", fullFilePath.c_str());
+            Serial.printf("Error: Cannot save. The specified path is a directory: %s\n", fullFilePath.c_str());
             checkFile.close();
             isError = true;
             return;
@@ -2522,7 +1903,7 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
     }
     File file = fs.open(fullFilePath.c_str(), FILE_APPEND);
     if (!file) {
-        Serial.printf("Error: ファイルの書き込み用にオープンできませんでした: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: Failed to open file for writing: %s\n", fullFilePath.c_str());
         isError = true;
         return;
     }
@@ -2549,11 +1930,11 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
 }
 
 /**
- * @brief SDカード上の指定されたディレクトリからメタデータファイル (.mett) をスキャンし、
- * ファイル名、容量、およびファイル内のすべての変数データをリストとして返します。
- * @param fs SDカードファイルシステムオブジェクト。
- * @param DirecD スキャンするディレクトリパス。
- * @return std::vector<FileMettData> スキャン結果のリスト。
+ * @brief Scans for metadata files (.mett) in the specified directory on the SD card
+ * and returns a list of file names, sizes, and all variable data found within them.
+ * @param fs The SD card filesystem object.
+ * @param DirecD The directory path to scan.
+ * @return std::vector<FileMettData> A list of scan results.
  */
 std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD) {
     std::vector<FileMettData> allMettFilesData;
@@ -2647,20 +2028,20 @@ std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD) {
 }
 
 /**
- * @brief メタデータファイルから変数を読み込み、ベクターに格納します。
- * @param fs SDカードファイルシステムオブジェクト。
- * @param fullFilePath 読み込むファイルのフルパス。
- * @param targetTableName ロードするテーブルの名前。
- * @param success 読み込みが成功した場合はtrue、失敗した場合はfalseを格納する参照。
- * @param isEmpty 読み込んだファイルが空だった場合はtrue、それ以外はfalseを格納する参照。
- * @param variables 読み込んだ変数を格納するMettVariableInfoのベクター参照。
+ * @brief Loads variables from a metadata file into a vector.
+ * @param fs The SD card filesystem object.
+ * @param fullFilePath The full path of the file to load.
+ * @param targetTableName The name of the table to load.
+ * @param success Reference to a boolean that will be set to true if loading is successful, false otherwise.
+ * @param isEmpty Reference to a boolean that will be set to true if the loaded file is empty, false otherwise.
+ * @param variables Reference to the MettVariableInfo vector to store the loaded variables.
  */
 void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& success, bool& isEmpty, std::vector<MettVariableInfo>& variables) {
     variables.clear();
     success = false;
     isEmpty = true;
     if (!fullFilePath.startsWith("/")) {
-        Serial.printf("Error: ロードできません。ファイルパスは絶対パスでなければなりません (例: /%s)。\n", fullFilePath.c_str());
+        Serial.printf("Error: Cannot load. File path must be an absolute path (e.g., /%s).\n", fullFilePath.c_str());
         success = false;
         isEmpty = true;
         return;
@@ -2671,7 +2052,7 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
         extension = fullFilePath.substring(dotIndex);
     }
     if (extension != ".mett") {
-        Serial.printf("Error: ロードできません。'.mett' 以外のファイル拡張子はサポートされていません: %s (%s)\n", extension.c_str(), fullFilePath.c_str());
+        Serial.printf("Error: Cannot load. File extension other than '.mett' is not supported: %s (%s)\n", extension.c_str(), fullFilePath.c_str());
         return;
     }
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
@@ -2781,10 +2162,10 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値を文字列として取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は値のString、見つからない場合は空のString。
+ * @brief Retrieves the value of a variable by name as a String from a vector of loaded MettVariableInfo.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return The value String if found, an empty String otherwise.
  */
 String getVariableString(const std::vector<MettVariableInfo>& variables, const String& varName) {
     for (const auto& var : variables) {
@@ -2796,10 +2177,10 @@ String getVariableString(const std::vector<MettVariableInfo>& variables, const S
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値をintとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は変換されたint値、見つからない場合は0。
+ * @brief Retrieves the value of a variable by name as an int from a vector of loaded MettVariableInfo.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return The converted int value if found, 0 otherwise.
  */
 int getVariableInt(const std::vector<MettVariableInfo>& variables, const String& varName) {
     String value = getVariableString(variables, varName);
@@ -2807,10 +2188,10 @@ int getVariableInt(const std::vector<MettVariableInfo>& variables, const String&
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値をcharとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は値の最初の文字、見つからない場合は'\0'。
+ * @brief Retrieves the value of a variable by name as a char from a vector of loaded MettVariableInfo.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return The first character of the value if found, '\0' otherwise.
  */
 char getVariableChar(const std::vector<MettVariableInfo>& variables, const String& varName) {
     String value = getVariableString(variables, varName);
@@ -2821,10 +2202,10 @@ char getVariableChar(const std::vector<MettVariableInfo>& variables, const Strin
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名の値をdoubleとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は変換されたdouble値、見つからない場合は0.0。
+ * @brief Retrieves the value of a variable by name as a double from a vector of loaded MettVariableInfo.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return The converted double value if found, 0.0 otherwise.
  */
 double getVariableDouble(const std::vector<MettVariableInfo>& variables, const String& varName) {
     String value = getVariableString(variables, varName);
@@ -2832,10 +2213,10 @@ double getVariableDouble(const std::vector<MettVariableInfo>& variables, const S
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値を文字列のベクターとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は値の文字列のベクター、見つからない場合は空のベクター。
+ * @brief Retrieves the comma-separated value of a variable by name as a vector of Strings.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return A vector of value strings if found, an empty vector otherwise.
  */
 std::vector<String> getVariableStringArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
     std::vector<String> result;
@@ -2857,10 +2238,10 @@ std::vector<String> getVariableStringArray(const std::vector<MettVariableInfo>& 
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値をintのベクターとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は値のintのベクター、見つからない場合は空のベクター。
+ * @brief Retrieves the comma-separated value of a variable by name as a vector of ints.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return A vector of value ints if found, an empty vector otherwise.
  */
 std::vector<int> getVariableIntArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
     std::vector<int> result;
@@ -2872,10 +2253,10 @@ std::vector<int> getVariableIntArray(const std::vector<MettVariableInfo>& variab
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値をcharのベクターとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は値のcharのベクター、見つからない場合は空のベクター。
+ * @brief Retrieves the comma-separated value of a variable by name as a vector of chars.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return A vector of value chars if found, an empty vector otherwise.
  */
 std::vector<char> getVariableCharArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
     std::vector<char> result;
@@ -2891,10 +2272,10 @@ std::vector<char> getVariableCharArray(const std::vector<MettVariableInfo>& vari
 }
 
 /**
- * @brief ロードされたMettVariableInfoのベクターから、指定した変数名のカンマ区切り値をdoubleのベクターとして取得します。
- * @param variables 検索対象のMettVariableInfoのベクター。
- * @param varName 検索する変数名。
- * @return 見つかった場合は値のdoubleのベクター、見つからない場合は空のベクター。
+ * @brief Retrieves the comma-separated value of a variable by name as a vector of doubles.
+ * @param variables The vector of MettVariableInfo to search.
+ * @param varName The name of the variable to search for.
+ * @return A vector of value doubles if found, an empty vector otherwise.
  */
 std::vector<double> getVariableDoubleArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
     std::vector<double> result;
@@ -2906,9 +2287,9 @@ std::vector<double> getVariableDoubleArray(const std::vector<MettVariableInfo>& 
 }
 
 /**
- * @brief 文字列をブール値に変換します。
- * @param valueString 変換する文字列。
- * @return 変換されたブール値。
+ * @brief Converts a string to a boolean value.
+ * @param valueString The string to convert.
+ * @return The converted boolean value.
  */
 bool stringToBool(const String& valueString) {
     String lowerCase = valueString;
@@ -2917,53 +2298,50 @@ bool stringToBool(const String& valueString) {
 }
 
 /**
- * @brief SDカードを初期化し、必要なディレクトリとファイルを作成します。
- * @param filePath 存在を確認・作成するファイルのフルパス。
- * @return bool 初期化が成功した場合はtrue、失敗した場合はfalseを返します。
+ * @brief Creates the necessary directory and file.
+ * @param filePath The full path of the file to check for existence and create.
+ * @return bool True if initialization is successful, false otherwise.
  */
-bool initializeSDCard(const String& filePath) {
-    Serial.println("\n--- SDカードとディレクトリの初期化を開始 ---");
+bool initializeSDCardAndCreateFile(const String& filePath) {
     if (filePath.isEmpty() || !filePath.startsWith("/")) {
-        Serial.println("Error: ファイルパスが無効です。");
+        Serial.println("Error: Invalid file path.");
         return false;
     }
     int lastSlash = filePath.lastIndexOf('/');
     if (lastSlash == -1 || lastSlash == filePath.length() - 1) {
-        Serial.println("Error: ファイルパスはディレクトリとファイル名を含む必要があります。");
+        Serial.println("Error: File path must include a directory and a file name.");
         return false;
     }
-    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-    Serial.printf("Info: SDカードサイズ: %lluMB\n", cardSize);
     String direcD = filePath.substring(0, lastSlash);
     if (!SD.exists(direcD) && !SD.mkdir(direcD)) {
-        Serial.printf("Error: ディレクトリの作成に失敗しました: %s\n", direcD.c_str());
+        Serial.printf("Error: Failed to create directory: %s\n", direcD.c_str());
         return false;
     }
     if (!SD.exists(filePath)) {
         File file = SD.open(filePath.c_str(), FILE_WRITE);
         if (!file) {
-            Serial.printf("Error: ファイルの作成に失敗しました: %s\n", filePath.c_str());
+            Serial.printf("Error: Failed to create file: %s\n", filePath.c_str());
             return false;
         }
         file.close();
     }
-    Serial.println("--- SDカードの初期化が完了しました ---");
+    Serial.printf("Info: File and directory prepared: %s\n", filePath.c_str());
     return true;
 }
 
 /**
- * @brief 指定されたファイル内の特定のテーブルに保存されたデータを出力します。
- * @param fileName ファイルのフルパス。
- * @param tableName 出力するテーブルの名前。
- * @param variables テーブルに保存されたMettVariableInfoのベクター。
+ * @brief Prints the data saved in a specific table within the specified file.
+ * @param fileName The full path of the file.
+ * @param tableName The name of the table to print.
+ * @param variables The vector of MettVariableInfo saved in the table.
  */
 void printTable(const String& fileName, const String& tableName, const std::vector<MettVariableInfo>& variables) {
-    Serial.printf("\n--- ファイル: %s のテーブル '%s' のデータ概要 ---\n", fileName.c_str(), tableName.c_str());
+    Serial.printf("\n--- Data Summary for Table '%s' in File: %s ---\n", tableName.c_str(), fileName.c_str());
     if (variables.empty()) {
-        Serial.printf("Info: ファイル '%s' のテーブル '%s' にはロードされた変数がありません。\n", fileName.c_str(), tableName.c_str());
+        Serial.printf("Info: No variables loaded for table '%s' in file '%s'.\n", tableName.c_str(), fileName.c_str());
     } else {
         for (const auto& var : variables) {
-            Serial.printf("   - 変数: %s, データ型: %s, 値: %s\n",
+            Serial.printf("   - Variable: %s, Data Type: %s, Value: %s\n",
                           var.variableName.c_str(), var.dataType.c_str(), var.valueString.c_str());
         }
     }
@@ -2971,16 +2349,16 @@ void printTable(const String& fileName, const String& tableName, const std::vect
 }
 
 /**
- * @brief 指定されたフォルダ内のすべての.mettファイルのテーブル名を一覧出力します。
- * @param extractedDataList 抽出されたFileMettDataのベクター。
+ * @brief Prints a list of table names from all .mett files in the specified folder.
+ * @param extractedDataList The vector of extracted FileMettData.
  */
 void printFileM(const std::vector<FileMettData>& extractedDataList) {
-    Serial.println("\n--- フォルダ内の.mettファイルとテーブル名一覧 ---");
+    Serial.println("\n--- List of .mett Files and Tables in the Folder ---");
     if (extractedDataList.empty()) {
-        Serial.println("Info: .mettファイルが見つからないか、データが抽出されませんでした。");
+        Serial.println("Info: No .mett files found or no data extracted.");
     } else {
         for (const auto& fileData : extractedDataList) {
-            Serial.printf("ファイル: %s (サイズ: %u バイト)\n", fileData.fileName.c_str(), fileData.fileSize);
+            Serial.printf("File: %s (Size: %u bytes)\n", fileData.fileName.c_str(), fileData.fileSize);
             std::set<String> uniqueTableNames;
             for (const auto& var : fileData.variables) {
                 if (!var.tableName.isEmpty()) {
@@ -2988,10 +2366,10 @@ void printFileM(const std::vector<FileMettData>& extractedDataList) {
                 }
             }
             if (uniqueTableNames.empty()) {
-                Serial.println("   - テーブル: (なし)");
+                Serial.println("   - Tables: (none)");
             } else {
                 for (const String& tableName : uniqueTableNames) {
-                    Serial.printf("   - テーブル: %s\n", tableName.c_str());
+                    Serial.printf("   - Table: %s\n", tableName.c_str());
                 }
             }
             Serial.println("--------------------");
@@ -3000,9 +2378,9 @@ void printFileM(const std::vector<FileMettData>& extractedDataList) {
 }
 
 /**
- * @brief std::vectorの要素をカンマ区切りのStringに結合します。
- * @param vec 結合するベクター。
- * @return 結合されたString。
+ * @brief Joins elements of a std::vector into a comma-separated String.
+ * @param vec The vector to join.
+ * @return The joined String.
  */
 template <typename T>
 String joinVectorToString(const std::vector<T>& vec) {
@@ -3020,9 +2398,9 @@ String joinVectorToString(const std::vector<T>& vec) {
 }
 
 /**
- * @brief std::vector<String>の要素をカンマ区切りのStringに結合します。
- * @param vec 結合するStringのベクター。
- * @return 結合されたString。
+ * @brief Joins elements of a std::vector<String> into a comma-separated String.
+ * @param vec The vector of Strings to join.
+ * @return The joined String.
  */
 String joinVectorToString(const std::vector<String>& vec) {
     if (vec.empty()) {
@@ -3038,15 +2416,15 @@ String joinVectorToString(const std::vector<String>& vec) {
     return result;
 }
 
-// updateMenuDisplay(ril)関数の修正版
+// Corrected updateMenuDisplay(ril) function
 void updateMenuDisplay(int ril) {
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.println("初期実行テキスト。");
+    M5.Lcd.println("Initial execution text.");
 }
 
-// ロードされた変数（vector）をMettDataMapにコピーする新しい関数
+// New function to copy a loaded vector of variables to a MettDataMap
 MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
     MettDataMap dataMap;
     for (const auto& var : variables) {
@@ -3055,25 +2433,22 @@ MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
     return dataMap;
 }
 
-
-
-
 /**
- * @brief 指定された.mettファイルに保存されているすべてのテーブル名を取得します。
- * @param fs SDカードファイルシステムオブジェクト。
- * @param fullFilePath 読み込むファイルのフルパス。
- * @return std::vector<String> 抽出された一意のテーブル名のリスト。
+ * @brief Gets all table names saved in a specified .mett file.
+ * @param fs The SD card filesystem object.
+ * @param fullFilePath The full path of the file to get table names from.
+ * @return std::vector<String> A list of extracted unique table names.
  */
 std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath) {
     std::vector<String> tableNames;
     std::set<String> uniqueTableNames;
     if (!fullFilePath.endsWith(".mett") || !fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error: ファイルが見つからないか、有効な .mett ファイルではありません: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: File not found or not a valid .mett file: %s\n", fullFilePath.c_str());
         return tableNames;
     }
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!file) {
-        Serial.printf("Error: ファイルの読み込み用にオープンできませんでした: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
         return tableNames;
     }
     while (file.available()) {
@@ -3093,87 +2468,33 @@ std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePat
         }
     }
     file.close();
+    Serial.printf("Info: Found %d unique table names in file '%s'.\n", uniqueTableNames.size(), fullFilePath.c_str());
     for (const auto& name : uniqueTableNames) {
         tableNames.push_back(name);
     }
-    Serial.printf("Info: Found %d unique table names in file '%s'.\n", tableNames.size(), fullFilePath.c_str());
     return tableNames;
 }
 
-
-void shokaipointer2(int pageNum,String DirecD){
-M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(3);
-
-    // Get all table names from a single file
-    allTableNames = getAllTableNamesInFile(SD, DirecD);
-
-    if (allTableNames.empty()) {
-        M5.Lcd.println("No tables found.");
-        return;
-    }
-
-    int totalItems = allTableNames.size();
-    int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
-
-    if (pageNum < 0 || pageNum >= totalPages) {
-        M5.Lcd.println("Invalid page.");
-        M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.printf("Page: %d/%d", 1, totalPages);
-        return;
-    }
-
-    // Calculate positpointmax based on the new logic
-    int remainingItems = totalItems % itemsPerPage;
-    if (pageNum == totalPages - 1) {
-        if (remainingItems == 0) {
-            positpointmax = itemsPerPage;
-        } else {
-            positpointmax = remainingItems;
-        }
-    } else {
-        positpointmax = itemsPerPage;
-    }
-    Serial.println("jfe" + positpointmax);
-
-    // Use positpointmax for the loop
-    int start = pageNum * itemsPerPage;
-    int end = start + positpointmax;
-
-    M5.Lcd.setCursor(0, 0);
-    for (int i = start; i < end; ++i) {
-        M5.Lcd.println(allTableNames[i]);
-    }
-    M5.Lcd.setTextSize(2);
-    M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
-    M5.Lcd.printf("Page: %d/%d", pageNum + 1, totalPages);
-}
-
-
-
 /**
- * @brief 指定されたファイル内の特定のテーブルから、すべての変数名とデータ型を取得します。
- * @param fs SDカードファイルシステムオブジェクト。
- * @param fullFilePath 読み込むファイルのフルパス。
- * @param targetTableName 変数情報を抽出するテーブルの名前。
- * @param variableNames 抽出した変数名を格納するベクターの参照。
- * @param dataTypes 抽出したデータ型を格納するベクターの参照。
- * @return bool 処理が成功し、指定されたテーブルが見つかった場合はtrue、それ以外はfalse。
+ * @brief Gets all variable names and data types from a specific table within a file.
+ * @param fs The SD card filesystem object.
+ * @param fullFilePath The full path of the file to load.
+ * @param targetTableName The name of the table to extract variable info from.
+ * @param variableNames Reference to a vector to store the extracted variable names.
+ * @param dataTypes Reference to a vector to store the extracted data types.
+ * @return bool True if the process is successful and the table is found, false otherwise.
  */
 bool getVariablesFromTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName, std::vector<String>& variableNames, std::vector<String>& dataTypes) {
     variableNames.clear();
     dataTypes.clear();
     bool tableFound = false;
     if (!fullFilePath.endsWith(".mett") || !fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error: ファイルが見つからないか、有効な .mett ファイルではありません: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: File not found or not a valid .mett file: %s\n", fullFilePath.c_str());
         return false;
     }
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!file) {
-        Serial.printf("Error: ファイルの読み込み用にオープンできませんでした: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
         return false;
     }
     String currentTableNameInFile = "";
@@ -3229,18 +2550,18 @@ bool getVariablesFromTable(fs::FS &fs, const String& fullFilePath, const String&
 }
 
 /**
- * @brief ベクター内のすべてのStringおよびStringArray型の変数をシリアルモニターに出力します。
- * @param variables 出力対象のMettVariableInfoのベクター。
+ * @brief Prints all variables of type String and StringArray in a vector to the serial monitor.
+ * @param variables The vector of MettVariableInfo to print from.
  */
 void printAllStringsInVector(const std::vector<MettVariableInfo>& variables) {
-    Serial.println("\n--- ベクター内のString/StringArray型の変数をすべて出力 ---");
+    Serial.println("\n--- Printing all String/StringArray variables in the vector ---");
     if (variables.empty()) {
-        Serial.println("Info: ベクターは空です。");
+        Serial.println("Info: Vector is empty.");
         return;
     }
     for (const auto& var : variables) {
         if (var.dataType == "String" || var.dataType == "StringArray") {
-            Serial.printf("変数名: %s, データ型: %s, 値: %s\n",
+            Serial.printf("Variable: %s, Data Type: %s, Value: %s\n",
                           var.variableName.c_str(), var.dataType.c_str(), var.valueString.c_str());
         }
     }
@@ -3319,13 +2640,76 @@ bool loadmett(){
     return false;
 }
 
+void shokaipointer2(int pageNum, String filePath  ) {
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.setTextSize(3);
+    frameright = 0;
+    frameleft = 0;
+    // Get all table names from a single file
+    allTableNames = getAllTableNamesInFile(SD, filePath);
+
+    if (allTableNames.empty()) {
+        M5.Lcd.println("No tables found.");
+        return;
+    }
+
+    int totalItems = allTableNames.size();
+    int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
+
+    if (pageNum < 0 || pageNum >= totalPages) {
+        M5.Lcd.println("Invalid page.");
+        M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.printf("Page: %d/%d", 1, totalPages);
+        return;
+    }
+
+    // Calculate positpointmax based on the new logic
+    int remainingItems = totalItems % itemsPerPage;
+    if (pageNum == totalPages - 1) {
+        if (remainingItems == 0) {
+            positpointmax = itemsPerPage ;
+        } else {
+            positpointmax = remainingItems ;
+        }
+    } else {
+        positpointmax = itemsPerPage ;
+    }
+    Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
+    // Use positpointmax for the loop
+    int start = pageNum * itemsPerPage;
+    int end = start + positpointmax;
+
+    M5.Lcd.setCursor(0, 0);
+    for(int i = 0; i < 100; i++){
+      AllName[i] = "";
+    }
+    int ii = 0;
+    for (int i = start; i < end; ++i) {
+        M5.Lcd.println("  " + allTableNames[i]);
+        AllName[ii] = allTableNames[i];
+        ii++;
+    }
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
+    M5.Lcd.printf("Page: %d/%d", pageNum + 1, totalPages);
+}
+
+
 void setup() {
+
+  TEXT_SCROLL_INTERVAL_MS = 40; 
   auto cfg = M5.config();
   Serial.begin(115200);
-  
+  lastTextScrollTime = 0;
+  SCROLL_SPEED_PIXELS = 4;
   M5.begin();
+  frameleft = 1;
+  frameright = 1;
   SD.begin();
-  
+  scrollPos = M5.Lcd.width();
   Serial.println("M5Stack initialized");
 
     Wire.begin(); 
@@ -3333,7 +2717,8 @@ void setup() {
   
   // SDカードの初期化を試みます
   // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
- 
+  btna = false;
+  btnc = false;
 
   
 
@@ -3385,6 +2770,8 @@ if(mainmode == 13){
         positpoint = 0;
         holdpositpoint = 0;
         imano_page = 0;
+        frameright  = 1;
+        frameleft = 1;
         shokaipointer();
         return;
       }
@@ -3809,7 +3196,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
   }
   }
   else if(mainmode == 4){
-    updatePointer();
+    updatePointer((bool)false);
      if(pagemoveflag == 4 && btna){
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(File_goukeifont);
@@ -4248,8 +3635,7 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
         SuperT=migidkae(karadirectname);
         karadirectname = SuperT;
         Serial.println(SuperT);
-        SCROLL_INTERVAL_FRAMES = 1;
-        SCROLL_SPEED_PIXELS = 3;
+        
         firstScrollLoop = true;
         filebrat = false;
         cursorIndex = 0;
