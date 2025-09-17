@@ -20,9 +20,10 @@ String RESERVED_NAMES[] = {
 };
 int frameleft;
 bool btna;
+int holdimanopage;
 bool btnc;
 unsigned long lastTextScrollTime;
-
+void  updatePointer2();
 unsigned long TEXT_SCROLL_INTERVAL_MS;
 
 int scrollPos;
@@ -313,12 +314,7 @@ bool dexx = false;
 //オプション:ファイルソート順番、ファイル拡張子デフォルト、書き込み方式
 
 
-bool rightrue(){
-  return frameright % 50 == 0 || frameright == 2;
-}
-bool lefttrue(){
-  return frameleft % 50 == 0 || frameleft == 2;
-}
+
 
 bool boolmax(){
   Serial.println("maxLinesPerPage3:" + String(maxLinesPerPage3) + "positpoint:" + String(positpoint) + "maxLinesPerPage:" + String(maxLinesPerPage)    );
@@ -375,7 +371,7 @@ void updatePointer(bool notext = false) {
     }else{
       frameright = 1;
     }
-    if(rightrue() && mainmode == 1 && DirecX == "/" && imano_page == maxpage - 1 && boolmax()){
+    if(righttrue() && mainmode == 1 && DirecX == "/" && imano_page == maxpage - 1 && boolmax()){
       
       pagemoveflag = 5;
       btnc = true;
@@ -388,7 +384,7 @@ void updatePointer(bool notext = false) {
     }
 
     
-    if ( rightrue() && !(imano_page == maxpage - 1 && mainmode == 1 && boolmax())) {
+    if ( righttrue() && !(imano_page == maxpage - 1 && mainmode == 1 && boolmax())) {
       Serial.println("F" + String(DirecX) + "G" + String(positpoint));
         btna = false;
         btnc = true;  
@@ -1704,7 +1700,7 @@ void printAllStringsInVector(const std::vector<MettVariableInfo>& variables) {
     }
     Serial.println("----------------------------------------------");
 }
-
+#pragma endregion
 
 bool loadmett(){
   // SDカード上の全`.mett`ファイルをスキャンしてデータを抽出
@@ -1783,6 +1779,8 @@ void shokaipointer2(int pageNum, String filePath  ) {
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextSize(3);
     frameright = 0;
+    positpoint = 0;
+    M5.Lcd.setTextSize(3);
     frameleft = 0;
     // Get all table names from a single file
     allTableNames = getAllTableNamesInFile(SD, filePath);
@@ -1808,8 +1806,10 @@ void shokaipointer2(int pageNum, String filePath  ) {
     if (pageNum == totalPages - 1) {
         if (remainingItems == 0) {
             positpointmax = itemsPerPage ;
+            positpointmaxg = itemsPerPage;
         } else {
             positpointmax = remainingItems ;
+            positpointmaxg = itemsPerPage;
         }
     } else {
         positpointmax = itemsPerPage ;
@@ -1885,8 +1885,40 @@ void loop() {
  delay(1);//serial.println暴走対策
 
 if(mainmode == 13){
-
-}
+    updatePointer2();
+    if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      imano_page = 0;
+      positpoint = 0;
+      shokaipointer2(imano_page,DirecX + ggmode);
+      return;
+    }else if(pagemoveflag == 2){
+      pagemoveflag = 0;
+      imano_page = imano_page + 1;
+      positpoint = 0;
+      shokaipointer2(imano_page,DirecX + ggmode);
+      return;
+    }else if(pagemoveflag == 3){
+      pagemoveflag = 0;
+      imano_page = imano_page - 1;
+      
+      positpoint = positpointmaxg - 1;
+      shokaipointer2(imano_page,DirecX + ggmode);
+      return;
+    }else if (pagemoveflag == 4){
+      pagemoveflag = 0;
+      imano_page = 0;
+      positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 1;
+      M5.Lcd.fillScreen(BLACK);
+      // SDカードコンテンツの初期表示
+      shokaipointer();
+      return;
+    }else if(M5.BtnC.wasPressed()){
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.println("  Open\n  Rename\n  Delete\n" );
+    }
  else if(mainmode == 12){
     if(M5.BtnA.wasPressed()){
       M5.Lcd.fillScreen(BLACK);
@@ -2123,6 +2155,10 @@ else if(mainmode == 8){
    
 int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
 
+String sse = wirecheck();
+if(sse == "E"){
+  Serial.println("created test");
+}
     
         if (M5.BtnA.wasPressed()) {
             ril = 1; // BtnAが押された
@@ -2844,6 +2880,8 @@ int ril = 0; // rilを0で初期化 (ボタンが押されていない状態)
     gggs = gggs.substring(0,gggs.length() - 1);
     Serial.println("fef" + gggs);
      File myFile = SD.open(gggs);
+     holdimanopage = imano_page;
+     holdpositpoint = positpoint;
      long fileSize = myFile.size();
      time_t lastWriteTime = myFile.getLastWrite(); // getLastWrite()の代わりにgetWriteTime()の場合もあります
       struct tm *timeinfo;
