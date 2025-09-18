@@ -1883,8 +1883,51 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策
+if(mainmode == 14){
+  updatePointer2();
+  if(pagemoveflag == 1){
+      
+      return;
+    }else if(pagemoveflag == 2){
+      
+      return;
+    }else if(pagemoveflag == 3 ||pagemoveflag == 4 ||  (M5.BtnB.wasPressed() && positpoint == 3)){
+      positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 12;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      return;
+    
+    }else if(M5.BtnB.wasPressed()){
+      if(positpoint == 1){//Create
+        bool tt = areusure();
+        if(tt){
+          M5.Lcd.fillScreen(BLACK);
+          entryenter = false;
+        SuperT="";
+        SCROLL_INTERVAL_FRAMES = 1;
+        SCROLL_SPEED_PIXELS = 3;
+        firstScrollLoop = true;
+        cursorIndex = 0;
+        Textex = "If you wanna end,press tab key. No \\n words";
+          mainmode = 15;
+          return;
 
-if(mainmode == 13){
+        }else{
+          positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 12;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      return;
+        }
+      }
+    }
+}
+else if(mainmode == 13){
     updatePointer2();
     if(pagemoveflag == 1){
       pagemoveflag = 0;
@@ -1915,10 +1958,21 @@ if(mainmode == 13){
       // SDカードコンテンツの初期表示
       shokaipointer();
       return;
-    }else if(M5.BtnC.wasPressed()){
+    }else if(M5.BtnB.wasPressed()){
       M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.println("  Open\n  Rename\n  Delete\n" );
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      holdpositpoint = positpoint;
+      holdimanopage = imano_page;
+      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  Back" );
+      positpoint = 0;
+      positpointmax = 5;
+
+      mainmode = 14;
+      return;
+
     }
+}
  else if(mainmode == 12){
     if(M5.BtnA.wasPressed()){
       M5.Lcd.fillScreen(BLACK);
