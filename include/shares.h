@@ -74,6 +74,7 @@ int createFile(String fileNameToCreate, String targetDirectoryPath);
 int createDirectory(String SuperTT, String DirecXX);
 int getCharWidth();
 int getFontHeight() ;
+String getParentDirectory(String path);
 struct CursorPosInfo {
     int pixelX;
     int pixelY;

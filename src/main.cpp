@@ -46,7 +46,7 @@ int sizex = 2;
 int resercounter = 0;
 int address = 0;
 int imano_page = 0;
-
+int holdpositpointmax = 0;
 int maxpage = 0;
 int maxLinesPerPage = 0;
 int maxLinesPerPageSave = 0;
@@ -80,6 +80,7 @@ int lastDrawnCursorScreenY = -9999;
 
 
 String Textex = "!"; // 最下部にスクロール表示するテキスト
+String Textex2 = "";
 int scrollOffset = 0; // スクロールテキストの描画オフセット
 int scrollFrameCounter = 0; // スクロールフレームカウンター
 
@@ -574,7 +575,7 @@ void shokaipointer(){
     frameright = 1;
     frameleft = 1;
     M5.Lcd.setTextColor(WHITE);
-    Tex2 = "Press B to Options Now Dir C:/" + DirecX + " :total bytes:" + formatBytes(SD.totalBytes()) + " :used bytes:" + formatBytes(SD.usedBytes());
+    Tex2 = "Pages:" + String(imano_page ) + "/" + String(maxpage - 1) + "  Press B to Options Now Dir C:/" + DirecX + " :total bytes:" + formatBytes(SD.totalBytes()) + " :used bytes:" + formatBytes(SD.usedBytes());
     resercounter = 0;
     positpointmaxg  = (M5.Lcd.height() / M5.Lcd.fontHeight()) - 1; 
     return;
@@ -1979,7 +1980,8 @@ else if(mainmode == 13){
         M5.Lcd.setTextSize(File_goukeifont);
         positpoint = holdpositpoint;
         mainmode = 1;
-
+        positpointmax = holdpositpointmax;
+        imano_page = holdimanopage;
         // SDカードコンテンツの初期表示
         shokaipointer();
         return;
@@ -1992,6 +1994,7 @@ else if(mainmode == 13){
         mainmode = 1;
         positpoint = 0;
         holdpositpoint = 0;
+        
         imano_page = 0;
         frameright  = 1;
         frameleft = 1;
@@ -2559,7 +2562,7 @@ if(sse == "E"){
     M5.Lcd.setTextSize(File_goukeifont);
     
     if(success){
-      kanketu("paste successed!",500);
+     kanketu("paste successed!",500);
     }else{
       kanketu("paste failed!",500);
     }
@@ -2826,7 +2829,7 @@ if(sse == "E"){
     M5.Lcd.setTextSize(File_goukeifont);
     
     if(success){
-      kanketu("paste successed!",500);
+      
     }else{
       kanketu("paste failed!",500);
     }
@@ -2912,42 +2915,64 @@ if(sse == "E"){
         return;
     }
   }
-  else if(M5.BtnB.wasPressed() && positpoint == 5){//ファイルペースト
-    if(copymotroot = ""){
-      kanketu("copy moto is empty!",500);
-      M5.Lcd.fillScreen(BLACK);
-        M5.Lcd.setTextSize(File_goukeifont);
-        positpoint = holdpositpoint;
-        mainmode = 1;
-
-        // SDカードコンテンツの初期表示
-        shokaipointer();
-        return;
-    }else{
-      String imaroot  = DirecX + Filelist[nowposit()];
-      Serial.println(imaroot + "]" + copymotroot);
-
-    }
-  }
+  
   else if(M5.BtnB.wasPressed() && positpoint == 7){ //edit file
-    String gggs = (DirecX + Filelist[positpoint]);
-    gggs = gggs.substring(0,gggs.length() - 1);
-    Serial.println("fef" + gggs);
-     File myFile = SD.open(gggs);
-     holdimanopage = imano_page;
-     holdpositpoint = positpoint;
-     long fileSize = myFile.size();
-     time_t lastWriteTime = myFile.getLastWrite(); // getLastWrite()の代わりにgetWriteTime()の場合もあります
-      struct tm *timeinfo;
-      timeinfo = localtime(&lastWriteTime);
-      M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.setCursor(0,0);
-      M5.Lcd.printf("File Size: %ld bytes\n", fileSize);
-      M5.Lcd.printf("Last Write: %04d/%02d/%02d %02d:%02d:%02d\n",
-                    timeinfo->tm_year + 1900, timeinfo->tm_mon + 1,
-                    timeinfo->tm_mday, timeinfo->tm_hour,
-                    timeinfo->tm_min, timeinfo->tm_sec);
+  String gggs = DirecX + Filelist[holdpositpoint];
+  // ファイル名の末尾にある改行文字や空白を削除
+  gggs.trim();
 
+  // シリアルモニタで開こうとしているファイル名を確認
+  Serial.println("Attempting to open file: '" + gggs + "'");
+
+  // ファイルを読み取りモードで開く
+  File myFile = SD.open(gggs, FILE_READ);
+
+  // SD.open()が成功したかを確認
+  if (myFile) {
+    Serial.println("File opened successfully.");
+
+    // 1. ファイル容量を取得 (long)
+    long fileSize = myFile.size();
+
+    // 2. 最終更新日時を取得
+    time_t lastWriteTime = myFile.getLastWrite();
+    
+    // 取得後は必ずファイルを閉じる
+    myFile.close();
+
+    // 日時情報を構造体に変換
+    struct tm *timeinfo;
+    timeinfo = localtime(&lastWriteTime);
+
+    // M5Stackの画面をクリア
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+
+    // 取得した情報を画面に表示
+    M5.Lcd.println("File Information:");
+    M5.Lcd.printf("File Name: %s\n", gggs.c_str());
+    M5.Lcd.printf("File Size: %ld bytes\n", fileSize);
+    
+    // 日時が取得できたか確認し、表示
+    if (timeinfo->tm_year > 70) { // tm_yearは1900年からの年数なので、2000年以上の値なら有効と判断
+      M5.Lcd.printf("Last Write: %04d/%02d/%02d %02d:%02d:%02d\n",
+                    timeinfo->tm_year + 1900, 
+                    timeinfo->tm_mon + 1,
+                    timeinfo->tm_mday, 
+                    timeinfo->tm_hour,
+                    timeinfo->tm_min, 
+                    timeinfo->tm_sec);
+    } else {
+      M5.Lcd.println("Last Write: Not available (RTC not set)");
+    }
+
+  } else {
+    // ファイルが開けなかった場合
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.println("Error: File not found or failed to open!");
+    M5.Lcd.printf("File: %s\n", gggs.c_str());
+  }
 
       
       mainmode = 12;
@@ -2955,6 +2980,7 @@ if(sse == "E"){
         M5.Lcd.printf("Wanna Edit? Press BtnB\n");
       }
       return;
+      
   }
 
 

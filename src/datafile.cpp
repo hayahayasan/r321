@@ -581,7 +581,7 @@ int nowpositZ() {
 
 
 
-// パスの末尾のスラッシュを削除する関数（ルートディレクトリを除く）
+// Function to remove the trailing slash from a path (except for the root directory)
 String cleanPath(String path) {
     if (path == "/") {
         return path;
@@ -591,34 +591,61 @@ String cleanPath(String path) {
     }
     return path;
 }
-#pragma region <directory_creation>
-// ネストされたディレクトリを再帰的に作成する関数
+
+// Function to get the parent directory of a given path
+// This handles both file paths and directory paths robustly.
+String getParentDirectory(String path) {
+    // Find the last slash to determine the parent directory.
+    int lastSlash = path.lastIndexOf('/');
+
+    // If the path is a root-level file (e.g., "/file.txt") or the root itself, its parent is the root directory.
+    if (lastSlash == 0) {
+        return "/";
+    }
+
+    // If there is no slash, it's not a valid path for this context.
+    if (lastSlash == -1) {
+        return "";
+    }
+    
+    // The parent directory is the substring up to the last slash.
+    return path.substring(0, lastSlash);
+}
+
+// Function to recursively create nested directories
 bool createDirRecursive(const char* path) {
     String currentPath = "";
     String pathString = String(path);
-    int start = 0;
     if (pathString.startsWith("/")) {
         currentPath += "/";
-        start = 1;
     }
-    int slashIndex = pathString.indexOf('/', start);
-    while (slashIndex != -1) {
-        currentPath += pathString.substring(start, slashIndex);
+    
+    int lastSlash = pathString.lastIndexOf('/');
+    if (lastSlash == 0 && pathString.length() > 1) { // Root directory with content e.g. "/folder"
+      if (!SD.exists(pathString)) {
+        return SD.mkdir(pathString);
+      }
+      return true;
+    } else if (lastSlash == -1) { // No path given e.g. "file.txt"
+        return true;
+    }
+
+    int start = pathString.startsWith("/") ? 1 : 0;
+    int slashIndex;
+    
+    while ((slashIndex = pathString.indexOf('/', start)) != -1) {
+        currentPath += pathString.substring(start, slashIndex) + "/";
         if (!SD.exists(currentPath)) {
-            if (!SD.mkdir(currentPath)) return false;
+            if (!SD.mkdir(currentPath)) {
+                return false;
+            }
         }
-        currentPath += "/";
         start = slashIndex + 1;
-        slashIndex = pathString.indexOf('/', start);
-    }
-    currentPath += pathString.substring(start);
-    if (!SD.exists(currentPath)) {
-        if (!SD.mkdir(currentPath)) return false;
     }
     return true;
 }
 
-// ファイル名をチェックし、重複する場合は新しい一意な名前を生成する関数
+// Function to check for and rename files with a unique new name to avoid duplication
 String checkAndRename(String filePath) {
     if (!SD.exists(filePath)) {
         return filePath;
@@ -633,16 +660,15 @@ String checkAndRename(String filePath) {
     }
     
     int slashIndex = baseName.lastIndexOf('/');
-    String fileNameOnly = baseName.substring(slashIndex + 1);
-    String directoryPath = baseName.substring(0, slashIndex + 1);
-    directoryPath = cleanPath(directoryPath);
+    String fileNameOnly = baseName;
+    String directoryPath = "/";
+    if (slashIndex != -1) {
+        fileNameOnly = baseName.substring(slashIndex + 1);
+        directoryPath = baseName.substring(0, slashIndex + 1);
+    }
 
     for (int i = 1; i <= 1000; i++) {
-        String newFileName = directoryPath;
-        if (newFileName != "/") {
-            newFileName += "/";
-        }
-        newFileName += fileNameOnly + "(" + String(i) + ")" + extension;
+        String newFileName = directoryPath + fileNameOnly + "(" + String(i) + ")" + extension;
         if (!SD.exists(newFileName)) {
             return newFileName;
         }
@@ -651,51 +677,94 @@ String checkAndRename(String filePath) {
     return "";
 }
 
-// ファイルをコピーする関数（進捗表示付き）
-bool copyFile(const char* sourcePath, const char* destinationPath, uint32_t totalSize) {
+// Function to copy a file with a progress display and a cancel option
+// Returns 0 for success, 1 for cancellation, 2 for failure.
+int copyFile(const char* sourcePath, const char* destinationPath, long totalSize) {
+    Serial.println("Starting file copy operation...");
     File sourceFile = SD.open(sourcePath, FILE_READ);
     if (!sourceFile) {
-        return false;
+        Serial.println("[ERROR] Failed to open source file for reading.");
+        return 2;
     }
     String destFullPath = String(destinationPath);
     int lastSlash = destFullPath.lastIndexOf('/');
     if (lastSlash > 0) {
         String parentDir = destFullPath.substring(0, lastSlash);
         if (!createDirRecursive(parentDir.c_str())) {
+            Serial.println("[ERROR] Failed to create destination directories.");
             sourceFile.close();
-            return false;
+            return 2;
         }
     }
     
     File destinationFile = SD.open(destinationPath, FILE_WRITE);
     if (!destinationFile) {
+        Serial.println("[ERROR] Failed to open destination file for writing.");
         sourceFile.close();
-        return false;
+        return 2;
     }
 
+    uint32_t bytesRead = 0;
     uint32_t totalCopiedSize = 0;
     uint8_t buffer[512];
-    size_t bytesRead;
+    bool cancelled = false;
+    
+    // Copy the file in a loop
     while ((bytesRead = sourceFile.read(buffer, sizeof(buffer))) > 0) {
-        destinationFile.write(buffer, bytesRead);
-        totalCopiedSize += bytesRead;
+        M5.update();
+        if (M5.BtnC.wasPressed()) {
+            Serial.println("Copy operation cancelled by user.");
+            cancelled = true;
+            break;
+        }
+
+        // Write to the destination and check if the number of written bytes matches the number of read bytes.
+        size_t bytesWritten = destinationFile.write(buffer, bytesRead);
+        if (bytesWritten != bytesRead) {
+            Serial.println("[ERROR] Write failed or was incomplete. Aborting copy.");
+            cancelled = true;
+            break;
+        }
+        totalCopiedSize += bytesWritten;
         if (totalSize > 0) {
             int percent = (int)((float)totalCopiedSize / totalSize * 100);
             M5.Lcd.setCursor(0, 40);
             M5.Lcd.printf("Copying... %d%% ", percent);
         }
     }
-    if (totalSize == 0) {
-        M5.Lcd.setCursor(0, 40);
-        M5.Lcd.printf("Copying... 100%% ");
+    
+    // Explicitly flush the buffer to ensure all data is written to the physical SD card.
+    destinationFile.flush();
+    destinationFile.close();
+    sourceFile.close();
+
+    if (cancelled) {
+        Serial.println("Removing incomplete destination file.");
+        SD.remove(destinationPath);
+        return 1;
     }
 
-    sourceFile.close();
-    destinationFile.close();
-    return true;
+    // The key fix: verify the final file size after all operations are complete.
+    File finalFile = SD.open(destinationPath, FILE_READ);
+    bool success = false;
+    if (finalFile) {
+        if (finalFile.size() == totalSize) {
+            success = true;
+            Serial.println("File size verification successful.");
+        } else {
+            // Mismatched file size. Cleanup and fail.
+            Serial.printf("[ERROR] Mismatched file size. Expected: %ld, Got: %ld\n", totalSize, finalFile.size());
+            SD.remove(destinationPath); // Remove the incomplete file
+        }
+        finalFile.close();
+    } else {
+        Serial.println("[ERROR] Failed to open destination file for size verification.");
+    }
+    
+    return success ? 0 : 2;
 }
 
-// ファイルまたはフォルダを再帰的に削除する関数
+// Function to recursively remove a file or folder
 bool removePath(const char* path) {
     File item = SD.open(path);
     if (!item) return false;
@@ -717,38 +786,92 @@ bool removePath(const char* path) {
     }
 }
 
-// メインの処理を実行する関数
+// Main function to perform file operations
 bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
 
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.println("Initializing SD card...");
+    Serial.println("Initializing SD card...");
     if (!SD.begin()) {
         M5.Lcd.println("[ERROR] SD card initialization failed!");
+        Serial.println("[ERROR] SD card initialization failed!");
         return false;
     }
 
     sourcePath = cleanPath(sourcePath);
     destinationPath = cleanPath(destinationPath);
     
-    // 1. コピー元ファイルの存在を確実に確認
-    M5.Lcd.printf("Checking source: %s\n", sourcePath.c_str());
-    if (!SD.exists(sourcePath)) {
-        M5.Lcd.println("[ERROR] Source path does not exist.");
+    // Get the parent directories of the source and destination paths
+    String sourceParentDir = getParentDirectory(sourcePath);
+    Serial.println("Source parent: " + sourceParentDir + ", Destination: " + destinationPath); 
+    // 1. Verify that the source and destination directories are not the same
+    // Check if we are trying to copy a file into its current directory
+    if (sourceParentDir == destinationPath) {
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0, 0);
+        
+        M5.Lcd.println("No Copy Use!");
+        Serial.println("No Copy Use!");
+        delay(2000);
         return false;
     }
-    File source = SD.open(sourcePath);
+    
+    // 2. Verify that the source file exists
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.printf("Checking source: %s\n", sourcePath.c_str());
+    Serial.printf("Checking source: %s\n", sourcePath.c_str());
+    if (!SD.exists(sourcePath)) {
+        M5.Lcd.println("[ERROR] Source path does not exist.");
+        Serial.println("[ERROR] Source path does not exist.");
+        return false;
+    }
+
+    // 3. Open the source file in read mode and get its size
+    File source = SD.open(sourcePath, FILE_READ);
+    if (!source) {
+        M5.Lcd.println("[ERROR] Failed to open source file for reading.");
+        Serial.println("[ERROR] Failed to open source file for reading.");
+        return false;
+    }
     if (source.isDirectory()) {
         M5.Lcd.println("[ERROR] Folder copy is not supported.");
+        Serial.println("[ERROR] Folder copy is not supported.");
         source.close();
         return false;
     }
-    uint32_t totalSize = source.size();
+    // Get file size in long type
+    long totalSize = source.size();
+    // Close the file after getting the size
     source.close();
-    M5.Lcd.printf("File size: %d bytes\n", totalSize);
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    // Output file size to M5Lcd using %ld specifier
+    M5.Lcd.printf("File size: %ld bytes\n", totalSize);
+    Serial.printf("File size: %ld bytes\n", totalSize);
 
-    // 2. コピー先の最終パスを決定
+    // 4. Display initial progress and wait for 1 second with a cancel option.
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.printf("Copying: 0%% 0/%ld byte\n", totalSize);
+    M5.Lcd.setCursor(0, 40);
+    M5.Lcd.println("Press C to cancel.");
+    for (int i = 0; i < 10; i++) {
+        M5.update();
+        if (M5.BtnC.wasPressed()) {
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.println("Copy aborted!");
+            Serial.println("Copy aborted!");
+            delay(1000);
+            return false;
+        }
+        delay(100);
+    }
+    
+    // 5. Determine the final destination path
     int lastSlash = sourcePath.lastIndexOf('/');
     String fileNameOnly = sourcePath.substring(lastSlash + 1);
     String finalDestinationPath;
@@ -758,39 +881,61 @@ bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
         finalDestinationPath = destinationPath + "/" + fileNameOnly;
     }
     
-    // 3. 連番付きのファイルパスを取得
+    // 6. Get a numbered file path to prevent overwriting
     String uniqueDestPath = checkAndRename(finalDestinationPath);
     if (uniqueDestPath == "") {
         M5.Lcd.println("[ERROR] Paste overflowed!");
+        Serial.println("[ERROR] Paste overflowed!");
         return false;
     }
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
     M5.Lcd.printf("Copying to: %s\n", uniqueDestPath.c_str());
+    Serial.printf("Copying to: %s\n", uniqueDestPath.c_str());
 
-    // コピー処理を実行
-    if (!copyFile(sourcePath.c_str(), uniqueDestPath.c_str(), totalSize)) {
-        M5.Lcd.setCursor(0, 40);
+    // Execute the copy operation
+    int copyResult = copyFile(sourcePath.c_str(), uniqueDestPath.c_str(), totalSize);
+    
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+
+    if (copyResult == 0) {
+        bool removeSucceeded = true;
+        if (isCut) {
+            M5.Lcd.println("Starting removal...");
+            Serial.println("Starting removal...");
+            if(!removePath(sourcePath.c_str())) {
+                M5.Lcd.fillScreen(BLACK);
+                M5.Lcd.setCursor(0, 0);
+                M5.Lcd.println("[ERROR] Paste and delete failed!");
+                Serial.println("[ERROR] Paste and delete failed!");
+                removeSucceeded = false;
+            } else {
+                M5.Lcd.fillScreen(BLACK);
+                M5.Lcd.setCursor(0, 0);
+                M5.Lcd.println("Paste and delete succeed!");
+                Serial.println("Paste and delete succeed!");
+            }
+        } else {
+            M5.Lcd.println("Paste successful!");
+            Serial.println("Paste successful!");
+        }
+        
+    } else if (copyResult == 1) {
+        M5.Lcd.println("Copy cancelled!");
+        Serial.println("Copy cancelled!");
+        return false;
+    } else { // copyResult == 2
         M5.Lcd.println("[ERROR] Copy failed!");
+        Serial.println("Copy failed!");
         return false;
     }
-    M5.Lcd.setCursor(0, 40);
-    M5.Lcd.println("Copy successful!                    ");
     
-    // 4. isCutがtrueの場合、コピー元を削除
-    if (isCut) {
-        M5.Lcd.setCursor(0, 50);
-        M5.Lcd.println("Starting removal...");
-        if(removePath(sourcePath.c_str())) {
-            M5.Lcd.setCursor(0, 50);
-            M5.Lcd.println("Move successful!                      ");
-        } else {
-            M5.Lcd.setCursor(0, 50);
-            M5.Lcd.println("[ERROR] Removal failed!");
-            return false;
-        }
-    }
+    delay(2000);
 
     return true;
 }
+
 
 bool areusure(){
   M5.Lcd.clear();
