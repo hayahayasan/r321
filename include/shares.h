@@ -75,6 +75,35 @@ int createDirectory(String SuperTT, String DirecXX);
 int getCharWidth();
 int getFontHeight() ;
 String getParentDirectory(String path);
+typedef std::map<String, String> MettDataMap;
+struct MettVariableInfo {
+    String variableName;
+    String dataType;
+    String valueString;
+    String tableName;
+};
+struct FileMettData {
+    String fileName;
+    size_t fileSize;
+    std::vector<MettVariableInfo> variables;
+};
+bool containsInvalidVariableNameChars(const String& name);
+String getVariableString(const std::vector<MettVariableInfo>& variables, const String& varName);
+int getVariableInt(const std::vector<MettVariableInfo>& variables, const String& varName);
+void printFileM(const std::vector<FileMettData>& extractedDataList);
+MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables);
+void printTable(const String& fileName, const String& tableName, const std::vector<MettVariableInfo>& variables);
+String joinVectorToString(const std::vector<String>& vec);
+std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath);
+std::vector<int> getVariableIntArray(const std::vector<MettVariableInfo>& variables, const String& varName);
+template <typename T>
+String joinVectorToString(const std::vector<T>& vec) ;
+String joinStringVectorToString(const std::vector<String>& vec);
+String inferDataType(const String& valueString) ;
+bool containsInvalidTableNameChars(const String& name);
+bool isValidTableName(const String& tableName);
+// Struct to hold information about a single metadata file
+
 struct CursorPosInfo {
     int pixelX;
     int pixelY;
@@ -109,4 +138,4 @@ extern bool renameSDItem(String oldPath, String newPath);
 extern int deleteRightmostSDItem(String itemPath) ;
 extern void kanketu(String texx,int frame);
 extern void  updatePointer2();
-#endif // SHARED_H
+#endif // SHARED

@@ -62,7 +62,9 @@ bool filebrat = false;
 String g_copySourcePath; // コピー元パス (ファイルまたはフォルダ)
 String g_destinationDirPath; // ペースト先ディレクトリのパス
 bool g_isSourceFolder; // コピー元がフォルダであるかどうかのフラグ
-
+int holdpositpointd = 0;
+int holdimanopaged = 0;
+int holdpositpointmaxd = 0;
 String Tex2;
 int pagemoveflag = 0;
 String Filelist[100];
@@ -851,149 +853,17 @@ void updatePointerAndDisplay(int ril) {
 # pragma region <Metload>
 
 // Struct to hold variable information extracted from a metadata file
-struct MettVariableInfo {
-    String variableName;
-    String dataType;
-    String valueString;
-    String tableName;
-};
 
-// Struct to hold information about a single metadata file
-struct FileMettData {
-    String fileName;
-    size_t fileSize;
-    std::vector<MettVariableInfo> variables;
-};
 
 // Map type for saving/loading metadata
 // Key: variable name, Value: value string
-typedef std::map<String, String> MettDataMap;
+
 
 // Global variables
 const int itemsPerPage = 8; // Number of items to display on a page
 std::vector<String> allTableNames;
 
 
-/**
- * @brief Helper function to infer data type from a string value.
- * @param valueString The string value.
- * @return The inferred data type name (String).
- */
-String inferDataType(const String& valueString) {
-    if (valueString.isEmpty()) {
-        return "String";
-    }
-    if (valueString.indexOf(',') != -1) {
-        int commaIndex = 0;
-        bool isIntArray = true;
-        bool isDoubleArray = true;
-        bool isStringArray = false;
-        String tempValue = valueString;
-        while (tempValue.length() > 0) {
-            commaIndex = tempValue.indexOf(',');
-            String element;
-            if (commaIndex == -1) {
-                element = tempValue;
-                tempValue = "";
-            } else {
-                element = tempValue.substring(0, commaIndex);
-                tempValue = tempValue.substring(commaIndex + 1);
-            }
-            element.trim();
-            if (element.isEmpty()) {
-                isStringArray = true;
-                isIntArray = false;
-                isDoubleArray = false;
-                break;
-            }
-            if (element.indexOf('.') != -1) {
-                isIntArray = false;
-            }
-            bool isNumber = true;
-            for(size_t i = 0; i < element.length(); i++) {
-                if (i == 0 && element.charAt(i) == '-') continue;
-                if (!isdigit(element.charAt(i)) && element.charAt(i) != '.') {
-                    isNumber = false;
-                    break;
-                }
-            }
-            if (!isNumber) {
-                isIntArray = false;
-                isDoubleArray = false;
-                isStringArray = true;
-                break;
-            }
-        }
-        if (isStringArray) {
-            return "StringArray";
-        }
-        if (isIntArray) {
-            return "IntArray";
-        }
-        if (isDoubleArray) {
-            return "DoubleArray";
-        }
-        return "StringArray";
-    }
-
-    bool isInt = true;
-    bool isDouble = false;
-    bool hasDecimal = false;
-    if (valueString.isEmpty()) return "String";
-    for(size_t i = 0; i < valueString.length(); i++) {
-        if (i == 0 && valueString.charAt(i) == '-') continue;
-        if (valueString.charAt(i) == '.') {
-            if (hasDecimal) {
-                isInt = false;
-                isDouble = false;
-                break;
-            }
-            hasDecimal = true;
-            isDouble = true;
-        } else if (!isdigit(valueString.charAt(i))) {
-            isInt = false;
-            isDouble = false;
-            break;
-        }
-    }
-    if (isInt && !hasDecimal) {
-        return "int";
-    }
-    if (isDouble) {
-        return "double";
-    }
-    return "String";
-}
-
-/**
- * @brief Helper function to check if a variable name contains invalid characters.
- * @param name The variable name to check.
- * @return true if invalid characters are found, otherwise false.
- */
-bool containsInvalidVariableNameChars(const String& name) {
-    for (size_t i = 0; i < name.length(); i++) {
-        char c = name.charAt(i);
-        if (c == ':' || c == '&' || c == ' ' || c == '#' || c == '-') {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
- * @brief Helper function to check if a table name contains invalid characters.
- * @param name The table name to check.
- * @return true if invalid characters are found, otherwise false.
- */
-bool containsInvalidTableNameChars(const String& name) {
-    for (size_t i = 0; i < name.length(); i++) {
-        char c = name.charAt(i);
-        if (c == ' ' || c == '#' || c == '$' || c == ':' || c == '&' || c == '-' || c == ',') {
-            return true;
-        }
-    }
-    return false;
-}
 
 /**
  * @brief Creates or appends a metadata file at the specified path and saves variables from a map.
@@ -1295,412 +1165,7 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     Serial.printf("Info: Mett file loaded successfully: %s (isEmpty: %s, Loaded Variables: %d)\n", fullFilePath.c_str(), isEmpty ? "true" : "false", variables.size());
 }
 
-/**
- * @brief Retrieves the value of a variable by name as a String from a vector of loaded MettVariableInfo.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return The value String if found, an empty String otherwise.
- */
-String getVariableString(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    for (const auto& var : variables) {
-        if (var.variableName == varName) {
-            return var.valueString;
-        }
-    }
-    return "";
-}
 
-/**
- * @brief Retrieves the value of a variable by name as an int from a vector of loaded MettVariableInfo.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return The converted int value if found, 0 otherwise.
- */
-int getVariableInt(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    String value = getVariableString(variables, varName);
-    return value.toInt();
-}
-
-/**
- * @brief Retrieves the value of a variable by name as a char from a vector of loaded MettVariableInfo.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return The first character of the value if found, '\0' otherwise.
- */
-char getVariableChar(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    String value = getVariableString(variables, varName);
-    if (value.length() > 0) {
-        return value.charAt(0);
-    }
-    return '\0';
-}
-
-/**
- * @brief Retrieves the value of a variable by name as a double from a vector of loaded MettVariableInfo.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return The converted double value if found, 0.0 otherwise.
- */
-double getVariableDouble(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    String value = getVariableString(variables, varName);
-    return value.toDouble();
-}
-
-/**
- * @brief Retrieves the comma-separated value of a variable by name as a vector of Strings.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return A vector of value strings if found, an empty vector otherwise.
- */
-std::vector<String> getVariableStringArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    std::vector<String> result;
-    String value = getVariableString(variables, varName);
-    if (!value.isEmpty()) {
-        int lastIndex = 0;
-        int commaIndex;
-        while ((commaIndex = value.indexOf(',', lastIndex)) != -1) {
-            String element = value.substring(lastIndex, commaIndex);
-            element.trim();
-            result.push_back(element);
-            lastIndex = commaIndex + 1;
-        }
-        String lastElement = value.substring(lastIndex);
-        lastElement.trim();
-        result.push_back(lastElement);
-    }
-    return result;
-}
-
-/**
- * @brief Retrieves the comma-separated value of a variable by name as a vector of ints.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return A vector of value ints if found, an empty vector otherwise.
- */
-std::vector<int> getVariableIntArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    std::vector<int> result;
-    std::vector<String> stringArray = getVariableStringArray(variables, varName);
-    for (const auto& s : stringArray) {
-        result.push_back(s.toInt());
-    }
-    return result;
-}
-
-/**
- * @brief Retrieves the comma-separated value of a variable by name as a vector of chars.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return A vector of value chars if found, an empty vector otherwise.
- */
-std::vector<char> getVariableCharArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    std::vector<char> result;
-    std::vector<String> stringArray = getVariableStringArray(variables, varName);
-    for (const auto& s : stringArray) {
-        if (s.length() > 0) {
-            result.push_back(s.charAt(0));
-        } else {
-            result.push_back('\0');
-        }
-    }
-    return result;
-}
-
-/**
- * @brief Retrieves the comma-separated value of a variable by name as a vector of doubles.
- * @param variables The vector of MettVariableInfo to search.
- * @param varName The name of the variable to search for.
- * @return A vector of value doubles if found, an empty vector otherwise.
- */
-std::vector<double> getVariableDoubleArray(const std::vector<MettVariableInfo>& variables, const String& varName) {
-    std::vector<double> result;
-    std::vector<String> stringArray = getVariableStringArray(variables, varName);
-    for (const auto& s : stringArray) {
-        result.push_back(s.toDouble());
-    }
-    return result;
-}
-
-/**
- * @brief Converts a string to a boolean value.
- * @param valueString The string to convert.
- * @return The converted boolean value.
- */
-bool stringToBool(const String& valueString) {
-    String lowerCase = valueString;
-    lowerCase.toLowerCase();
-    return (lowerCase == "true" || lowerCase == "1" || lowerCase == "yes");
-}
-
-/**
- * @brief Creates the necessary directory and file.
- * @param filePath The full path of the file to check for existence and create.
- * @return bool True if initialization is successful, false otherwise.
- */
-bool initializeSDCardAndCreateFile(const String& filePath) {
-    if (filePath.isEmpty() || !filePath.startsWith("/")) {
-        Serial.println("Error: Invalid file path.");
-        return false;
-    }
-    int lastSlash = filePath.lastIndexOf('/');
-    if (lastSlash == -1 || lastSlash == filePath.length() - 1) {
-        Serial.println("Error: File path must include a directory and a file name.");
-        return false;
-    }
-    String direcD = filePath.substring(0, lastSlash);
-    if (!SD.exists(direcD) && !SD.mkdir(direcD)) {
-        Serial.printf("Error: Failed to create directory: %s\n", direcD.c_str());
-        return false;
-    }
-    if (!SD.exists(filePath)) {
-        File file = SD.open(filePath.c_str(), FILE_WRITE);
-        if (!file) {
-            Serial.printf("Error: Failed to create file: %s\n", filePath.c_str());
-            return false;
-        }
-        file.close();
-    }
-    Serial.printf("Info: File and directory prepared: %s\n", filePath.c_str());
-    return true;
-}
-
-/**
- * @brief Prints the data saved in a specific table within the specified file.
- * @param fileName The full path of the file.
- * @param tableName The name of the table to print.
- * @param variables The vector of MettVariableInfo saved in the table.
- */
-void printTable(const String& fileName, const String& tableName, const std::vector<MettVariableInfo>& variables) {
-    Serial.printf("\n--- Data Summary for Table '%s' in File: %s ---\n", tableName.c_str(), fileName.c_str());
-    if (variables.empty()) {
-        Serial.printf("Info: No variables loaded for table '%s' in file '%s'.\n", tableName.c_str(), fileName.c_str());
-    } else {
-        for (const auto& var : variables) {
-            Serial.printf("   - Variable: %s, Data Type: %s, Value: %s\n",
-                          var.variableName.c_str(), var.dataType.c_str(), var.valueString.c_str());
-        }
-    }
-    Serial.println("--------------------");
-}
-
-/**
- * @brief Prints a list of table names from all .mett files in the specified folder.
- * @param extractedDataList The vector of extracted FileMettData.
- */
-void printFileM(const std::vector<FileMettData>& extractedDataList) {
-    Serial.println("\n--- List of .mett Files and Tables in the Folder ---");
-    if (extractedDataList.empty()) {
-        Serial.println("Info: No .mett files found or no data extracted.");
-    } else {
-        for (const auto& fileData : extractedDataList) {
-            Serial.printf("File: %s (Size: %u bytes)\n", fileData.fileName.c_str(), fileData.fileSize);
-            std::set<String> uniqueTableNames;
-            for (const auto& var : fileData.variables) {
-                if (!var.tableName.isEmpty()) {
-                    uniqueTableNames.insert(var.tableName);
-                }
-            }
-            if (uniqueTableNames.empty()) {
-                Serial.println("   - Tables: (none)");
-            } else {
-                for (const String& tableName : uniqueTableNames) {
-                    Serial.printf("   - Table: %s\n", tableName.c_str());
-                }
-            }
-            Serial.println("--------------------");
-        }
-    }
-}
-
-/**
- * @brief Joins elements of a std::vector into a comma-separated String.
- * @param vec The vector to join.
- * @return The joined String.
- */
-template <typename T>
-String joinVectorToString(const std::vector<T>& vec) {
-    if (vec.empty()) {
-        return "";
-    }
-    String result = "";
-    for (size_t i = 0; i < vec.size(); ++i) {
-        result += String(vec[i]);
-        if (i < vec.size() - 1) {
-            result += ",";
-        }
-    }
-    return result;
-}
-
-/**
- * @brief Joins elements of a std::vector<String> into a comma-separated String.
- * @param vec The vector of Strings to join.
- * @return The joined String.
- */
-String joinVectorToString(const std::vector<String>& vec) {
-    if (vec.empty()) {
-        return "";
-    }
-    String result = "";
-    for (size_t i = 0; i < vec.size(); ++i) {
-        result += vec[i];
-        if (i < vec.size() - 1) {
-            result += ",";
-        }
-    }
-    return result;
-}
-
-// Corrected updateMenuDisplay(ril) function
-void updateMenuDisplay(int ril) {
-    M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.println("Initial execution text.");
-}
-
-// New function to copy a loaded vector of variables to a MettDataMap
-MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
-    MettDataMap dataMap;
-    for (const auto& var : variables) {
-        dataMap[var.variableName] = var.valueString;
-    }
-    return dataMap;
-}
-
-/**
- * @brief Gets all table names saved in a specified .mett file.
- * @param fs The SD card filesystem object.
- * @param fullFilePath The full path of the file to get table names from.
- * @return std::vector<String> A list of extracted unique table names.
- */
-std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath) {
-    std::vector<String> tableNames;
-    std::set<String> uniqueTableNames;
-    if (!fullFilePath.endsWith(".mett") || !fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error: File not found or not a valid .mett file: %s\n", fullFilePath.c_str());
-        return tableNames;
-    }
-    File file = fs.open(fullFilePath.c_str(), FILE_READ);
-    if (!file) {
-        Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
-        return tableNames;
-    }
-    while (file.available()) {
-        String line = file.readStringUntil('\n');
-        line.trim();
-        if (line.startsWith("TABLE_NAME:")) {
-            int colonIndex = line.indexOf(':');
-            if (colonIndex != -1) {
-                String tableName = line.substring(colonIndex + 1);
-                tableName.trim();
-                if (!containsInvalidTableNameChars(tableName)) {
-                    uniqueTableNames.insert(tableName);
-                } else {
-                    Serial.printf("Warning: Invalid table name '%s' found in file. Skipping.\n", tableName.c_str());
-                }
-            }
-        }
-    }
-    file.close();
-    Serial.printf("Info: Found %d unique table names in file '%s'.\n", uniqueTableNames.size(), fullFilePath.c_str());
-    for (const auto& name : uniqueTableNames) {
-        tableNames.push_back(name);
-    }
-    return tableNames;
-}
-
-/**
- * @brief Gets all variable names and data types from a specific table within a file.
- * @param fs The SD card filesystem object.
- * @param fullFilePath The full path of the file to load.
- * @param targetTableName The name of the table to extract variable info from.
- * @param variableNames Reference to a vector to store the extracted variable names.
- * @param dataTypes Reference to a vector to store the extracted data types.
- * @return bool True if the process is successful and the table is found, false otherwise.
- */
-bool getVariablesFromTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName, std::vector<String>& variableNames, std::vector<String>& dataTypes) {
-    variableNames.clear();
-    dataTypes.clear();
-    bool tableFound = false;
-    if (!fullFilePath.endsWith(".mett") || !fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error: File not found or not a valid .mett file: %s\n", fullFilePath.c_str());
-        return false;
-    }
-    File file = fs.open(fullFilePath.c_str(), FILE_READ);
-    if (!file) {
-        Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
-        return false;
-    }
-    String currentTableNameInFile = "";
-    bool inTargetTable = false;
-    Serial.printf("Info: Searching for table '%s' in file '%s'.\n", targetTableName.c_str(), fullFilePath.c_str());
-    while (file.available()) {
-        String line = file.readStringUntil('\n');
-        line.trim();
-        if (line.startsWith("--- NEW DATA SET ---")) {
-            inTargetTable = false;
-            currentTableNameInFile = "";
-            continue;
-        }
-        if (line.startsWith("TABLE_NAME:")) {
-            int colonIndex = line.indexOf(':');
-            if (colonIndex != -1) {
-                currentTableNameInFile = line.substring(colonIndex + 1);
-                currentTableNameInFile.trim();
-                if (currentTableNameInFile == targetTableName) {
-                    inTargetTable = true;
-                    tableFound = true;
-                }
-            }
-            continue;
-        }
-        if (line.startsWith("#") || line.isEmpty()) {
-            continue;
-        }
-        if (inTargetTable) {
-            int firstColonIndex = line.indexOf(':');
-            int secondColonIndex = line.indexOf(':', firstColonIndex + 1);
-            if (firstColonIndex != -1 && secondColonIndex != -1) {
-                String varName = line.substring(0, firstColonIndex);
-                String dataType = line.substring(firstColonIndex + 1, secondColonIndex);
-                varName.trim();
-                dataType.trim();
-                if (!containsInvalidVariableNameChars(varName)) {
-                    variableNames.push_back(varName);
-                    dataTypes.push_back(dataType);
-                } else {
-                    Serial.printf("Warning: Invalid variable name '%s' in table '%s'. Skipping.\n", varName.c_str(), targetTableName.c_str());
-                }
-            }
-        }
-    }
-    file.close();
-    if (tableFound) {
-        Serial.printf("Info: Found and extracted %d variables from table '%s'.\n", variableNames.size(), targetTableName.c_str());
-    } else {
-        Serial.printf("Warning: Table '%s' was not found in file '%s'.\n", targetTableName.c_str(), fullFilePath.c_str());
-    }
-    return tableFound;
-}
-
-/**
- * @brief Prints all variables of type String and StringArray in a vector to the serial monitor.
- * @param variables The vector of MettVariableInfo to print from.
- */
-void printAllStringsInVector(const std::vector<MettVariableInfo>& variables) {
-    Serial.println("\n--- Printing all String/StringArray variables in the vector ---");
-    if (variables.empty()) {
-        Serial.println("Info: Vector is empty.");
-        return;
-    }
-    for (const auto& var : variables) {
-        if (var.dataType == "String" || var.dataType == "StringArray") {
-            Serial.printf("Variable: %s, Data Type: %s, Value: %s\n",
-                          var.variableName.c_str(), var.dataType.c_str(), var.valueString.c_str());
-        }
-    }
-    Serial.println("----------------------------------------------");
-}
 #pragma endregion
 
 bool loadmett(){
@@ -1884,7 +1349,16 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策
-if(mainmode == 14){
+if(mainmode == 15){
+  delay(1);
+    textluck();
+    if(entryenter == 2){
+
+    }else if(entryenter == 1){
+      
+    }
+}
+else if(mainmode == 14){
   updatePointer2();
   if(pagemoveflag == 1){
       
@@ -1911,8 +1385,9 @@ if(mainmode == 14){
         SCROLL_INTERVAL_FRAMES = 1;
         SCROLL_SPEED_PIXELS = 3;
         firstScrollLoop = true;
+        
         cursorIndex = 0;
-        Textex = "If you wanna end,press tab key. No \\n words";
+        Textex = "If you wanna end,press tab key. No return key!";
           mainmode = 15;
           return;
 
@@ -1978,10 +1453,10 @@ else if(mainmode == 13){
     if(M5.BtnA.wasPressed()){
       M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(File_goukeifont);
-        positpoint = holdpositpoint;
+        positpoint = holdpositpointd;
         mainmode = 1;
-        positpointmax = holdpositpointmax;
-        imano_page = holdimanopage;
+        positpointmax = holdpositpointmaxd;
+        imano_page = holdimanopaged;
         // SDカードコンテンツの初期表示
         shokaipointer();
         return;
@@ -2974,7 +2449,9 @@ if(sse == "E"){
     M5.Lcd.printf("File: %s\n", gggs.c_str());
   }
 
-      
+      holdpositpointd = positpoint;
+      holdimanopaged = imano_page;
+      holdpositpointmaxd = positpointmax;
       mainmode = 12;
       if(ggmode.endsWith(".mett") || ggmode.endsWith(".tbl") || ggmode.endsWith(".txt")){
         M5.Lcd.printf("Wanna Edit? Press BtnB\n");
