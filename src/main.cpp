@@ -932,7 +932,86 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         Serial.printf("Warning: File saved with some errors: %s (Table: %s)\n", fullFilePath.c_str(), tableName.c_str());
     }
 }
+bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
+    isError = false;
 
+    // 1. 新しいテーブル名のバリデーション
+    if (!isValidTableName(newTableName)) {
+        Serial.printf("Error: New table name '%s' is invalid (Check length, prohibited characters, or new lines).\n", newTableName.c_str());
+        isError = true;
+        return false;
+    }
+
+    // 2. ファイルの存在チェックとオープン
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error: File not found: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+    File readFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!readFile) {
+        Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+
+    std::vector<String> fileContentLines;
+    bool renameOccurred = false;
+    int renamedCount = 0;
+
+    // 3. ファイルの内容をメモリに読み込み、該当行を修正
+    while(readFile.available()){
+        String line = readFile.readStringUntil('\n');
+        
+        String trimmedLine = line;
+        trimmedLine.trim();
+
+        if (trimmedLine.startsWith("TABLE_NAME:")) {
+            int colonIndex = trimmedLine.indexOf(':');
+            if (colonIndex != -1) {
+                String currentTableNameInFile = trimmedLine.substring(colonIndex + 1);
+                currentTableNameInFile.trim();
+
+                if (!currentTableNameInFile.isEmpty() && !isValidTableName(currentTableNameInFile)) {
+                    Serial.printf("Warning: Invalid table name '%s' found in file. Not performing rename on this entry.\n", currentTableNameInFile.c_str());
+                } else if (currentTableNameInFile == oldTableName) {
+                    // テーブル名の置き換え
+                    String newLine = String("TABLE_NAME:") + newTableName;
+                    fileContentLines.push_back(newLine);
+                    renameOccurred = true;
+                    renamedCount++;
+                    Serial.printf("Info: Renamed table '%s' to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
+                    continue; // 置き換え済みなので、元のlineを追加しない
+                }
+            }
+        }
+        // 置き換えが行われなかった場合、元の行をリストに追加
+        fileContentLines.push_back(trimmedLine);
+    }
+    readFile.close();
+
+    if (!renameOccurred) {
+        Serial.printf("Warning: Table name '%s' was not found in file '%s'. No changes were made.\n", oldTableName.c_str(), fullFilePath.c_str());
+        return true; // エラーではない
+    }
+
+    // 4. ファイルを上書き保存
+    File writeFile = fs.open(fullFilePath.c_str(), FILE_WRITE); // FILE_WRITEで開くと内容がクリアされる
+    if (!writeFile) {
+        Serial.printf("Fatal Error: Failed to open file for writing (overwrite): %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+
+    // 読み込んだ行を書き戻す
+    for (const String& line : fileContentLines) {
+        writeFile.println(line);
+    }
+    writeFile.close();
+
+    Serial.printf("Success: Renamed '%s' to '%s' in %d location(s) in file '%s'.\n", oldTableName.c_str(), newTableName.c_str(), renamedCount, fullFilePath.c_str());
+    return true;
+}
 /**
  * @brief Scans for metadata files (.mett) in the specified directory on the SD card
  * and returns a list of file names, sizes, and all variable data found within them.
