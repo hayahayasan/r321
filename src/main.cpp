@@ -1352,9 +1352,15 @@ void loop() {
 if(mainmode == 15){
   delay(1);
     textluck();
-    if(entryenter == 2){
-
-    }else if(entryenter == 1){
+    if(entryenter == 2){//back
+      positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 12;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      return;
+    }else if(entryenter == 1){//enter
       
     }
 }
@@ -1400,6 +1406,10 @@ else if(mainmode == 14){
       shokaipointer2(holdimanopage,DirecX + ggmode);
       return;
         }
+      }
+      if(positpoint == 2){//Rename
+        bool tt = areusure();
+ 
       }
     }
 }
