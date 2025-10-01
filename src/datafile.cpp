@@ -33,26 +33,6 @@ bool lefttrue(){
   return frameleft == 2 || frameleft % scrollpx == 0;
 }
 
-bool isValidTableName(const String& tableName) {
-    // 1. 0文字ではないことと1000文字以内であることをチェック
-    if (tableName.isEmpty() || tableName.length() > 1000) {
-        Serial.printf("Error: Table name length is invalid. (Length: %d)\n", tableName.length());
-        return false;
-    }
-
-    // 2. 禁止文字が含まれていないかチェック
-    // containsInvalidTableNameChars関数とほぼ同じロジックを再実装
-    for (size_t i = 0; i < tableName.length(); i++) {
-        char c = tableName.charAt(i);
-        if (c == ' ' || c == '#' || c == '$' || c == ':' || c == '&' || c == '-' || c == ',' || c == '\\' || c == '\n' || c == '\r') {
-            Serial.printf("Error: Table name contains invalid character: '%c'\n", c);
-            return false;
-        }
-    }
-    
-    // すべてのチェックを通過した場合
-    return true;
-}
 
 // ポインターの位置を更新する関数
 void updatePointer2() {

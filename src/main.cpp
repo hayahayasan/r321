@@ -111,7 +111,7 @@ const int MAX_STRING_LENGTH = 65535; // SuperTに格納可能な最大文字数
 #pragma region <hensu2>
 
 bool isStart = true;
-String potlist[] = {"fileext","stringtype","(dummy)","sort type","wifipasstype","back"}; // グローバルで定義済み
+String potlist[] = {"fileext","stringtype","delete broken data","sort type","wifipasstype","back"}; // グローバルで定義済み
 int numMenuItems = sizeof(potlist) / sizeof(potlist[0]); 
 int currentPos = 0;
 bool redrawRequired = true; // 再描画が必要かどうかのフラグ
@@ -139,6 +139,59 @@ bool showAngleBrackets = true; // true: <X> を表示, false: X を表示 (<>な
 
 #pragma endregion
 
+//配列のNULL代入も作る
+/**
+ * @brief テーブル名が有効な形式であるか検証します。
+ * * @param tableName 検証するテーブル名
+ * @return bool 有効な場合はtrue
+ */
+bool isValidTableName(const String& tableName, const String existingNames[], size_t arraySize) {
+    // 1. 長さチェック (0文字または1000文字超は無効)
+    if (tableName.length() == 0 || tableName.length() > 1000) {
+        return false;
+    }
+
+    // 2. 空白のみのチェック
+    bool containsNonSpaceChar = false;
+    for (int i = 0; i < tableName.length(); i++) {
+        char c = tableName.charAt(i);
+        
+        // ASCII範囲外 (日本語、全角文字など) は有効文字として扱う
+        if (c < 0 || c > 0x7F) {
+            containsNonSpaceChar = true;
+            break;
+        }
+        // ASCII文字で空白文字でない場合
+        if (c > 0 && !isspace(c)) {
+             containsNonSpaceChar = true;
+             break;
+        }
+    }
+    if (!containsNonSpaceChar) {
+        return false;
+    }
+
+    // 3. 禁止文字チェック (mettファイル仕様に基づく)
+    // 禁止文字リストと半角スペース (' ') のチェック
+    const char* prohibited = "#$:&-,\\\n\r"; 
+    for (int i = 0; i < tableName.length(); i++) {
+        char c = tableName.charAt(i);
+        if (strchr(prohibited, c) != NULL || c == ' ') {
+            return false;
+        }
+    }
+    
+    // 4. 既存のテーブル名との重複チェック (完全一致、大文字・小文字を区別)
+    for (size_t i = 0; i < arraySize; ++i) {
+        // String::equals() を使用して完全一致（大文字・小文字を区別）を確認
+        if (tableName.equals(existingNames[i])) { 
+            return false; // 重複あり
+        }
+    }
+
+    // すべてのチェックを通過
+    return true;
+}
 
 
 
@@ -932,12 +985,26 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         Serial.printf("Warning: File saved with some errors: %s (Table: %s)\n", fullFilePath.c_str(), tableName.c_str());
     }
 }
+/**
+ * @brief Mettファイル内の古いテーブル名を、一時ファイル方式でメモリ安全に新しい名前に置き換えます。
+ * * 元のファイルを全量SRAMに読み込む代わりに、一時ファイルを作成し、行単位で読み書きをストリーミングします。
+ * これにより、SRAM上限を超える巨大なファイルでも安定してテーブル名を書き換えることが可能です。
+ * * @param fs SDカードまたはSPIFFSなどのファイルシステムオブジェクト
+ * @param fullFilePath リネーム対象のファイルパス
+ * @param oldTableName 古いテーブル名
+ * @param newTableName 新しいテーブル名
+ * @param isError 処理中にエラーが発生したかを示すフラグ (出力)
+ * @return bool 処理の試行が成功したかどうか (ファイルが見つからない、書き込みエラーなど)
+ */
 bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
     isError = false;
+    const String tempFilePath = fullFilePath + ".tmp";
+    bool renameOccurred = false;
+    int renamedCount = 0;
 
     // 1. 新しいテーブル名のバリデーション
     if (!isValidTableName(newTableName)) {
-        Serial.printf("Error: New table name '%s' is invalid (Check length, prohibited characters, or new lines).\n", newTableName.c_str());
+        Serial.printf("Error: New table name '%s' is invalid.\n", newTableName.c_str());
         isError = true;
         return false;
     }
@@ -948,6 +1015,7 @@ bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String&
         isError = true;
         return false;
     }
+    
     File readFile = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!readFile) {
         Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
@@ -955,16 +1023,24 @@ bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String&
         return false;
     }
 
-    std::vector<String> fileContentLines;
-    bool renameOccurred = false;
-    int renamedCount = 0;
+    // 3. 一時ファイルをオープン (FILE_WRITEはファイルを新規作成/上書きクリアします)
+    File writeFile = fs.open(tempFilePath.c_str(), FILE_WRITE); 
+    if (!writeFile) {
+        readFile.close();
+        Serial.printf("Fatal Error: Failed to open temporary file for writing: %s\n", tempFilePath.c_str());
+        isError = true;
+        return false;
+    }
 
-    // 3. ファイルの内容をメモリに読み込み、該当行を修正
+    // 4. ファイルの内容を行単位で読み込み、一時ファイルにストリーミング書き出し
+    //     => メモリ(SRAM)に全ファイル内容をロードするのを回避
     while(readFile.available()){
         String line = readFile.readStringUntil('\n');
         
         String trimmedLine = line;
         trimmedLine.trim();
+
+        String lineToWrite = line; // デフォルトでは元の行全体を保持
 
         if (trimmedLine.startsWith("TABLE_NAME:")) {
             int colonIndex = trimmedLine.indexOf(':');
@@ -972,44 +1048,56 @@ bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String&
                 String currentTableNameInFile = trimmedLine.substring(colonIndex + 1);
                 currentTableNameInFile.trim();
 
-                if (!currentTableNameInFile.isEmpty() && !isValidTableName(currentTableNameInFile)) {
-                    Serial.printf("Warning: Invalid table name '%s' found in file. Not performing rename on this entry.\n", currentTableNameInFile.c_str());
-                } else if (currentTableNameInFile == oldTableName) {
+                if (currentTableNameInFile == oldTableName) {
                     // テーブル名の置き換え
+                    // 行末の改行コードを保持するため、元の行の先頭部分を置き換え、
+                    // 残りの部分（改行コードなど）をそのまま利用することを検討します。
+                    // 簡単のため、ここでは新しい行を生成します。
                     String newLine = String("TABLE_NAME:") + newTableName;
-                    fileContentLines.push_back(newLine);
+                    
+                    // 元の行が改行を含んでいた場合、printlnで処理されます。
+                    lineToWrite = newLine; 
+                    
                     renameOccurred = true;
                     renamedCount++;
                     Serial.printf("Info: Renamed table '%s' to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
-                    continue; // 置き換え済みなので、元のlineを追加しない
                 }
             }
         }
-        // 置き換えが行われなかった場合、元の行をリストに追加
-        fileContentLines.push_back(trimmedLine);
+        
+        // 修正された行 (または元の行) を一時ファイルに書き出す
+        writeFile.println(lineToWrite);
     }
+    
+    // 5. ファイルをクローズ
     readFile.close();
+    writeFile.close();
 
+    // 6. 置き換えが発生しなかった場合
     if (!renameOccurred) {
-        Serial.printf("Warning: Table name '%s' was not found in file '%s'. No changes were made.\n", oldTableName.c_str(), fullFilePath.c_str());
+        Serial.printf("Warning: Table name '%s' was not found in file. No changes were made.\n", oldTableName.c_str());
+        // 一時ファイルを削除して終了
+        fs.remove(tempFilePath.c_str());
         return true; // エラーではない
     }
 
-    // 4. ファイルを上書き保存
-    File writeFile = fs.open(fullFilePath.c_str(), FILE_WRITE); // FILE_WRITEで開くと内容がクリアされる
-    if (!writeFile) {
-        Serial.printf("Fatal Error: Failed to open file for writing (overwrite): %s\n", fullFilePath.c_str());
+    // 7. 置き換えが発生した場合: ファイルの置き換え処理 (アトミックではない点に注意)
+    
+    // 元のファイルを削除
+    if (!fs.remove(fullFilePath.c_str())) {
+        Serial.printf("Fatal Error: Failed to delete original file: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+    
+    // 一時ファイルを元のファイル名にリネーム
+    if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+        Serial.printf("Fatal Error: Failed to rename temporary file to original: %s -> %s\n", tempFilePath.c_str(), fullFilePath.c_str());
         isError = true;
         return false;
     }
 
-    // 読み込んだ行を書き戻す
-    for (const String& line : fileContentLines) {
-        writeFile.println(line);
-    }
-    writeFile.close();
-
-    Serial.printf("Success: Renamed '%s' to '%s' in %d location(s) in file '%s'.\n", oldTableName.c_str(), newTableName.c_str(), renamedCount, fullFilePath.c_str());
+    Serial.printf("Success: Renamed '%s' to '%s' in %d location(s) using memory-safe streaming.\n", oldTableName.c_str(), newTableName.c_str(), renamedCount);
     return true;
 }
 /**
@@ -1427,11 +1515,12 @@ void setup() {
 
 void loop() {
   M5.update(); // ボタン状態を更新
- delay(1);//serial.println暴走対策
+ delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
 if(mainmode == 15){
   delay(1);
     textluck();
     if(entryenter == 2){//back
+      entryenter = 0;
       positpoint = holdpositpoint;
       imano_page = holdimanopage;
       mainmode = 12;
@@ -1440,7 +1529,38 @@ if(mainmode == 15){
       shokaipointer2(holdimanopage,DirecX + ggmode);
       return;
     }else if(entryenter == 1){//enter
-      
+      entryenter = 0;
+      if(isValidTableName(SuperT,AllName,101)){
+        if(positpoint == 1){//create
+
+        }else if (positpoint == 2){//rename
+
+        }
+        
+        MettDataMap dataToSave;
+        bool loadSuccess = false;
+
+
+        saveMettFile(SD, DirecX + ggmode, SuperT, dataToSave, loadSuccess);
+        if(loadSuccess){
+          Textex = "Save Error!";
+        }else{
+          kanketu("Create Success!",500);
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.setTextSize(3);
+          M5.Lcd.println("Loading...");
+        positpoint = holdpositpoint;
+        imano_page = holdimanopage;
+          mainmode = 13;
+          positpoint = 0;
+          positpointmax = 5;
+          shokaipointer2(holdimanopage,DirecX + ggmode);
+          return;
+        }
+      }else{
+        Textex = "Invalid Name!";
+      }
     }
 }
 else if(mainmode == 14){
@@ -1461,7 +1581,11 @@ else if(mainmode == 14){
       return;
     
     }else if(M5.BtnB.wasPressed()){
-      if(positpoint == 1){//Create
+      
+      if(positpoint == 3){//Delete
+
+      }
+      else if(positpoint == 1 || positpoint == 2){//Create
         bool tt = areusure();
         if(tt){
           M5.Lcd.fillScreen(BLACK);
@@ -1486,10 +1610,7 @@ else if(mainmode == 14){
       return;
         }
       }
-      if(positpoint == 2){//Rename
-        bool tt = areusure();
- 
-      }
+      
     }
 }
 else if(mainmode == 13){
@@ -1529,9 +1650,9 @@ else if(mainmode == 13){
       M5.Lcd.setTextSize(3);
       holdpositpoint = positpoint;
       holdimanopage = imano_page;
-      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  Back" );
+      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back" );
       positpoint = 0;
-      positpointmax = 5;
+      positpointmax = 6;
 
       mainmode = 14;
       return;

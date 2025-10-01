@@ -81,6 +81,12 @@ struct MettVariableInfo {
     String dataType;
     String valueString;
     String tableName;
+    String Options;
+    String Test;
+    int id1;
+    float id2;
+    double id3;
+    long id4;
 };
 struct FileMettData {
     String fileName;
