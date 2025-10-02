@@ -436,7 +436,7 @@ void updatePointer(bool notext = false) {
     }
     
     if(mainmode == 8){
-        Serial.println("r" + String(btna) + "l" + String(btnc) + " " + positpoint + "  " + frameright + frameleft);
+       // Serial.println("r" + String(btna) + "l" + String(btnc) + " " + positpoint + "  " + frameright + frameleft);
     }
 
     
@@ -1003,7 +1003,7 @@ bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String&
     int renamedCount = 0;
 
     // 1. 新しいテーブル名のバリデーション
-    if (!isValidTableName(newTableName)) {
+    if (!isValidTableName(newTableName, AllName, 101)) {
         Serial.printf("Error: New table name '%s' is invalid.\n", newTableName.c_str());
         isError = true;
         return false;
@@ -1407,7 +1407,10 @@ bool loadmett(){
 }
 
 void shokaipointer2(int pageNum, String filePath  ) {
-    M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Loading...");
+    
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.setTextColor(WHITE);
     M5.Lcd.setTextSize(3);
@@ -1419,7 +1422,8 @@ void shokaipointer2(int pageNum, String filePath  ) {
     allTableNames = getAllTableNamesInFile(SD, filePath);
 
     if (allTableNames.empty()) {
-        M5.Lcd.println("No tables found.");
+        M5.Lcd.fillScreen(BLACK);
+        Serial.println("No tables found.");
         return;
     }
 
@@ -1427,7 +1431,8 @@ void shokaipointer2(int pageNum, String filePath  ) {
     int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
 
     if (pageNum < 0 || pageNum >= totalPages) {
-        M5.Lcd.println("Invalid page.");
+         M5.Lcd.fillScreen(BLACK);
+        Serial.println("Invalid page.");
         M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
         M5.Lcd.setTextSize(2);
         M5.Lcd.printf("Page: %d/%d", 1, totalPages);
@@ -1451,12 +1456,19 @@ void shokaipointer2(int pageNum, String filePath  ) {
     // Use positpointmax for the loop
     int start = pageNum * itemsPerPage;
     int end = start + positpointmax;
-
+    if(totalItems % itemsPerPage == 0){
+      maxLinesPerPage = totalItems / itemsPerPage;
+    }else{
+      maxLinesPerPage = (totalItems / itemsPerPage) + 1;
+    }
+    
+    Serial.println("start" + String(start) + "end" + String(end) + "patge" + String(imano_page));
     M5.Lcd.setCursor(0, 0);
     for(int i = 0; i < 100; i++){
       AllName[i] = "";
     }
     int ii = 0;
+    M5.Lcd.fillScreen(BLACK);
     for (int i = start; i < end; ++i) {
         M5.Lcd.println("  " + allTableNames[i]);
         AllName[ii] = allTableNames[i];
@@ -1527,23 +1539,25 @@ if(mainmode == 15){
       M5.Lcd.fillScreen(BLACK);
       positpointmax = 5;
       shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
       return;
     }else if(entryenter == 1){//enter
       entryenter = 0;
       if(isValidTableName(SuperT,AllName,101)){
-        if(positpoint == 1){//create
-
-        }else if (positpoint == 2){//rename
-
-        }
-        
         MettDataMap dataToSave;
         bool loadSuccess = false;
-
+        if(positpoint == 1){//create
+          
 
         saveMettFile(SD, DirecX + ggmode, SuperT, dataToSave, loadSuccess);
+        }else if (positpoint == 2){//rename
+          loadSuccess = renameTableInMettFile(SD, DirecX + ggmode, AllName[holdpositpoint], SuperT, loadSuccess);
+        }
+        
+        
+
         if(loadSuccess){
-          Textex = "Save Error!";
+          Textex = "Save/Rename Error!";
         }else{
           kanketu("Create Success!",500);
           M5.Lcd.fillScreen(BLACK);
@@ -1556,6 +1570,7 @@ if(mainmode == 15){
           positpoint = 0;
           positpointmax = 5;
           shokaipointer2(holdimanopage,DirecX + ggmode);
+          maxpage = maxLinesPerPage;
           return;
         }
       }else{
@@ -1565,10 +1580,10 @@ if(mainmode == 15){
 }
 else if(mainmode == 14){
   updatePointer2();
-  if(pagemoveflag == 1){
+  if(pagemoveflag == 2){
       
       return;
-    }else if(pagemoveflag == 2){
+    }else if(pagemoveflag == 1){
       
       return;
     }else if(pagemoveflag == 3 ||pagemoveflag == 4 ||  (M5.BtnB.wasPressed() && positpoint == 3)){
@@ -1578,6 +1593,8 @@ else if(mainmode == 14){
       M5.Lcd.fillScreen(BLACK);
       positpointmax = 5;
       shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+
       return;
     
     }else if(M5.BtnB.wasPressed()){
@@ -1607,6 +1624,7 @@ else if(mainmode == 14){
       M5.Lcd.fillScreen(BLACK);
       positpointmax = 5;
       shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
       return;
         }
       }
@@ -1615,17 +1633,22 @@ else if(mainmode == 14){
 }
 else if(mainmode == 13){
     updatePointer2();
+
     if(pagemoveflag == 1){
       pagemoveflag = 0;
       imano_page = 0;
       positpoint = 0;
+      Serial.println("fefe1!");
       shokaipointer2(imano_page,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
       return;
     }else if(pagemoveflag == 2){
       pagemoveflag = 0;
       imano_page = imano_page + 1;
       positpoint = 0;
+      Serial.println("fefe2!");
       shokaipointer2(imano_page,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
       return;
     }else if(pagemoveflag == 3){
       pagemoveflag = 0;
@@ -1633,6 +1656,7 @@ else if(mainmode == 13){
       
       positpoint = positpointmaxg - 1;
       shokaipointer2(imano_page,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
       return;
     }else if (pagemoveflag == 4){
       pagemoveflag = 0;
@@ -1653,7 +1677,7 @@ else if(mainmode == 13){
       M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back" );
       positpoint = 0;
       positpointmax = 6;
-
+      maxpage = -1;
       mainmode = 14;
       return;
 
@@ -1689,9 +1713,13 @@ else if(mainmode == 13){
 
 
       mainmode = 13;
-     
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.println("Loading...");
       Serial.println("fe" + DirecX + ggmode);
       shokaipointer2(0,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      Serial.println("sus" + String(maxpage));
       return;
     }
  }

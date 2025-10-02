@@ -73,13 +73,13 @@ void updatePointer2() {
       frameright = 1;
     }
 
-    Serial.println("r" + String(btna) + "l" + String(btnc) + " " + positpoint + "  " + frameright + frameleft);
+    //Serial.println("r" + String(btna) + "l" + String(btnc) + " " + positpoint + "  " + frameright + frameleft);
     pagemoveflag = 0;
     
     if(righttrue()){
       btna = false;
       btnc = true;  
-      if(imano_page < maxpage - 1){
+      if(imano_page < maxpage - 1 && maxpage != -1){
         if(positpoint == positpointmax - 1){
           pagemoveflag = 2;
           return;
@@ -106,7 +106,7 @@ void updatePointer2() {
       if(imano_page >0){
         pagemoveflag = 3;
         return;
-      }else if(imano_page == 0){
+      }else if(imano_page == 0 && maxpage != -1){
         pagemoveflag = 4;
         return;
       }
