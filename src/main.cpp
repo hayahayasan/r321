@@ -145,53 +145,7 @@ bool showAngleBrackets = true; // true: <X> を表示, false: X を表示 (<>な
  * * @param tableName 検証するテーブル名
  * @return bool 有効な場合はtrue
  */
-bool isValidTableName(const String& tableName, const String existingNames[], size_t arraySize) {
-    // 1. 長さチェック (0文字または1000文字超は無効)
-    if (tableName.length() == 0 || tableName.length() > 1000) {
-        return false;
-    }
 
-    // 2. 空白のみのチェック
-    bool containsNonSpaceChar = false;
-    for (int i = 0; i < tableName.length(); i++) {
-        char c = tableName.charAt(i);
-        
-        // ASCII範囲外 (日本語、全角文字など) は有効文字として扱う
-        if (c < 0 || c > 0x7F) {
-            containsNonSpaceChar = true;
-            break;
-        }
-        // ASCII文字で空白文字でない場合
-        if (c > 0 && !isspace(c)) {
-             containsNonSpaceChar = true;
-             break;
-        }
-    }
-    if (!containsNonSpaceChar) {
-        return false;
-    }
-
-    // 3. 禁止文字チェック (mettファイル仕様に基づく)
-    // 禁止文字リストと半角スペース (' ') のチェック
-    const char* prohibited = "#$:&-,\\\n\r"; 
-    for (int i = 0; i < tableName.length(); i++) {
-        char c = tableName.charAt(i);
-        if (strchr(prohibited, c) != NULL || c == ' ') {
-            return false;
-        }
-    }
-    
-    // 4. 既存のテーブル名との重複チェック (完全一致、大文字・小文字を区別)
-    for (size_t i = 0; i < arraySize; ++i) {
-        // String::equals() を使用して完全一致（大文字・小文字を区別）を確認
-        if (tableName.equals(existingNames[i])) { 
-            return false; // 重複あり
-        }
-    }
-
-    // すべてのチェックを通過
-    return true;
-}
 
 
 
@@ -1419,7 +1373,8 @@ void shokaipointer2(int pageNum, String filePath  ) {
     M5.Lcd.setTextSize(3);
     frameleft = 0;
     // Get all table names from a single file
-    allTableNames = getAllTableNamesInFile(SD, filePath);
+    bool tt = false;
+    allTableNames = getAllTableNamesInFile(SD, filePath,tt);
 
     if (allTableNames.empty()) {
         M5.Lcd.fillScreen(BLACK);
@@ -1524,7 +1479,8 @@ void setup() {
   
 
 }
-
+//後でファイル名作成時の拡張子オプションロード追加
+//ログ機能の追加．ログ追加後，メニューから一発でテーブル編集に飛ぶ機能，つまりファイルのお気に入り指定の追加
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
@@ -1535,6 +1491,7 @@ if(mainmode == 15){
       entryenter = 0;
       positpoint = holdpositpoint;
       imano_page = holdimanopage;
+      positpointmax = holdpositpointmax;
       mainmode = 12;
       M5.Lcd.fillScreen(BLACK);
       positpointmax = 5;
@@ -1566,9 +1523,10 @@ if(mainmode == 15){
           M5.Lcd.println("Loading...");
         positpoint = holdpositpoint;
         imano_page = holdimanopage;
-          mainmode = 13;
-          positpoint = 0;
-          positpointmax = 5;
+          mainmode = 12;
+          positpoint = holdpositpoint;
+          imano_page = holdimanopage;
+          holdpositpointmax = holdpositpointmax;
           shokaipointer2(holdimanopage,DirecX + ggmode);
           maxpage = maxLinesPerPage;
           return;
@@ -1581,12 +1539,13 @@ if(mainmode == 15){
 else if(mainmode == 14){
   updatePointer2();
   if(pagemoveflag == 2){
-      
+      pagemoveflag = 0;
       return;
     }else if(pagemoveflag == 1){
-      
+      pagemoveflag = 0;
       return;
-    }else if(pagemoveflag == 3 ||pagemoveflag == 4 ||  (M5.BtnB.wasPressed() && positpoint == 3)){
+    }else if((pagemoveflag == 5) ){
+      pagemoveflag = 0;
       positpoint = holdpositpoint;
       imano_page = holdimanopage;
       mainmode = 12;
@@ -1600,8 +1559,49 @@ else if(mainmode == 14){
     }else if(M5.BtnB.wasPressed()){
       
       if(positpoint == 3){//Delete
+          bool tt = areusure();
+          if(tt){
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Deleting...");
+            if(deleteTableInFile(SD, DirecX + ggmode, AllName[holdpositpoint])){
+              kanketu("Delete Success!",500);
+              imano_page = holdimanopage;
+      mainmode = 12;
+      M5.Lcd.fillScreen(BLACK);
+      
+      imano_page = 0;
+      positpoint = 0;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      return;
 
-      }
+            }else{
+              kanketu("Delete Failed!",500);
+              positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 12;
+      M5.Lcd.fillScreen(BLACK);
+      
+      positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      return;
+            }
+
+          }  else{
+            positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 12;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      return;
+          }
+
+      }    
       else if(positpoint == 1 || positpoint == 2){//Create
         bool tt = areusure();
         if(tt){
@@ -1674,9 +1674,9 @@ else if(mainmode == 13){
       M5.Lcd.setTextSize(3);
       holdpositpoint = positpoint;
       holdimanopage = imano_page;
-      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back" );
+      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back\n  Log" );
       positpoint = 0;
-      positpointmax = 6;
+      positpointmax = 7;
       maxpage = -1;
       mainmode = 14;
       return;

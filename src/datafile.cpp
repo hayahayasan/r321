@@ -22,6 +22,15 @@ int offsetX = 0; // テキスト描画の水平オフセット（スクロール
 int offsetY = 0; // テキスト描画の垂直オフセット（スクロール用）
 int scrollpx = 50;
 bool needsRedraw = false;
+const std::vector<String> reservedWords = {
+    "CONFIG", "METT", "VERSION", "TABLE", "OPTION", "DEFAULT",
+    "ENCRYPT", "NOTREAD", "REQUIRED", "NULL", "TRUE", "FALSE",
+    "READ_ONLY", "ENCRYPTED", "TABLE_KEY", "USRDATA",
+    "MAX_ROWS", "STORAGE", "INITIAL_DATA", "PRIMARY_KEY", 
+    "SCHEMA_VERSION", "MIN_VERSION", "ACCESS", 
+    "FORCE_LAST_MODIFIED", "FORCE_LAST_USER"
+};
+
 
 template String joinVectorToString<int>(const std::vector<int>&);
 template String joinVectorToString<String>(const std::vector<String>&);
@@ -86,6 +95,7 @@ void updatePointer2() {
         }else{
           positpoint++;
         }
+        
       }else{
         if(positpoint == positpointmax - 1){
           pagemoveflag = 1;
@@ -93,24 +103,34 @@ void updatePointer2() {
         }else{
           positpoint++;
         }
+        
       }
-    } else if (lefttrue() && positpoint > -1) {
-        positpoint--; // 上へ移動
-        Serial.println("F" + String(DirecX) + "G" + String(positpoint));
-        btna = true;
-        btnc = false;
+    
     } else if(lefttrue() && positpoint == -1){
       btna = true;
       btnc = false;
-      Serial.println("HHH" + String(imano_page));
-      if(imano_page >0){
+      Serial.println("HHH" + String(positpoint));
+      if(maxpage == -1)  {
+        pagemoveflag = 5;
+        Serial.println("pagemoved");
+        return;
+      }
+      else if(imano_page >0){
         pagemoveflag = 3;
         return;
       }else if(imano_page == 0 && maxpage != -1){
         pagemoveflag = 4;
         return;
       }
-    } else if(!lefttrue() && !righttrue()) {
+    }  else if (lefttrue() && positpoint > -1) {
+        positpoint--; // 上へ移動
+        Serial.println("F" + String(DirecX) + "G" + String(positpoint));
+        btna = true;
+        btnc = false;
+        
+    }
+    
+    else if(!lefttrue() && !righttrue()) {
       btna = false;
       btnc = false;
     }
@@ -127,13 +147,8 @@ void updatePointer2() {
       pagemoveflag = 0;
     }
 
-    // ポインターの境界チェック
-    if(maxLinesPerPage2 == 1 && mainmode == 1){
-      positpoint = 0;
-    }else{
-      positpoint = std::max(0, positpoint); // 負の方向には移動できない (最小値は0)
-      int effective_filelist_count = positpointmaxg;
-    }
+    
+   
     
     // ポインターの位置が変更された場合、または初回描画時の処理
     if (prev_positpoint != positpoint) { 
@@ -2061,44 +2076,166 @@ MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
 }
 
 /**
- * @brief Gets all table names saved in a specified .mett file.
- * @param fs The SD card filesystem object.
+ * @brief テーブル名として有効な構文を持ち、かつ既存のテーブル名と重複しないかをチェックします。
+ * (引数3つのシグネチャを維持)
+ *
+ * @param tableName チェックする新しいテーブル名 (String)
+ * @param existingNames 既存の全テーブル名の配列 (String配列)
+ * @param arraySize existingNames配列のサイズ
+ * @return bool 有効な場合は true、無効な場合は false (構文エラーまたは重複)
+ */
+bool isValidTableName(const String& tableName, const String existingNames[], size_t arraySize) {
+    // 1. 構文チェック
+    if (tableName.length() == 0 || tableName.length() > 1000) return false;
+    
+    // 空白のみのチェック
+    bool containsNonSpaceChar = false;
+    for (int i = 0; i < tableName.length(); i++) {
+        char c = tableName.charAt(i);
+        if (c < 0 || c > 0x7F) { containsNonSpaceChar = true; break; }
+        if (c > 0 && !isspace(c)) { containsNonSpaceChar = true; break; }
+    }
+    if (!containsNonSpaceChar) return false;
+
+    // 禁止文字チェック (半角スペースも含む)
+    const char* prohibited = "#$:&-,\\\n\r "; 
+    for (int i = 0; i < tableName.length(); i++) {
+        char c = tableName.charAt(i);
+        if (strchr(prohibited, c) != NULL) return false;
+    }
+    
+    // システム予約語チェック (大文字・小文字を無視)
+    String upperName = tableName;
+    upperName.toUpperCase();
+    for (const String& reserved : reservedWords) {
+        String upperReserved = reserved;
+        upperReserved.toUpperCase();
+        if (upperName.equals(upperReserved)) return false; 
+    }
+
+    // 2. 重複チェック (大小文字区別なし)
+    for (size_t i = 0; i < arraySize; ++i) {
+        // existingNames配列が宣言されたサイズまで初期化されていることを前提とします
+        // 配列外アクセスを防ぐため、arraySizeのチェックは重要です。
+        if (tableName.equalsIgnoreCase(existingNames[i])) return false; 
+    }
+    return true;
+}
+
+// ----------------------------------------------------------------------
+// 2. getAllTableNamesInFile の高速化 (ブロック読み取りを使用)
+// ----------------------------------------------------------------------
+
+// containsInvalidTableNameChars の定義 (getAllTableNamesInFileの依存関係を解決)
+bool containsInvalidTableNameChars(const String& tableName) {
+    // isValidTableNameのロジックから禁止文字チェック部分を流用
+    const char* prohibited = "#$:&-,\\\n\r "; 
+    for (int i = 0; i < tableName.length(); i++) {
+        char c = tableName.charAt(i);
+        if (strchr(prohibited, c) != NULL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 読み込みバッファサイズ
+const size_t BUFFER_SIZE = 4096;
+const char* TABLE_NAME_PATTERN = "TABLE_NAME:";
+const size_t PATTERN_LEN = 11; // strlen("TABLE_NAME:")
+
+/**
+ * @brief 指定された .mett ファイルに保存されているすべてのテーブル名を高速に取得します。
+ * * **【高速化のポイント】**
+ * 1. ファイル全体を固定バッファ (4KB) でブロック読み込み (File::read) します。
+ * 2. `readStringUntil('\n')` を使用しないことで、I/Oと動的メモリ確保のオーバーヘッドを大幅に削減します。
+ * * @param fs The SD card filesystem object.
  * @param fullFilePath The full path of the file to get table names from.
  * @return std::vector<String> A list of extracted unique table names.
  */
-std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath) {
+std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath, bool& isZero) {
     std::vector<String> tableNames;
     std::set<String> uniqueTableNames;
+    
+    // 戻り値パラメーターの初期化
+    isZero = false; 
+
     if (!fullFilePath.endsWith(".mett") || !fs.exists(fullFilePath.c_str())) {
         Serial.printf("Error: File not found or not a valid .mett file: %s\n", fullFilePath.c_str());
+        isZero = true; // ファイルエラーもテーブルゼロと見なす場合
         return tableNames;
     }
+
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!file) {
         Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
+        isZero = true;
         return tableNames;
     }
+
+    char buffer[BUFFER_SIZE];
+    String lineBuffer = ""; // バッファ境界を跨ぐ行を一時的に保持
+
+    // ファイルの最後までブロック単位で読み込む (高速化処理)
     while (file.available()) {
-        String line = file.readStringUntil('\n');
-        line.trim();
-        if (line.startsWith("TABLE_NAME:")) {
-            int colonIndex = line.indexOf(':');
-            if (colonIndex != -1) {
-                String tableName = line.substring(colonIndex + 1);
+        size_t bytesRead = file.read((uint8_t*)buffer, BUFFER_SIZE);
+        
+        // 前回の残り + 今回のデータを結合
+        String currentBlock = lineBuffer;
+        currentBlock.concat(buffer, bytesRead); 
+        
+        lineBuffer = ""; // リセット
+
+        int start = 0;
+        int end = 0;
+        
+        // ブロック内で改行を見つけ、行を処理
+        while ((end = currentBlock.indexOf('\n', start)) != -1) {
+            String line = currentBlock.substring(start, end);
+            
+            if (line.startsWith(TABLE_NAME_PATTERN)) {
+                String tableName = line.substring(PATTERN_LEN);
                 tableName.trim();
+                
                 if (!containsInvalidTableNameChars(tableName)) {
                     uniqueTableNames.insert(tableName);
-                } else {
-                    Serial.printf("Warning: Invalid table name '%s' found in file. Skipping.\n", tableName.c_str());
-                }
+                } 
             }
+            start = end + 1; // 次の行へ
+        }
+
+        // 最後に残ったデータ（次のブロックへ引き継ぐ行の断片）を保持
+        if (start < currentBlock.length()) {
+            lineBuffer = currentBlock.substring(start);
         }
     }
+
+    // 最終行の処理
+    if (lineBuffer.startsWith(TABLE_NAME_PATTERN)) {
+        String tableName = lineBuffer.substring(PATTERN_LEN);
+        tableName.trim();
+        if (!containsInvalidTableNameChars(tableName)) {
+            uniqueTableNames.insert(tableName);
+        }
+    }
+    
     file.close();
-    Serial.printf("Info: Found %d unique table names in file '%s'.\n", uniqueTableNames.size(), fullFilePath.c_str());
+
+    // テーブル数がゼロの場合に isZero を true に設定
+    if (uniqueTableNames.empty()) {
+        isZero = true;
+    }
+    
+    Serial.printf("Info: Found %d unique table names in file '%s'. isZero: %s\n", 
+                  uniqueTableNames.size(), 
+                  fullFilePath.c_str(), 
+                  isZero ? "True" : "False");
+    
+    // setの内容をvectorにコピーして返す
     for (const auto& name : uniqueTableNames) {
         tableNames.push_back(name);
     }
+    
     return tableNames;
 }
 
@@ -2193,6 +2330,121 @@ void printAllStringsInVector(const std::vector<MettVariableInfo>& variables) {
         }
     }
     Serial.println("----------------------------------------------");
+}
+
+
+bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableNameToDelete) {
+    
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error: File not found: %s\n", fullFilePath.c_str());
+        return false;
+    }
+    
+    String tempFilePath = fullFilePath + ".tmp";
+    
+    File inputFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
+
+    if (!inputFile || !tempFile) {
+        Serial.printf("Error: Failed to open files. Input: %s, Temp: %s\n", 
+                       inputFile ? "OK" : "FAIL", 
+                       tempFile ? "OK" : "FAIL");
+        if (tempFile) tempFile.close();
+        if (fs.exists(tempFilePath.c_str())) fs.remove(tempFilePath.c_str()); 
+        return false;
+    }
+
+    bool tableWasFound = false;
+    bool isDeleting = false; 
+    
+    char buffer[BUFFER_SIZE];
+    String lineBuffer = ""; 
+    String targetNameUpper = tableNameToDelete;
+    targetNameUpper.toUpperCase();
+
+    while (inputFile.available()) {
+        size_t bytesRead = inputFile.read((uint8_t*)buffer, BUFFER_SIZE);
+        
+        String currentBlock = lineBuffer;
+        currentBlock.concat(buffer, bytesRead); 
+        
+        lineBuffer = ""; 
+
+        int start = 0;
+        int end = 0;
+        
+        while ((end = currentBlock.indexOf('\n', start)) != -1) {
+            String line = currentBlock.substring(start, end);
+            
+            if (line.startsWith(TABLE_NAME_PATTERN)) {
+                String currentTableName = line.substring(PATTERN_LEN);
+                currentTableName.trim();
+                currentTableName.toUpperCase();
+                
+                if (currentTableName.equals(targetNameUpper)) {
+                    isDeleting = true; 
+                    tableWasFound = true;
+                    // 削除モード中は行をスキップ
+                } else {
+                    isDeleting = false; 
+                    tempFile.print(line);
+                    tempFile.print('\n');
+                }
+            } else if (!isDeleting) {
+                tempFile.print(line);
+                tempFile.print('\n');
+            }
+            
+            start = end + 1; 
+        }
+
+        if (start < currentBlock.length()) {
+            lineBuffer = currentBlock.substring(start);
+        }
+    }
+
+    if (lineBuffer.length() > 0) {
+        if (lineBuffer.startsWith(TABLE_NAME_PATTERN)) {
+            String currentTableName = lineBuffer.substring(PATTERN_LEN);
+            currentTableName.trim();
+            currentTableName.toUpperCase();
+
+            if (!currentTableName.equals(targetNameUpper)) {
+                isDeleting = false;
+                if (!isDeleting) {
+                    tempFile.print(lineBuffer);
+                    tempFile.print('\n');
+                }
+            }
+        } else if (!isDeleting) {
+            tempFile.print(lineBuffer);
+            tempFile.print('\n');
+        }
+    }
+    
+    inputFile.close();
+    tempFile.close();
+
+    if (tableWasFound) {
+        Serial.printf("Info: Successfully removed table block for '%s'. Replacing original file.\n", tableNameToDelete.c_str());
+    } else {
+        Serial.printf("Warning: Table '%s' not found in file. No changes made.\n", tableNameToDelete.c_str());
+        fs.remove(tempFilePath.c_str());
+        return true; 
+    }
+    
+    if (!fs.remove(fullFilePath.c_str())) {
+        Serial.printf("Error: Failed to remove original file: %s\n", fullFilePath.c_str());
+        fs.remove(tempFilePath.c_str()); 
+        return false; 
+    }
+    
+    if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+        Serial.printf("Error: Failed to rename temporary file to original: %s\n", fullFilePath.c_str());
+        return false; 
+    }
+    
+    return true; 
 }
 
 /**
@@ -2301,18 +2553,5 @@ bool containsInvalidVariableNameChars(const String& name) {
     return false;
 }
 
-/**
- * @brief Helper function to check if a table name contains invalid characters.
- * @param name The table name to check.
- * @return true if invalid characters are found, otherwise false.
- */
-bool containsInvalidTableNameChars(const String& name) {
-    for (size_t i = 0; i < name.length(); i++) {
-        char c = name.charAt(i);
-        if (c == ' ' || c == '#' || c == '$' || c == ':' || c == '&' || c == '-' || c == ',') {
-            return true;
-        }
-    }
-    return false;
-}
+
 

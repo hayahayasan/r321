@@ -91,6 +91,8 @@ struct MettVariableInfo {
 struct FileMettData {
     String fileName;
     size_t fileSize;
+    String Optiondata;
+    String Log;
     std::vector<MettVariableInfo> variables;
 };
 bool containsInvalidVariableNameChars(const String& name);
@@ -107,7 +109,8 @@ String joinVectorToString(const std::vector<T>& vec) ;
 String joinStringVectorToString(const std::vector<String>& vec);
 String inferDataType(const String& valueString) ;
 bool containsInvalidTableNameChars(const String& name);
-bool isValidTableName(const String& tableName);
+bool isValidTableName(const String& tableName, const String existingNames[], size_t arraySize) ;
+bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableNameToDelete);
 // Struct to hold information about a single metadata file
 
 struct CursorPosInfo {
@@ -144,4 +147,5 @@ extern bool renameSDItem(String oldPath, String newPath);
 extern int deleteRightmostSDItem(String itemPath) ;
 extern void kanketu(String texx,int frame);
 extern void  updatePointer2();
+std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath, bool& isZero);
 #endif // SHARED
