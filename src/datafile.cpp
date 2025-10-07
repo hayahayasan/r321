@@ -26,7 +26,7 @@ int offsetX = 0; // テキスト描画の水平オフセット（スクロール
 int offsetY = 0; // テキスト描画の垂直オフセット（スクロール用）
 int scrollpx = 50;
 bool needsRedraw = false;
-SPIClass SDSPI; 
+
 SdFs sd;
 // SPI設定構造体を定義 (SdSpiConfig(CSピン, 最大速度, モード, SPIインスタンス))
 // SD_SCK_MHZ(50)はSdFatのヘルパーマクロで、50MHzのクロックスピードを設定します。
