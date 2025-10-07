@@ -109,6 +109,14 @@ String joinVectorToString(const std::vector<T>& vec) ;
 String joinStringVectorToString(const std::vector<String>& vec);
 String inferDataType(const String& valueString) ;
 bool containsInvalidTableNameChars(const String& name);
+
+const int SD_CS_PIN = 4;
+
+// ----------------------------------------------------------------------
+// 1. フォーマット形式を指定するための定数
+// ----------------------------------------------------------------------
+const int FORMAT_FAT16 = 16;
+const int FORMAT_FAT32 = 32;
 bool isValidTableName(const String& tableName, const String existingNames[], size_t arraySize) ;
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableNameToDelete);
 // Struct to hold information about a single metadata file
@@ -147,5 +155,20 @@ extern bool renameSDItem(String oldPath, String newPath);
 extern int deleteRightmostSDItem(String itemPath) ;
 extern void kanketu(String texx,int frame);
 extern void  updatePointer2();
+extern const size_t BUFFER_SIZE;
+extern const char* TABLE_NAME_PATTERN ;
+// 識別子 "NEW_DATA_SET_PATTERN" の定義
+extern const char* NEW_DATA_SET_PATTERN ;
+extern const size_t PATTERN_LEN ;
+extern const size_t PATTERN_LEN1 ;
+extern const size_t PATTERN_LEN2 ;
+
+extern SdFs sd;
+void releaseSdFatAndPrepareForSDLibrary();
+bool isNonFAT16orFAT32Format();
+String getSDCardType();
+String getSDCardCIDInfo();
+String getSDCardRawCapacity();
+bool formatSDCardFull(int formatType);
 std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath, bool& isZero);
 #endif // SHARED

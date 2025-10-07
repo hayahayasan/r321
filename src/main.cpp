@@ -1,6 +1,9 @@
 #include <M5Unified.h>
 #include <Wire.h>
 #include<SD.h>
+#include <cctype>
+
+#include <SdFat.h>
 #include <USB.h> 
 #include <FS.h>
 #include <vector>    // std::vector を使用するために必要
@@ -8,11 +11,19 @@
 #include <map>      // std::mapを使用するため
 #include <set>
 #include "shares.h"
+#include <SPI.h> 
+#include <sstream>
+#include <algorithm>
+// SdFatライブラリを使用
+
+// SdFatオブジェクトを定義。M5Stack環境では、通常SPIバスが自動的に設定されます。
 
 #pragma region <henssu>
 int SCROLL_INTERVAL_FRAMES = 1;
 int SCROLL_SPEED_PIXELS = 3;
 int frameright;
+String tttt = "hello";
+
 String RESERVED_NAMES[] = {
     "CON", "PRN", "AUX", "NUL",
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
@@ -20,7 +31,17 @@ String RESERVED_NAMES[] = {
 };
 int frameleft;
 bool btna;
+int TABLE_ID = 0;
 int holdimanopage;
+bool beginizeSD = false;
+const size_t BUFFER_SIZE = 4096;
+const char* TABLE_NAME_PATTERN = "TABLE_NAME:";
+// 識別子 "NEW_DATA_SET_PATTERN" の定義
+const char* NEW_DATA_SET_PATTERN = "--- NEW DATA_SET ---";
+const size_t PATTERN_LEN = strlen("TABLE_NAME:");
+const size_t PATTERN_LEN1 = strlen("TABLE_NAME:");
+const size_t PATTERN_LEN2 = strlen("--- NEW DATA_SET ---");
+const int METT_CHUNK_SIZE = 1024;
 bool btnc;
 unsigned long lastTextScrollTime;
 void  updatePointer2();
@@ -33,7 +54,7 @@ int scrollPos;
 String mainprintex = "M5Core3 LAN Activationer";
 String sita = "";
 String ggmode = "";
-String sitagar[] = {"Net Status","SD Files","Configs","text editor","how to","Options","User Management","Log"};
+String sitagar[] = {"Net Status","Wifi","Quick File","Browser","Configs","Options","SD Eject/Format","User Management","Log","Help/About"};
 static bool sd_card_initialized = false; // SDカードが初期化されているか
 
 // --- コピー操作キャンセルフラグ ---
@@ -788,8 +809,10 @@ bool initializeSDCard(String ss) {
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.println("Error: SD Card init failed.");
         Serial.println("Error: SD Card init failed.");
+        beginizeSD = false;
         return false;
     }
+    beginizeSD = true;
     Serial.println("SD Card init success.");
 
     if (!SD.exists(ss)) {
@@ -882,61 +905,83 @@ std::vector<String> allTableNames;
  */
 void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
     isError = false;
-    if (!fullFilePath.startsWith("/")) {
-        Serial.printf("Error: Cannot save. File path must be an absolute path (e.g., /%s).\n", fullFilePath.c_str());
-        isError = true;
-        return;
-    }
-    int dotIndex = fullFilePath.lastIndexOf('.');
-    String extension = "";
-    if (dotIndex != -1) {
-        extension = fullFilePath.substring(dotIndex);
-    }
-    if (extension != ".mett") {
-        Serial.printf("Error: Cannot save. File extension other than '.mett' is not supported: %s\n", fullFilePath.c_str());
-        isError = true;
-        return;
-    }
-    if (SD.exists(fullFilePath.c_str())) {
-        File checkFile = fs.open(fullFilePath.c_str());
-        if (checkFile && checkFile.isDirectory()) {
-            Serial.printf("Error: Cannot save. The specified path is a directory: %s\n", fullFilePath.c_str());
-            checkFile.close();
-            isError = true;
-            return;
+
+    auto getDirFromPath = [](const String& fullPath) -> String {
+        int lastSlash = fullPath.lastIndexOf('/');
+        if (lastSlash > 0) {
+            return fullPath.substring(0, lastSlash);
         }
-        if (checkFile) checkFile.close();
-    }
-    if (containsInvalidTableNameChars(tableName)) {
-        Serial.printf("Error: Table name '%s' contains invalid characters (space, #, $, :, &, -, or ,). Skipping save operation.\n", tableName.c_str());
+        return "/"; 
+    };
+
+    auto createDirIfNotExists = [&](const String& dirname) -> bool {
+        // SD::exists と fs.mkdir が利用可能であることを前提とする
+        if (SD.exists(dirname.c_str())) {
+            return true;
+        }
+        Serial.printf("Debug: Creating directory: %s\n", dirname.c_str());
+        if (fs.mkdir(dirname.c_str())) {
+            return true;
+        } else {
+            Serial.printf("Error: Failed to create directory: %s\n", dirname.c_str());
+            return false;
+        }
+    };
+
+    if (!fullFilePath.startsWith("/") || fullFilePath.lastIndexOf('.') == -1 || fullFilePath.substring(fullFilePath.lastIndexOf('.')) != ".mett" || containsInvalidTableNameChars(tableName)) {
+        Serial.println("Error: Basic save validation failed.");
         isError = true;
         return;
     }
-    File file = fs.open(fullFilePath.c_str(), FILE_APPEND);
+
+    String dirPath = getDirFromPath(fullFilePath);
+    if (!createDirIfNotExists(dirPath)) {
+        isError = true;
+        return;
+    }
+
+    // ファイルを上書きモードでオープン (FILE_WRITE)
+    // 既存のデータをロードしてマージするロジックはここにはありません。
+    File file = fs.open(fullFilePath.c_str(), FILE_WRITE);
     if (!file) {
-        Serial.printf("Error: Failed to open file for writing: %s\n", fullFilePath.c_str());
+        Serial.printf("Error: Failed to open file for writing (overwrite mode): %s\n", fullFilePath.c_str());
         isError = true;
         return;
     }
-    file.println("--- NEW DATA SET ---");
-    file.printf("TABLE_NAME:%s\n", tableName.c_str());
+
+    size_t bytesWritten;
+    
+    // 🌟 修正: NEW DATA SET ヘッダーを TABLE_ID に変更し、TABLE_NAMEを追記
+    if (file.println(TABLE_ID) == 0) { isError = true; }
+    String tableNameLine = "TABLE_NAME:" + tableName + "\n";
+    if (file.print(tableNameLine) == 0) { isError = true; }
+
+    // 変数データの書き込み
     for(const auto& pair : data) {
         String varName = pair.first;
         if (containsInvalidVariableNameChars(varName)) {
-            Serial.printf("Error: Variable name '%s' contains invalid characters (:, &, space, #, or -). Skipping this variable.\n", varName.c_str());
-            isError = true;
+            Serial.printf("Warning: Variable name '%s' contains invalid chars. Skipping.\n", varName.c_str());
+            isError = true; 
             continue;
         }
+        
         String valueStr = pair.second;
         String dataType = inferDataType(valueStr);
-        file.printf("%s:%s:%s\n", varName.c_str(), dataType.c_str(), valueStr.c_str());
+        String lineToWrite = String(varName.c_str()) + ":" + dataType.c_str() + ":" + valueStr.c_str() + "\n";
+        
+        if (file.print(lineToWrite) == 0) {
+            Serial.printf("Error: Failed to write variable '%s'.\n", varName.c_str());
+            isError = true; 
+        }
     }
-    file.println();
+    
+    // 最終的な空行
+    if (file.println() == 0) { isError = true; }
+
     file.close();
     if (!isError) {
-        Serial.printf("Info: File saved: %s (Table: %s)\n", fullFilePath.c_str(), tableName.c_str());
-    } else {
-        Serial.printf("Warning: File saved with some errors: %s (Table: %s)\n", fullFilePath.c_str(), tableName.c_str());
+        // ログを上書き保存に変更
+        Serial.printf("Info: File saved successfully (OVERWRITTEN): %s (Table: %s)\n", fullFilePath.c_str(), tableName.c_str());
     }
 }
 /**
@@ -1161,203 +1206,309 @@ std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD) {
  * @param isEmpty Reference to a boolean that will be set to true if the loaded file is empty, false otherwise.
  * @param variables Reference to the MettVariableInfo vector to store the loaded variables.
  */
+
+
+String trimString(const String& s) {
+    if (s.length() == 0) {
+        return "";
+    }
+    const char* str = s.c_str();
+    size_t first = 0;
+    while (first < s.length() && (str[first] == ' ' || str[first] == '\t' || str[first] == '\n' || str[first] == '\r')) {
+        first++;
+    }
+    if (first == s.length()) {
+        return "";
+    }
+    size_t last = s.length() - 1;
+    while (last > first && (str[last] == ' ' || str[last] == '\t' || str[last] == '\n' || str[last] == '\r')) {
+        last--;
+    }
+    return s.substring(first, last - first + 1);
+}
+
 void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& success, bool& isEmpty, std::vector<MettVariableInfo>& variables) {
+    // isEmpty: true: ロードに失敗した（ファイルが見つからなかった）, false: ファイルが見つかり、ロード処理が完了した
     variables.clear();
     success = false;
-    isEmpty = true;
+    isEmpty = true; // 初期状態: 失敗を想定
+
     if (!fullFilePath.startsWith("/")) {
         Serial.printf("Error: Cannot load. File path must be an absolute path (e.g., /%s).\n", fullFilePath.c_str());
-        success = false;
-        isEmpty = true;
         return;
     }
     int dotIndex = fullFilePath.lastIndexOf('.');
     String extension = "";
     if (dotIndex != -1) {
-        extension = fullFilePath.substring(dotIndex);
+        extension = fullFilePath.substring(dotIndex); 
     }
     if (extension != ".mett") {
         Serial.printf("Error: Cannot load. File extension other than '.mett' is not supported: %s (%s)\n", extension.c_str(), fullFilePath.c_str());
         return;
     }
+    
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!file) {
         Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
+        // success は false、isEmpty は true のまま
         return;
     }
-    Serial.printf("Info: Loading file: %s (Target Table(s): %s)\n", fullFilePath.c_str(), targetTableName.isEmpty() ? "All" : targetTableName.c_str());
+
+    // ファイルを開けた場合、isEmptyを即座に false に設定 (ファイルは存在する)
+    isEmpty = false; 
+    
+    Serial.printf("Info: Loading file (Chunked Process): %s (Target Table(s): %s)\n", fullFilePath.c_str(), targetTableName.isEmpty() ? "All" : targetTableName.c_str());
+
+    // --- テーブル名解析ロジック ---
     std::vector<String> targetTableList;
     if (!targetTableName.isEmpty()) {
         String tempTableName = targetTableName;
         int commaIndex = 0;
         while (tempTableName.length() > 0) {
-            commaIndex = tempTableName.indexOf(',');
+            commaIndex = tempTableName.indexOf(','); 
             String singleTarget;
-            if (commaIndex == -1) {
+            if (commaIndex == -1) { 
                 singleTarget = tempTableName;
                 tempTableName = "";
             } else {
                 singleTarget = tempTableName.substring(0, commaIndex);
                 tempTableName = tempTableName.substring(commaIndex + 1);
             }
-            singleTarget.trim();
+            
+            singleTarget = trimString(singleTarget);
+
             if (!singleTarget.isEmpty()) {
                 targetTableList.push_back(singleTarget);
             }
         }
     }
     String currentTableNameInFile = "";
-    bool shouldLoadCurrentTable = (targetTableList.empty());
-    while(file.available()){
-        String line = file.readStringUntil('\n');
-        line.trim();
-        if (line.startsWith("--- NEW DATA SET ---")) {
-            currentTableNameInFile = "";
-            shouldLoadCurrentTable = (targetTableList.empty());
-            continue;
-        }
-        if (line.startsWith("TABLE_NAME:")) {
-            int colonIndex = line.indexOf(':');
-            if (colonIndex != -1) {
-                String rawTableName = line.substring(colonIndex + 1);
-                int firstChar = 0;
-                while (firstChar < rawTableName.length() && isspace(rawTableName.charAt(firstChar))) {
-                    firstChar++;
-                }
-                int lastChar = rawTableName.length() - 1;
-                while (lastChar >= firstChar && isspace(rawTableName.charAt(lastChar))) {
-                    lastChar--;
-                }
-                if (firstChar <= lastChar) {
-                    currentTableNameInFile = rawTableName.substring(firstChar, lastChar + 1);
-                } else {
-                    currentTableNameInFile = "";
-                }
-            } else {
-                currentTableNameInFile = "";
-                Serial.printf("Debug: 'TABLE_NAME:' line without colon: '%s' in file '%s'\n", line.c_str(), fullFilePath.c_str());
-            }
-            if (containsInvalidTableNameChars(currentTableNameInFile)) {
-                Serial.printf("Warning: Table name '%s' in file '%s' contains invalid characters. Treating as empty table name.\n", currentTableNameInFile.c_str(), fullFilePath.c_str());
-                currentTableNameInFile = "";
-            }
-            if (!targetTableList.empty()) {
-                shouldLoadCurrentTable = false;
-                for (const String& target : targetTableList) {
-                    if (currentTableNameInFile == target) {
-                        shouldLoadCurrentTable = true;
-                        break;
-                    }
-                }
-            } else {
-                shouldLoadCurrentTable = true;
-            }
-            continue;
-        }
-        if (line.startsWith("#") || line.isEmpty()) {
-            continue;
-        }
-        if (!shouldLoadCurrentTable) {
-            continue;
-        }
-        int firstColonIndex = line.indexOf(':');
-        int secondColonIndex = line.indexOf(':', firstColonIndex + 1);
-        if (firstColonIndex == -1 || secondColonIndex == -1) {
-            Serial.printf("Warning: Invalid mett line format: %s in file %s (Table: %s)\n", line.c_str(), fullFilePath.c_str(), currentTableNameInFile.c_str());
-            continue;
-        }
-        MettVariableInfo varInfo;
-        varInfo.variableName = line.substring(0, firstColonIndex);
-        varInfo.dataType = line.substring(firstColonIndex + 1, secondColonIndex);
-        varInfo.valueString = line.substring(secondColonIndex + 1);
-        varInfo.tableName = currentTableNameInFile;
-        varInfo.variableName.trim();
-        varInfo.dataType.trim();
-        varInfo.valueString.trim();
-        if (containsInvalidVariableNameChars(varInfo.variableName)) {
-            Serial.printf("Warning: Variable name '%s' in file '%s' (Table: %s) contains invalid characters. Skipping this variable.\n", varInfo.variableName.c_str(), fullFilePath.c_str(), currentTableNameInFile.c_str());
-            continue;
-        }
-        variables.push_back(varInfo);
-        isEmpty = false;
-    }
-    file.close();
-    success = true;
-    Serial.printf("Info: Mett file loaded successfully: %s (isEmpty: %s, Loaded Variables: %d)\n", fullFilePath.c_str(), isEmpty ? "true" : "false", variables.size());
-}
+    bool shouldLoadCurrentTable = (targetTableList.empty()); 
 
+    uint8_t buffer[METT_CHUNK_SIZE]; 
+    String remainder = "";
+    size_t bytesRead;
+
+    while (bytesRead = file.read(buffer, METT_CHUNK_SIZE)) {
+        String chunk((char*)buffer, bytesRead);
+        
+        String combinedData = remainder + chunk;
+        remainder.clear();
+
+        int lastNewlinePos = combinedData.lastIndexOf('\n'); 
+
+        if (lastNewlinePos != -1) {
+            String linesToProcess = combinedData.substring(0, lastNewlinePos);
+            remainder = combinedData.substring(lastNewlinePos + 1);
+
+            int currentPos = 0;
+            while (currentPos < linesToProcess.length()) {
+                int nextNewline = linesToProcess.indexOf('\n', currentPos); 
+                String line;
+                if (nextNewline == -1) {
+                    line = linesToProcess.substring(currentPos);
+                    currentPos = linesToProcess.length();
+                } else {
+                    line = linesToProcess.substring(currentPos, nextNewline - currentPos);
+                    currentPos = nextNewline + 1;
+                }
+                
+                line = trimString(line);
+
+                // 🌟 修正: NEW DATA SETとTABLE_IDの両方をチェック
+                if (line.startsWith("--- NEW DATA SET ---") || line.startsWith(String(TABLE_ID))) {
+                    currentTableNameInFile = "";
+                    shouldLoadCurrentTable = (targetTableList.empty());
+                    continue;
+                }
+                if (line.startsWith("TABLE_NAME:")) {
+                    int colonIndex = line.indexOf(':');
+                    if (colonIndex != -1) {
+                        currentTableNameInFile = trimString(line.substring(colonIndex + 1));
+                    } else {
+                        currentTableNameInFile = "";
+                    }
+                    if (containsInvalidTableNameChars(currentTableNameInFile)) {
+                        Serial.printf("Warning: Table name '%s' contains invalid chars.\n", currentTableNameInFile.c_str());
+                        currentTableNameInFile = "";
+                    }
+                    if (!targetTableList.empty()) { 
+                        shouldLoadCurrentTable = false;
+                        for (const String& target : targetTableList) {
+                            if (currentTableNameInFile == target) {
+                                shouldLoadCurrentTable = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        shouldLoadCurrentTable = true;
+                    }
+                    continue;
+                }
+                if (line.startsWith("#") || line.isEmpty() || !shouldLoadCurrentTable) {
+                    continue;
+                }
+                
+                int firstColonIndex = line.indexOf(':');
+                int secondColonIndex = line.indexOf(':', firstColonIndex + 1);
+                if (firstColonIndex == -1 || secondColonIndex == -1) {
+                    Serial.printf("Warning: Invalid mett line format: %s\n", line.c_str());
+                    continue;
+                }
+                MettVariableInfo varInfo;
+                varInfo.variableName = trimString(line.substring(0, firstColonIndex));
+                varInfo.dataType = trimString(line.substring(firstColonIndex + 1, secondColonIndex));
+                varInfo.valueString = trimString(line.substring(secondColonIndex + 1));
+                varInfo.tableName = currentTableNameInFile;
+                
+                if (containsInvalidVariableNameChars(varInfo.variableName)) {
+                    Serial.printf("Warning: Variable name '%s' contains invalid chars. Skipping.\n", varInfo.variableName.c_str());
+                    continue;
+                }
+                variables.push_back(varInfo);
+            }
+        } else {
+            remainder = combinedData;
+        }
+    }
+
+    // ファイル終端処理: remainder に残った最後の行を処理
+    if (!remainder.isEmpty()) {
+        String line = trimString(remainder);
+        
+        if (!line.isEmpty() && !line.startsWith("#") && shouldLoadCurrentTable) {
+             int firstColonIndex = line.indexOf(':');
+             int secondColonIndex = line.indexOf(':', firstColonIndex + 1);
+             if (firstColonIndex != -1 && secondColonIndex != -1) {
+                 MettVariableInfo varInfo;
+                 varInfo.variableName = trimString(line.substring(0, firstColonIndex));
+                 varInfo.dataType = trimString(line.substring(firstColonIndex + 1, secondColonIndex));
+                 varInfo.valueString = trimString(line.substring(secondColonIndex + 1));
+                 varInfo.tableName = currentTableNameInFile;
+
+                 if (!containsInvalidVariableNameChars(varInfo.variableName)) {
+                     variables.push_back(varInfo);
+                 } else {
+                     Serial.printf("Warning: Variable name '%s' contains invalid chars (End of File).\n", varInfo.variableName.c_str());
+                 }
+             } else {
+                 Serial.printf("Warning: Invalid mett line format (End of File): %s\n", line.c_str());
+             }
+        }
+    }
+
+    file.close();
+    success = true; 
+    
+    Serial.printf("Info: Mett file loaded successfully (isEmpty: %s, Loaded Variables: %d)\n", isEmpty ? "true" : "false", variables.size());
+}
 
 #pragma endregion
 
 bool loadmett(){
-  // SDカード上の全`.mett`ファイルをスキャンしてデータを抽出
+    // SDカード上の全`.mett`ファイルをスキャンしてデータを抽出
     Serial.println("\n--- 全.mettファイルのデータ抽出 ---");
     std::vector<FileMettData> allExtractedData = scanAndExtractMettData(SD, "/data");
     printFileM(allExtractedData);
+    
     std::vector<MettVariableInfo> loadedVariables;
     printTable("/save/save1.mett", "TestOpt1", loadedVariables);
+    
     // 特定のファイルをロードしてデータを抽出
     Serial.println("\n--- 特定のファイルのデータロード ---");
     bool loadSuccess = false;
-    bool fileIsEmpty = false; // 新しく追加されたフラグ
-    loadMettFile(SD, "/save/save1.mett", "TestOpt1",loadSuccess, fileIsEmpty, loadedVariables);
+    // loadMettFileのisEmptyは「ファイルが見つからなかった場合にtrue」となります。
+    bool fileIsMissing = false; 
+    
+    // 1. 最初のロード試行
+    loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsMissing, loadedVariables);
+
+    // loadSuccess が true ならファイルは存在し、ロードに成功した
     if (loadSuccess) {
-        if (fileIsEmpty) {
-            Serial.println("Info: ファイルは空です。");
-            MettDataMap dataToSave;
-            dataToSave["file_ext"] = "txt";
-            dataToSave["stringtype"] = "unicode";
-            dataToSave["sorttype"] = "nameasc";
-            dataToSave["onlinetype"] = "only pass";
-            std::vector<int> sensorInts = {1, 2, 3, -132};
-            dataToSave["sensorInts_test"] = joinVectorToString(sensorInts);
-            Serial.printf("Info: Saving IntArray: %s\n", dataToSave["sensorInts_test"].c_str());
-             saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess); 
-           
-            if(loadSuccess){
-                Serial.println("Info: 初期データを保存しました。");
-                  optiontxt[0] = "txt";
-                  optiontxt[1] = "unicode";
-                  optiontxt[2] = "nameasc";
-                  optiontxt[3] = "only pass";
-                return true;
-            }else{
-              return false;
-            }
-            
-        } else {
-            printTable("/save/save1.mett", "TestOpt1", loadedVariables);
-            Serial.println("Info: プリント済み");
-            loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+        // ロード成功後の処理
+        
+        // 1.1. ファイルが存在するが、データセット (TestOpt1) の変数が一つもない場合、初期化とみなす
+        if (loadedVariables.empty()) { 
+             // ログの表現をより正確に修正
+             Serial.println("Info: ファイルは存在しますが、データセット (TestOpt1) に変数がありません。初期データを保存します。");
+             
+             // 初期データを構築
+             MettDataMap dataToSave;
+             dataToSave["file_ext"] = "txt";
+             dataToSave["stringtype"] = "unicode";
+             dataToSave["sorttype"] = "nameasc";
+             dataToSave["onlinetype"] = "only pass";
+             std::vector<int> sensorInts = {1, 2, 3, -132};
+             dataToSave["sensorInts_test"] = joinVectorToString(sensorInts);
+             Serial.printf("Info: Saving IntArray: %s\n", dataToSave["sensorInts_test"].c_str());
+             
+             bool isError = false; // フラグ名をisErrorに変更
+             saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, isError); 
 
-            if (loadSuccess) {
-                Serial.println("Info: ロード成功");
-                String buildNumber = getVariableString(loadedVariables, "file_ext");
-                String buildNumber2 = getVariableString(loadedVariables, "stringtype");
-                String buildNumber3 = getVariableString(loadedVariables, "sorttype");
-                String buildNumber4 = getVariableString(loadedVariables, "onlinetype");
-                std::vector<int> sensorInts = getVariableIntArray(loadedVariables, "sensorInts_test");
-                //Serial.printf("Info: Loaded file_ext: %s\n", buildNumber.c_str());
-                //Serial.printf("Info: Loaded sensorInts_test: %s\n", joinVectorToString(sensorInts).c_str());
-                optiontxt[0] = buildNumber;
-                optiontxt[1] = buildNumber2;
-                optiontxt[2] = buildNumber3;
-                optiontxt[3] = buildNumber4;
-
-                return true;
-            } else {
-                Serial.println("ロードエラー");
-
-
-                return false;
-            }
-
+             // 修正: isError が true なら失敗、false なら成功
+             if(!isError){ 
+                 Serial.println("Info: 初期データを保存しました。");
+                 // 初期値で optiontxt を更新
+                 optiontxt[0] = "txt";
+                 optiontxt[1] = "unicode";
+                 optiontxt[2] = "nameasc";
+                 optiontxt[3] = "only pass";
+                 return true;
+             }else{
+                 Serial.println("Error: 初期データの保存に失敗しました。");
+                 return false;
+             }
         }
+        
+        // 1.2. データが存在し、ロードに成功した場合 (既存のデータを反映)
+        
+        Serial.println("Info: ロード成功。既存のデータを処理します。");
+
+        // ロードしたデータから値を取得し、optiontxtに反映
+        // getVariableString を使用
+        optiontxt[0] = getVariableString(loadedVariables, "file_ext");
+        optiontxt[1] = getVariableString(loadedVariables, "stringtype");
+        optiontxt[2] = getVariableString(loadedVariables, "sorttype");
+        optiontxt[3] = getVariableString(loadedVariables, "onlinetype");
+        std::vector<int> sensorInts = getVariableIntArray(loadedVariables, "sensorInts_test");
+        
+        Serial.printf("Info: Loaded file_ext: %s\n", optiontxt[0].c_str());
+        Serial.printf("Info: Loaded sensorInts_test: %s\n", joinVectorToString(sensorInts).c_str());
+        
+        return true;
+
     } else {
-        Serial.println("Error: ファイルのロードに失敗しました。");
-        return false;
+        // ロード失敗 (fileIsMissing == true) = ファイルが存在しない
+        Serial.println("Error: ファイルのロードに失敗しました (ファイルが存在しない可能性があります)。初期データを保存します。");
+        
+        // 初期データを構築
+        MettDataMap dataToSave;
+        dataToSave["file_ext"] = "txt";
+        dataToSave["stringtype"] = "unicode";
+        dataToSave["sorttype"] = "nameasc";
+        dataToSave["onlinetype"] = "only pass";
+        std::vector<int> sensorInts = {1, 2, 3, -132};
+        dataToSave["sensorInts_test"] = joinVectorToString(sensorInts);
+        Serial.printf("Info: Saving IntArray: %s\n", dataToSave["sensorInts_test"].c_str());
+        
+        bool isError = false; // フラグ名をisErrorに変更
+        // ファイルが存在しない場合のみ saveMettFile を実行
+        saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, isError); 
+        
+        // 修正: isError が true なら失敗、false なら成功
+        if(!isError){
+            Serial.println("Info: 初期データを保存しました。");
+            // 初期値で optiontxt を更新
+            optiontxt[0] = "txt";
+            optiontxt[1] = "unicode";
+            optiontxt[2] = "nameasc";
+            optiontxt[3] = "only pass";
+            return true;
+        }else{
+            Serial.println("Error: 初期データの保存に失敗しました。");
+            return false;
+        }
     }
-    return false;
 }
 
 void shokaipointer2(int pageNum, String filePath  ) {
@@ -1445,7 +1596,7 @@ void setup() {
   M5.begin();
   frameleft = 1;
   frameright = 1;
-  SD.begin();
+ 
   scrollPos = M5.Lcd.width();
   Serial.println("M5Stack initialized");
 
@@ -1465,7 +1616,7 @@ void setup() {
   M5.Lcd.fillScreen(BLACK); // 画面全体を黒でクリア
   // 左上すれすれ (0,0) に表示
   M5.Lcd.setCursor(0, 0);
-  sita = "hello";
+  sita = tttt;
   textexx();
  
   wirecheck();
@@ -1723,7 +1874,7 @@ else if(mainmode == 13){
       return;
     }
  }
- #pragma region <optmodee>
+ #pragma region <optmodee>//0=拡張子 1=文字コード 2=ソート 3=オンラインタイプ
  
  else if(mainmode == 11){
    updatePointer(true);
@@ -1744,6 +1895,7 @@ else if(mainmode == 13){
     M5.Lcd.fillScreen(BLACK);   
     loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
        if(loadSuccess){
+        optiontxt[3] = gg;
         MettDataMap dataToSave = copyVectorToMap(loadedVariables);
         dataToSave["onlinetype"] = gg;
         saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
@@ -1802,7 +1954,7 @@ else if(mainmode == 13){
         saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
         if(!loadSuccess){
           kanketu("save success!",500);
-         
+         optiontxt[2] = gg;
           M5.Lcd.fillScreen(BLACK);
           mainmode = 7;
           return;
@@ -1845,6 +1997,7 @@ else if(mainmode == 13){
     M5.Lcd.fillScreen(BLACK);   
     loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
        if(loadSuccess){
+        optiontxt[1] = gg;
         MettDataMap dataToSave = copyVectorToMap(loadedVariables);
         dataToSave["stringtype"] = gg;
         saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
@@ -1886,6 +2039,13 @@ else if(mainmode == 8){
           gg  ="tbl";
       }else if(positpoint == 3){
           gg = "yourself";
+      }else if(positpoint == 4){
+          gg = "cpp";
+      }else if(positpoint == 5){
+        M5.Lcd.fillScreen(BLACK);
+        
+          mainmode = 7;
+          return;
       }
       bool loadSuccess = false;
     bool fileIsEmpty = false;
@@ -1895,10 +2055,11 @@ else if(mainmode == 8){
        if(loadSuccess){
         MettDataMap dataToSave = copyVectorToMap(loadedVariables);
         dataToSave["file_ext"] = gg;
+        
         saveMettFile(SD, "/save/save1.mett", "TestOpt1", dataToSave, loadSuccess);
         if(!loadSuccess){
           kanketu("save success!",500);
-         
+         optiontxt[0] = gg;
           M5.Lcd.fillScreen(BLACK);
           mainmode = 7;
           return;
@@ -1944,13 +2105,13 @@ if(sse == "E"){
             mainmode = 8;
             positpoint = 0;
             holdpositpoint = 0;
-            positpointmax = 3;
+            positpointmax = 4;
             maxpage = 1;
             imano_page = 0;
             M5.Lcd.fillScreen(BLACK);
          
           M5.Lcd.setCursor(0, 0);
-          M5.Lcd.println("  .txt\n  .mett\n  .tbl\n  .(yourself)");
+          M5.Lcd.println("  .txt\n  .mett\n  .tbl\n  .(yourself)\n  .cpp\n  back");
             shokaipointer(false);
             
             return;
@@ -2150,7 +2311,7 @@ if(sse == "E"){
         shokaipointer();
         return;
    }
-    if(positpoint == 2 && M5.BtnB.wasPressed()){//delete dir
+    if(positpoint == 2 && M5.BtnB.wasPressed() && DirecX != "/"){//delete dir
       // ディレクトリの削除
       bool dd = areusure();
       if(dd){
@@ -2208,6 +2369,26 @@ if(sse == "E"){
       firstScrollLoop = true;
         mainmode = 5;
         entryenter = false;
+        bool loadSuccess = false;
+        bool fileIsEmpty = false;
+        std::vector<MettVariableInfo> loadedVariables;
+        loadMettFile(SD, "/save/save1.mett", "TestOpt1", loadSuccess, fileIsEmpty, loadedVariables);
+       if(loadSuccess){
+        MettDataMap dataToSave = copyVectorToMap(loadedVariables);
+        if(dataToSave["file_ext"] == "yourself"){
+          SuperT = "";
+        }else if(dataToSave["file_ext"] == "txt"){
+          SuperT = ".txt";
+       }else if(dataToSave["file_ext"] == "cpp"){
+          SuperT = ".cpp";
+       }else if(dataToSave["file_ext"] == "mett"){
+          SuperT = ".mett";
+        }else if(dataToSave["file_ext"] == "tbl"){
+          SuperT = ".tbl"; 
+        }
+       }else{
+        SuperT = "";
+       }
         SuperT=".txt";
         SCROLL_INTERVAL_FRAMES = 1;
         SCROLL_SPEED_PIXELS = 3;
@@ -2289,13 +2470,13 @@ if(sse == "E"){
     }
     if(positpoint == 5 && M5.BtnB.wasPressed()){//戻る
         bool cc = areubunki("back to SD Viewer","back to Main menu");
-    if(cc){
+    if(!cc){
       M5.Lcd.setTextSize(sizex);
        M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
   
   // 左上すれすれ (0,0) に表示
         M5.Lcd.setCursor(0, 0);
-        sita = "hello";
+        sita = tttt;
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -2402,6 +2583,8 @@ if(sse == "E"){
       firstScrollLoop = true;
         mainmode = 5;
         entryenter = false;
+        
+
         SuperT=".txt";
         SCROLL_INTERVAL_FRAMES = 1;
         SCROLL_SPEED_PIXELS = 3;
@@ -2587,7 +2770,7 @@ if(sse == "E"){
       
     }else{
       M5.Lcd.setTextSize(File_goukeifont);
-        positpoint = holdpositpoint;
+        positpoint = holdpositpointd;
         mainmode = 1;
 
         // SDカードコンテンツの初期表示
@@ -2608,7 +2791,7 @@ if(sse == "E"){
   
   // 左上すれすれ (0,0) に表示
         M5.Lcd.setCursor(0, 0);
-        sita = "hello";
+        sita = "hello ";
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -2773,17 +2956,34 @@ if(sse == "E"){
         return;
 
       } else if(M5.BtnB.wasPressed() && ForDlist[nowposit()] == "1"){ // ここに閉じ括弧が不足していました
-        if(Filelist[nowposit()] == "System Volume Information" || Filelist[nowposit()] == "m5stack.server"){
+        if((Filelist[nowposit()] == "System Volume Information" || Filelist[nowposit()] == "m5stack.server")&& !(positpointmax == 0 && maxpage == 1)){
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setTextSize(1);
           M5.Lcd.setCursor(0, 0);
           M5.Lcd.println("This Directory is cannot be edited!");
+          Serial.println("pos" + String(positpointmax)  + "m" + String(maxpage));
           delay(1000);
           M5.Lcd.setTextSize(File_goukeifont);
 
           shokaipointer();
           return;
-        }else{//次のファイルに進む。
+        } else if(Filelist[0] == "System Volume Information"  && positpointmax == 0 && maxpage == 1){
+                  mainmode = 4;
+        holdpositpoint = positpoint;
+        positpointmax = 5;
+        positpoint = 0;
+        holdpositpoint = 0;
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.setTextColor(WHITE);
+        otroot = false;
+        M5.Lcd.println("  Make File\n  Rename\n  Delete Dir\n  Make Dir\n  Paste File\n  Back Home" );
+        shokaipointer(false);
+        return;
+        
+        
+      }else{//次のファイルに進む。
           maereposit = Filelist[nowposit()];
           DirecX = DirecX  + Filelist[nowposit()] + "/"; // 選択したディレクトリのパスを更新
           Serial.println("DZOON:" + DirecX);
@@ -2940,7 +3140,7 @@ else if (mainmode == 0) { // メニューモードの場合
           serious_errorsd = true;
           kanketu("No SD Card!",500);
           mainmode = 0;
-
+          beginizeSD = false;
           M5.Lcd.setCursor(0, 0);
         sita = "hello";
         textexx();
@@ -2951,7 +3151,7 @@ else if (mainmode == 0) { // メニューモードの場合
 
           return;
         }
-       
+        beginizeSD = true;
         M5.Lcd.fillScreen(BLACK); // 画面をクリア
         bool tt = initializeSDCard("/save/save2.mett");
         tt = tt * initializeSDCard("/save/save1.mett");
@@ -2994,6 +3194,18 @@ else if (mainmode == 0) { // メニューモードの場合
         
         
         return;//mainmode0フラグ誤作動対策
+      }else if(maindex == 6){//SDイジェクトフォーマット
+        M5.Lcd.fillScreen(BLACK); // 画面をクリア
+        M5.Lcd.setTextSize(3);
+       M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
+       M5.Lcd.setCursor(0, 0);
+        mainmode = -1;
+        maxpage = -1;
+        positpoint = 0;
+        positpointmax = 2;
+        imano_page = 0;
+        M5.Lcd.println("  SD Eject\n  SD Format");
+        return;
       }
       // ボタンBが押された場合、sitaを"button1"に設定し、textexx()を呼び出す
       // これはメニューモードでのみ行われる
@@ -3012,6 +3224,71 @@ else if (mainmode == 0) { // メニューモードの場合
       }
       sita = sitagar[maindex]; // 選択されたオプションを更新
       textexx(); // メニュー画面を再描画
+    }
+  }else if(mainmode == -1){
+    updatePointer2();
+      if(pagemoveflag == 2){
+      pagemoveflag = 0;
+      return;
+    }else if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      return;
+    }else if((pagemoveflag == 5) ){
+     M5.Lcd.setCursor(0, 0);
+     M5.Lcd.fillScreen(BLACK);
+        sita = tttt;
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+        mainmode = 0;
+        return;
+
+     
+    
+    }else if(M5.BtnB.wasPressed()){
+      if(positpoint == 0){
+        
+          releaseSdFatAndPrepareForSDLibrary();
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.println("Ejected!\n Press B to \nCheck SD Property");
+          while(true){
+            delay(1);
+            M5.update();
+            if(M5.BtnB.wasPressed()){
+              break;
+            }
+          }
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.println("Loading...");
+          M5.Lcd.setTextSize(1);
+          M5.Lcd.setCursor(0, 0);
+          
+          M5.Lcd.println("SD Data:\n  Capacity:" + getSDCardRawCapacity() + "\n  Format:" + getSDCardType() + "\nMisc:" + getSDCardCIDInfo());
+          while(true){
+            delay(1);
+            M5.update();
+            if(M5.BtnB.wasPressed()){
+              break;
+            }
+          }
+          releaseSdFatAndPrepareForSDLibrary();
+          M5.Lcd.setTextSize(3);
+        sita = tttt;
+        sd.end();
+        M5.Lcd.fillScreen(BLACK);
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+        mainmode = 0;
+        return;
+          
+        
+      }
+
+
     }
   }
 
