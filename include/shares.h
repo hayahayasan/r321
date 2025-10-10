@@ -63,6 +63,7 @@ extern int SCROLL_INTERVAL_FRAMES;
 extern int SCROLL_SPEED_PIXELS;
 bool checkSDCardOnly() ;
 bool boolmax();
+bool initializeSDCard();
 bool areusure();
 bool areubunki(String texta,String textb);
 void nummempty();

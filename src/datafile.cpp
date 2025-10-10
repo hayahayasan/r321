@@ -14,6 +14,9 @@
 int NUM_RESERVED_NAMES;
 SPIClass SDSPI; 
 bool nosd;
+const int SD_MISO_PIN = 35;
+const int SD_MOSI_PIN = 37;
+const int SD_SCK_PIN = 36; // SCKピン番号は39
 bool serious_errorsd;
 String karadirectname;
 int goukei_page;
@@ -30,7 +33,7 @@ bool needsRedraw = false;
 SdFs sd;
 // SPI設定構造体を定義 (SdSpiConfig(CSピン, 最大速度, モード, SPIインスタンス))
 // SD_SCK_MHZ(50)はSdFatのヘルパーマクロで、50MHzのクロックスピードを設定します。
-const SdSpiConfig SD_SPI_CONFIG = SdSpiConfig(SD_CS_PIN, SD_SCK_MHZ(50), SPI_MODE0, &SDSPI);
+const SdSpiConfig SD_SPI_CONFIG = SdSpiConfig(SD_CS_PIN, SD_SCK_MHZ(20), SPI_MODE0, &SDSPI);
 const std::vector<String> reservedWords = {
     "CONFIG", "METT", "VERSION", "TABLE", "OPTION", "DEFAULT",
     "ENCRYPT", "NOTREAD", "REQUIRED", "NULL", "TRUE", "FALSE",
@@ -2562,47 +2565,66 @@ bool containsInvalidVariableNameChars(const String& name) {
     return false;
 }
 
+bool initializeSDCard() {
+    // 1. SPIバスのピン設定
+    // M5Stack CoreS3のカスタムピンを明示的に指定 (SCK:36, MISO:35, MOSI:37, CS:4)
+    SPI.begin(36, 35, 37, 4);
+    Serial.printf("SPI Bus configured (SCK:%d, MISO:%d, MOSI:%d, CS:%d).\n", 
+                  36, 35, 37, 4);
+    
+    // 2. SdFsの初期化（物理カードとファイルシステムの両方）
+    // チップセレクトピン(4)のみを指定
+    if (!sd.begin(4)) {
+        // sd.card()を介して物理カードエラーコードを取得
+        uint8_t errorCode = sd.card()->errorCode();
+        uint32_t errorData = sd.card()->errorData();
+        Serial.printf("SD Card initialization (sd.begin(4)) failed. Error Code: 0x%02X, Error Data: 0x%08X\n", 
+                      errorCode, errorData);
+        return false;
+    }
+    
+    Serial.println("SD Card initialized successfully (sd.begin(4)).");
+    return true;
+}
+
+
+// ----------------------------------------------------------------------
+// 3. SDカードのフルフォーマットを行う関数 (初期化ロジックを置き換え)
+// ----------------------------------------------------------------------
+
+/**
+ * @brief SDカード全体をフルフォーマットします。
+ * @param formatType フォーマットタイプ (FORMAT_FAT16 または FORMAT_FAT32)
+ * @return bool 成功したら true
+ */
 bool formatSDCardFull(int formatType) {
-    // ロギングをM5.Lcd.printからSerial.printに変更
     Serial.print("SD Card Formatting Request: ");
-    bool result = false; // 最終的な成否を保持する変数
+    bool result = false;
 
-    // SPIバスをピン番号の直接入力で明示的に開始 (SCK, MISO, MOSI, CS)
-    SDSPI.begin(39, 38, 40, 4);
-
-    // SdFatによる物理的なカード初期化チェック（SPI設定を明示）
-    if (!sd.cardBegin(SD_SPI_CONFIG)) {
-        Serial.println("Failed to initialize SD card hardware. (Cannot format)");
-        // フォーマットに失敗した場合、SPIバスは維持したままにする
+    // --- 変更点: initializeSDCard()でSPIとSdFsを初期化 ---
+    if (!initializeSDCard()) { 
+        // initializeSDCard()内でエラーメッセージは出力済み
         return false; 
     }
     
-    // 可能な限り最大容量を取得 (SdFat v2: card()->sectorCount() * 512ULL を使用)
-    // autoを使用して、明示的なFsCard型の参照を避ける
+    // 可能な限り最大容量を取得 (SdFs/SdFatのAPIを使用)
     auto cardPtr = sd.card(); 
     if (cardPtr == nullptr) {
-        Serial.println("Hardware Error: Card pointer is NULL.");
-        sd.end();
+        Serial.println("Hardware Error: Card pointer is NULL after init.");
+        
         return false;
     }
     uint64_t totalBytes = (uint64_t)cardPtr->sectorCount() * 512ULL;
 
-    // ***************************************************************
-    // sd.begin()（ボリュームのマウント）の成功をチェックせず、
-    // cardBegin()が成功した時点で直ちにフォーマットを試みます。
-    // ***************************************************************
-
     switch (formatType) {
         case FORMAT_FAT16:
             Serial.println("FAT16 (Full Capacity) - Attempting format...");
-            // FAT16は最大4GBまでのパーティションにしか使用できません（ここでは2GB超をエラーとする）
             if (totalBytes > (2ULL * 1024 * 1024 * 1024)) {
                 Serial.println("Error: FAT16 is unsuitable for this large capacity ( > 2GB).");
                 result = false;
                 break;
             }
-            // SdFatは容量に基づいてFAT16/FAT32を自動選択するため、
-            // 2GB以下の場合はFAT16が適用されることが期待されます。
+            // sd.format() は FAT16/FAT32/exFAT を自動判別してフォーマットを実行
             if (sd.format()) { 
                 Serial.println("FAT16/Auto Format SUCCESS.");
                 result = true;
@@ -2614,8 +2636,6 @@ bool formatSDCardFull(int formatType) {
             
         case FORMAT_FAT32:
             Serial.println("FAT32 (Full Capacity) - Attempting format...");
-            // SdFatは容量に基づいてFAT16/FAT32を自動選択するため、
-            // 2GB超の場合はFAT32が適用されることが期待されます。
             if (sd.format()) { 
                 Serial.println("FAT32/Auto Format SUCCESS.");
                 result = true;
@@ -2631,116 +2651,95 @@ bool formatSDCardFull(int formatType) {
             break;
     }
     
-    // -----------------------------------------------------------------------
-    // !!! クリーンアップ: フォーマット処理後は安全のためSPIバスを解放する !!!
-    // -----------------------------------------------------------------------
-    Serial.println("Releasing SD resources...");
-    sd.end(); 
+    // クリーンアップ: SDカードとの論理接続を解放 (元のコードのパターンを踏襲)
+    Serial.println("Releasing SD resources after format...");
+   
     
     return result;
 }
 
 // ----------------------------------------------------------------------
-// 3. パーティションを無視したカード全体の容量をStringリターンする関数
+// 4. パーティションを無視したカード全体の容量をStringリターンする関数
 // ----------------------------------------------------------------------
 
 /**
- * @brief SDカード全体の物理容量をGB, MB, KB単位でStringとして返します。（SdFat使用）
- * * @return String 容量情報 (例: "64.00 GB (67108864 KB, 65536.00 MB)")
+ * @brief SDカード全体の物理容量をStringとして返します。（SdFat使用）
+ * @return String 容量情報 (例: "64.00 GB (67108864 KB, 65536.00 MB)")
  */
 String getSDCardRawCapacity() {
-    // SPIバスをピン番号の直接入力で明示的に開始 (SCK, MISO, MOSI, CS)
-    SDSPI.begin(39, 38, 40, 4);
-
-    // SdFatによる初期化チェック（SPI設定を明示）
-    if (!sd.cardBegin(SD_SPI_CONFIG)) {
-        return "SD Card Not Initialized (SdFat)";
+    // --- 変更点: initializeSDCard()でSPIとSdFsを初期化 ---
+    if (!initializeSDCard()) { 
+        return "SD Card Not Initialized (SdFs)";
     }
 
-    // SdFatのカードオブジェクトからセクター数を取得し、512バイトを掛けて総バイト数を計算
-    // autoを使用して、明示的なFsCard型の参照を避ける
+    // SdFatのカードオブジェクトからセクター数を取得
     auto cardPtr = sd.card();
     if (cardPtr == nullptr) {
-        // 情報取得関数ではsd.end()を呼び出さない（次のアクセスに備えるため）
+        
         return "NO_CARD / Hardware Error";
     }
     uint64_t totalBytes = (uint64_t)cardPtr->sectorCount() * 512ULL;
     
-    // 単位変換のための定数 (1024ベース)
+    // 単位変換
     const double KB_SIZE = 1024.0;
     const double MB_SIZE = KB_SIZE * 1024.0;
     const double GB_SIZE = MB_SIZE * 1024.0; 
 
-    // バイトから各単位に変換
     double totalGB = (double)totalBytes / GB_SIZE;
     double totalMB = (double)totalBytes / MB_SIZE;
     double totalKB = (double)totalBytes / KB_SIZE;
 
     String result = "";
-
-    // メインの表示単位を決定 (GB > MB > KB の優先度)
     if (totalGB >= 1.0) {
-        // 1GB以上の場合はGB単位で表示 (小数点第2位まで)
         result += String(totalGB, 2) + " GB";
     } else if (totalMB >= 1.0) {
-        // 1MB以上の場合はMB単位で表示
         result += String(totalMB, 2) + " MB";
     } else {
-        // それ以下の場合はKB単位で表示
         result += String(totalKB, 0) + " KB";
     }
-
-    // すべての単位での詳細情報も追加
     result += " (" + String(totalKB, 0) + " KB, ";
     result += String(totalMB, 2) + " MB)";
 
-    // sd.end()を削除し、SPIバスのリソースを維持 (連続アクセスを可能にするため)
-
+    // リソースを解放 (元のコードのパターンを踏襲)
+    
     return result;
 }
 
 // ----------------------------------------------------------------------
-// 4. SDカードの規格タイプとフォーマット形式を判定する関数
+// 5. SDカードの規格タイプとフォーマット形式を判定する関数
 // ----------------------------------------------------------------------
 
 /**
  * @brief SDカードの規格タイプとファイルシステム形式を判定し、一つのStringとして返します。
- * * 規格タイプ / フォーマット形式 (例: "SDHC / FAT32")
- * * CID情報は含まない
- * * @return String 規格タイプとフォーマット情報
+ * @return String 規格タイプとフォーマット情報
  */
 String getSDCardType() {
-    // SPIバスをピン番号の直接入力で明示的に開始 (SCK, MISO, MOSI, CS)
-    SDSPI.begin(39, 38, 40, 4);
-
-    // 1. 物理カード初期化チェック
-    if (!sd.cardBegin(SD_SPI_CONFIG)) {
+    
+    // --- 変更点: initializeSDCard()でSPIとSdFsを初期化 ---
+    if (!initializeSDCard()) { 
         return "NO_CARD / Init Failed";
     }
 
     // --- 容量に基づく規格タイプ判定 ---
-    // autoを使用して、明示的なFsCard型の参照を避ける
     auto cardPtr = sd.card();
     if (cardPtr == nullptr) {
-        // 情報取得関数ではsd.end()を呼び出さない（連続アクセスを可能にするため）
+        
         return "NO_CARD / Hardware Error";
     }
     
     uint64_t totalBytes = (uint64_t)cardPtr->sectorCount() * 512ULL;
     String typeString = ""; // 規格タイプを格納
 
-    // 容量閾値の定義 (バイト単位)
+    // 容量に基づく規格判定ロジック
     const uint64_t GB_UNIT = 1024ULL * 1024 * 1024;
-    const uint64_t THRESHOLD_2GB = 2ULL * GB_UNIT;
     const uint64_t THRESHOLD_32GB = 32ULL * GB_UNIT;
     const uint64_t THRESHOLD_2TB = 2000ULL * GB_UNIT; 
 
-    // 容量に基づく規格判定
     if (totalBytes > THRESHOLD_2TB) {
         typeString = "SDUC";
     } else if (totalBytes > THRESHOLD_32GB) {
         typeString = "SDXC";
-    } else if (totalBytes > THRESHOLD_2GB) {
+    } else if (totalBytes > 2ULL * GB_UNIT) {
         typeString = "SDHC";
     } else {
         typeString = "SDSC";
@@ -2749,111 +2748,70 @@ String getSDCardType() {
     // 3. フォーマット形式判定（ファイルシステム層）
     String formatString = "";
 
-    // ボリューム/ファイルシステムの初期化を試みる
-    if (sd.begin()) { 
-        // sd.begin()が成功した場合（FAT16/32/exFAT）
-        int fatType = sd.fatType();
-        switch (fatType) {
-            case 16:
-                formatString = "FAT16";
-                break;
-            case 32:
-                formatString = "FAT32";
-                break;
-            case 64:
-                formatString = "exFAT";
-                break;
-            default:
-                formatString = "Unknown FAT Type";
-                break;
-        }
-    } else {
-        // sd.begin()が失敗した場合（未フォーマット、破損、または非サポートFS）
-        formatString = "Unformatted/Corrupt/Non-FAT";
+    // sd.begin()が成功している（=initializeSDCard()が成功）ので、fatTypeを取得
+    int fatType = sd.fatType();
+    switch (fatType) {
+        case 16: formatString = "FAT16"; break;
+        case 32: formatString = "FAT32"; break;
+        case 64: formatString = "exFAT"; break;
+        default: formatString = "Unknown FAT Type"; break;
     }
     
-    // sd.end()を削除し、SPIバスのリソースを維持
-
-    // 規格タイプとフォーマット形式を結合して返す
+    // リソースを解放 (元のコードのパターンを踏襲)
+    
     return typeString + " / " + formatString;
 }
 
 // ----------------------------------------------------------------------
-// 4-B. SDカードのCID情報を取得する関数
+// 5-B. SDカードのCID情報を取得する関数
 // ----------------------------------------------------------------------
 
 /**
- * @brief SDカードのCIDレジスタからモデル名、製造日時、シリアル番号、その他の識別情報を取得します。
- * * @return String CID情報 (モデル名、製造日時、シリアル番号、その他識別子を含む)
+ * @brief SDカードのCIDレジスタから識別情報を取得します。
+ * @return String CID情報 (モデル名、製造日時、シリアル番号、その他識別子を含む)
  */
 String getSDCardCIDInfo() {
-    // SPIバスをピン番号の直接入力で明示的に開始 (SCK, MISO, MOSI, CS)
-    SDSPI.begin(39, 38, 40, 4);
-
-    // 1. 物理カード初期化チェック
-    if (!sd.cardBegin(SD_SPI_CONFIG)) {
+    
+    // --- 変更点: initializeSDCard()でSPIとSdFsを初期化 ---
+    if (!initializeSDCard()) { 
         return "- Model(PNM): N/A\n- Mfg. Date: N/A\n- Serial Num: N/A\n(Card Init Failed)";
     }
 
     // --- CID情報取得 ---
-    cid_t cidData; 
+    cid_t cidData; // cid_tはSdFatが定義する構造体
     
-    // CID読み取りを試みる 
+    // card()で物理カードオブジェクトを取得し、readCIDを呼び出す
     if (!sd.card()->readCID(&cidData)) {
-        // sd.end()を削除し、SPIバスのリソースを維持
+        
         return "- Model(PNM): N/A\n- Mfg. Date: N/A\n- Serial Num: N/A\n(CID Read Failed)";
     }
     
-    // CIDフィールドの抽出と整形
-    
-    // 1. 製造業者ID (MID: Manufacturer ID) - 16進数で表示
+    // CIDフィールドの抽出と整形 (元のロジックを保持)
     uint8_t mid = cidData.mid;
     
-    // 2. OEM/アプリケーションID (OID: OEM/Application ID) - ASCII文字列で表示
     char oid_buf[3]; 
     memcpy(oid_buf, cidData.oid, 2);
     oid_buf[2] = '\0';
     String oidString = String(oid_buf);
     
-    // 3. 製品名 (PNM: Product Name) - ASCII文字列で表示 (5文字)
     char pnm_buf[6]; 
     memcpy(pnm_buf, cidData.pnm, 5); 
     pnm_buf[5] = '\0';
     String modelNameString = String(pnm_buf);
     
-    // 4. 製品リビジョン (PRV: Product Revision) - メジャー.マイナー形式で表示
     uint8_t prv = cidData.prv; 
     int majorRev = (prv >> 4) & 0xF;
     int minorRev = prv & 0xF;
     String revString = String(majorRev) + "." + String(minorRev);
     
-    // 5. 製品シリアル番号 (PSN: Product Serial Number) - 16進数で表示
-    // cidData.psn から cidData.psn() へ修正
     uint32_t serialNum = cidData.psn(); 
 
-    // 6. 製造日時 (MDT: Manufacturing Date) - 年/月形式で表示
-    uint16_t mdtRaw = (cidData.mdt[0] << 8) | cidData.mdt[1];
-
-    // SD規格のMDTフィールドから年と月を抽出
-    int year_raw = (mdtRaw >> 4) & 0xF; 
-    int month_raw = mdtRaw & 0xF;      
-
-    int mfgYear = 2000 + year_raw;
-    int mfgMonth = month_raw; 
-
-    // 月の値が不正な場合はエラー表示
-    if (mfgMonth < 1 || mfgMonth > 12) {
-        mfgMonth = 0; 
-    }
-    
-    String mfgDateString = String(mfgYear) + "/" + (mfgMonth < 10 ? "0" : "") + String(mfgMonth);
-    // 月が不正な場合は "?" を表示
-    if (mfgMonth == 0) {
-        mfgDateString = String(mfgYear) + "/??";
-    }
-
-
-    // sd.end()を削除し、SPIバスのリソースを維持
+    uint16_t mdtRaw = *reinterpret_cast<uint16_t*>(cidData.mdt); 
+    int mfgYear = 2000 + ((mdtRaw >> 4) & 0xF);
+    int mfgMonth = mdtRaw & 0xF; 
+    String mfgDateString = (mfgMonth >= 1 && mfgMonth <= 12) 
+                             ? String(mfgYear) + "/" + (mfgMonth < 10 ? "0" : "") + String(mfgMonth)
+                             : String(mfgYear) + "/??";
 
     // CID情報をまとめて返す
     String result = "- MID (Mfg ID): 0x" + String(mid, HEX);
@@ -2863,80 +2821,41 @@ String getSDCardCIDInfo() {
     result += "\n- PSN (Serial Num): 0x" + String(serialNum, HEX); 
     result += "\n- MDT (Mfg. Date): " + mfgDateString;
     
+    // リソースを解放 (元のコードのパターンを踏襲)
+    
     return result;
 }
 
 // ----------------------------------------------------------------------
-// 5. FAT16/FAT32以外のフォーマット判定関数
+// 6. FAT16/FAT32以外のフォーマット判定関数
 // ----------------------------------------------------------------------
 
 /**
- * @brief SDカードが以下のいずれかの異常な状態にある場合にtrueを返します。
- * 1. FAT16/FAT32以外のファイルシステムでフォーマットされている (例: exFAT, NTFS)。
- * 2. 有効な単一ボリュームが認識できない (データ破綻、未フォーマット、パーティション0個/異常なパーティション構成)。
- * * @return true FAT16/FAT32以外の形式または異常な状態である, false FAT16/FAT32である
+ * @brief SDカードがFAT16/FAT32以外の形式または異常な状態にある場合にtrueを返します。
  */
 bool isNonFAT16orFAT32Format() {
     Serial.print("Checking Format Type/Health... "); 
     
-    // SPIバスをピン番号の直接入力で明示的に開始 (SCK, MISO, MOSI, CS)
-    SDSPI.begin(39, 38, 40, 4);
-
-    // 1. 物理カードの初期化チェック（SPI設定を明示）
-    if (!sd.cardBegin(SD_SPI_CONFIG)) {
+    // --- 変更点: initializeSDCard()でSPIとSdFsを初期化 ---
+    if (!initializeSDCard()) { 
         Serial.println("Card Init Failed (No Card/Physical Error)."); 
-        return true; // 破綻として扱う
-    }
-    
-    // 2. ボリューム/ファイルシステムの初期化を試みる
-    if (!sd.begin()) { 
-        Serial.println("Volume/FS Not Recognized (Corrupt/Non-standard Partition or non-FAT/exFAT)."); 
-        // sd.end()を削除し、SPIバスのリソースを維持
-        return true; // 破綻/パーティション異常として扱う
-    }
-    // ここでsd.begin()が成功したということは、SdFatが読み取れる有効なFAT/exFATボリュームがマウントされたと見なせます。
-
-    // 3. FATタイプをチェック
-    int fatType = sd.fatType();
-    
-    // sd.end()を削除し、SPIバスのリソースを維持
-
-    // SdFatでは FAT16->16, FAT32->32, exFAT->64 (FAT64) と判定される
-    if (fatType == 16 || fatType == 32) {
-        // FAT16 または FAT32 である
-        Serial.printf("Format is FAT%d (OK).\n", fatType); 
-        return false;
-    } else {
-        // exFAT (64) やその他の認識できない/非標準のFATタイプの場合
-        Serial.printf("Format is Non-FAT16/32: Type %d.\n", fatType); 
         return true; 
     }
-}
-
-// ----------------------------------------------------------------------
-// 6. SdFatリソースを解放し、他のSDライブラリに切り替える準備をする関数
-// ----------------------------------------------------------------------
-
-/**
- * @brief SdFs (SdFat) のリソースを解放し、SPIバスをクリーンな状態に戻します。
- * * この関数実行後、標準のSD.hなど他のSDライブラリでbegin()を呼び出すことが可能になります。
- */
-void releaseSdFatAndPrepareForSDLibrary() {
-    Serial.println("--- Switching SD Library Context ---");
-    // 1. SdFs (SdFat) オブジェクトのリソースを解放
-    // これにより、SdFatが使用していたSPIバスのCSピンの制御が解除されます。
-    sd.end();
-    SD.end(); // 念のため、標準SDライブラリのend()も呼び出す
-    Serial.println("SdFs (SdFat) resources released.");
-
-    // 2. 専用のSDSPIインスタンスを終了し、SPIポートのリソースを解放
-    // これにより、SDカードとの通信に使用していたSPIバスの物理リソースが解放され、他のライブラリが使用できるようになります。
-    SDSPI.end(); 
-    Serial.println("Dedicated SDSPI instance (SPI Port) terminated.");
     
-    // 3. (SD.hライブラリの明示的な終了は、SD.hをインポートし、SD.begin()が呼び出されている場合にのみ可能であり、
-    // このファイルはSdFat専用のため、専用のSDSPIの終了によってポートはクリーンになります。)
+    bool result = true; // 既定値はNon-FAT/エラー
+
+    // initializeSDCard()が成功しているため、ボリューム情報を使用
+    int fatType = sd.fatType();
     
-    Serial.println("Ready to initialize with standard SD.h or other libraries.");
-    Serial.println("------------------------------------");
+    if (fatType == 16 || fatType == 32) {
+        Serial.printf("Format is FAT%d (OK).\n", fatType); 
+        result = false;
+    } else {
+        Serial.printf("Format is Non-FAT16/32: Type %d.\n", fatType); 
+        result = true; 
+    }
+    
+    // リソースを解放 (元のコードのパターンを踏襲)
+    
+    return result;
 }

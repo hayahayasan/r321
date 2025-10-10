@@ -4,7 +4,7 @@
 #include <cctype>
 
 #include <SdFat.h>
-#include <USB.h> 
+#include <USB.h>  
 #include <FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
@@ -24,6 +24,7 @@ int SCROLL_SPEED_PIXELS = 3;
 int frameright;
 String tttt = "hello";
 
+
 String RESERVED_NAMES[] = {
     "CON", "PRN", "AUX", "NUL",
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
@@ -32,6 +33,7 @@ String RESERVED_NAMES[] = {
 int frameleft;
 bool btna;
 int TABLE_ID = 0;
+
 int holdimanopage;
 bool beginizeSD = false;
 const size_t BUFFER_SIZE = 4096;
@@ -3203,6 +3205,7 @@ else if (mainmode == 0) { // メニューモードの場合
         maxpage = -1;
         positpoint = 0;
         positpointmax = 2;
+        pagemoveflag = 0;
         imano_page = 0;
         M5.Lcd.println("  SD Eject\n  SD Format");
         return;
@@ -3249,7 +3252,7 @@ else if (mainmode == 0) { // メニューモードの場合
     }else if(M5.BtnB.wasPressed()){
       if(positpoint == 0){
         
-          releaseSdFatAndPrepareForSDLibrary();
+          
           M5.Lcd.setCursor(0,0);
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.println("Ejected!\n Press B to \nCheck SD Property");
@@ -3260,12 +3263,15 @@ else if (mainmode == 0) { // メニューモードの場合
               break;
             }
           }
+          
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.println("Loading...");
           M5.Lcd.setTextSize(1);
           M5.Lcd.setCursor(0, 0);
+          initializeSDCard();
           
           M5.Lcd.println("SD Data:\n  Capacity:" + getSDCardRawCapacity() + "\n  Format:" + getSDCardType() + "\nMisc:" + getSDCardCIDInfo());
+          sd.end();
           while(true){
             delay(1);
             M5.update();
@@ -3273,7 +3279,7 @@ else if (mainmode == 0) { // メニューモードの場合
               break;
             }
           }
-          releaseSdFatAndPrepareForSDLibrary();
+          
           M5.Lcd.setTextSize(3);
         sita = tttt;
         sd.end();
