@@ -75,6 +75,7 @@ int createFile(String fileNameToCreate, String targetDirectoryPath);
 int createDirectory(String SuperTT, String DirecXX);
 int getCharWidth();
 int getFontHeight() ;
+void releaseSDBusForOtherUse();
 String getParentDirectory(String path);
 typedef std::map<String, String> MettDataMap;
 struct MettVariableInfo {
@@ -170,6 +171,7 @@ bool isNonFAT16orFAT32Format();
 String getSDCardType();
 String getSDCardCIDInfo();
 String getSDCardRawCapacity();
-bool formatSDCardFull(int formatType);
+bool formatSDCardFull();
+bool initializeSDCardAndCreateFile(const String& filePath);
 std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath, bool& isZero);
 #endif // SHARED

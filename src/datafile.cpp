@@ -2597,63 +2597,40 @@ bool initializeSDCard() {
  * @param formatType フォーマットタイプ (FORMAT_FAT16 または FORMAT_FAT32)
  * @return bool 成功したら true
  */
-bool formatSDCardFull(int formatType) {
+bool formatSDCardFull() {
     Serial.print("SD Card Formatting Request: ");
-    bool result = false;
-
-    // --- 変更点: initializeSDCard()でSPIとSdFsを初期化 ---
+    
     if (!initializeSDCard()) { 
-        // initializeSDCard()内でエラーメッセージは出力済み
         return false; 
     }
     
+    // SD処理を開始する前に、専用SPIバスを確保する (トランザクション開始)
+    // NOTE: sd.format()は長時間かかるため、SPIバスを占有し、WDT対策も兼ねてトランザクション管理を行う
+    // 修正: spiSettings()の使用を避け、標準的な高速SPI設定を直接指定
+    // SDカードの高速動作として、16MHz、MSBFIRST、SPI_MODE0を設定します。
+    SDSPI.beginTransaction(SPISettings(16000000, MSBFIRST, SPI_MODE0));
+
     // 可能な限り最大容量を取得 (SdFs/SdFatのAPIを使用)
     auto cardPtr = sd.card(); 
     if (cardPtr == nullptr) {
-        Serial.println("Hardware Error: Card pointer is NULL after init.");
-        
+        Serial.println("Hardware Error: Card pointer is NULL.");
+        releaseSDBusForOtherUse(); // バスを解放
         return false;
     }
-    uint64_t totalBytes = (uint64_t)cardPtr->sectorCount() * 512ULL;
+    // FAT16/2GB強制ロジックを削除したため、容量チェックは不要になりました。
+    bool result = false;
 
-    switch (formatType) {
-        case FORMAT_FAT16:
-            Serial.println("FAT16 (Full Capacity) - Attempting format...");
-            if (totalBytes > (2ULL * 1024 * 1024 * 1024)) {
-                Serial.println("Error: FAT16 is unsuitable for this large capacity ( > 2GB).");
-                result = false;
-                break;
-            }
-            // sd.format() は FAT16/FAT32/exFAT を自動判別してフォーマットを実行
-            if (sd.format()) { 
-                Serial.println("FAT16/Auto Format SUCCESS.");
-                result = true;
-            } else {
-                Serial.println("FAT16/Auto Format FAILED.");
-                result = false;
-            }
-            break;
+    // ウォッチドッグタイマー対策として、長時間のブロッキング処理の前にCPUを解放
+    yield(); 
+    Serial.println("Starting format process... (This may take several seconds/minutes)");
+
+    Serial.println("FAT32 (Full Capacity) - Attempting format...");
+            result = sd.format(); // これが長時間ブロックする処理
+            Serial.printf("FAT32/Auto Format %s.\n", result ? "SUCCESS" : "FAILED");
             
-        case FORMAT_FAT32:
-            Serial.println("FAT32 (Full Capacity) - Attempting format...");
-            if (sd.format()) { 
-                Serial.println("FAT32/Auto Format SUCCESS.");
-                result = true;
-            } else {
-                Serial.println("FAT32/Auto Format FAILED.");
-                result = false;
-            }
-            break;
-
-        default:
-            Serial.println("Invalid format type specified. (Only FAT16/FAT32 supported)");
-            result = false;
-            break;
-    }
     
-    // クリーンアップ: SDカードとの論理接続を解放 (元のコードのパターンを踏襲)
-    Serial.println("Releasing SD resources after format...");
-   
+    // 処理完了後、安全にSPIバスを解放
+    releaseSDBusForOtherUse(); 
     
     return result;
 }
@@ -2858,4 +2835,22 @@ bool isNonFAT16orFAT32Format() {
     // リソースを解放 (元のコードのパターンを踏襲)
     
     return result;
+}
+
+void releaseSDBusForOtherUse() {
+    if (!initializeSDCard()) {
+        Serial.println("SD Bus release skipped: SD Card was not initialized.");
+        return;
+    }
+
+    // 1. SPIトランザクションを終了
+    // これにより、他のデバイス(M5.Lcdなど)が独自のトランザクションを開始できます。
+    SDSPI.endTransaction();
+    Serial.println("SD SPI Transaction Ended.");
+
+    // 2. チップセレクトピンをHIGHに戻し、SDカードを非選択状態にする
+    digitalWrite(SD_CS_PIN, HIGH);
+    Serial.println("SD CS Pin set to HIGH.");
+    
+    // NOTE: sd.end()はフリーズの原因となるため、この関数では実行しません。
 }

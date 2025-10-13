@@ -3155,9 +3155,9 @@ else if (mainmode == 0) { // メニューモードの場合
         }
         beginizeSD = true;
         M5.Lcd.fillScreen(BLACK); // 画面をクリア
-        bool tt = initializeSDCard("/save/save2.mett");
-        tt = tt * initializeSDCard("/save/save1.mett");
-        tt = tt * initializeSDCard("/save/save3.mett");
+        bool tt = initializeSDCardAndCreateFile("/save/save2.mett");
+        tt = tt * initializeSDCardAndCreateFile("/save/save1.mett");
+        tt = tt * initializeSDCardAndCreateFile("/save/save3.mett");
         if(!tt){
           kanketu("SD File Create Failed!",600);
           mainmode = 0;
@@ -3255,6 +3255,7 @@ else if (mainmode == 0) { // メニューモードの場合
           
           M5.Lcd.setCursor(0,0);
           M5.Lcd.fillScreen(BLACK);
+          SD.end();
           M5.Lcd.println("Ejected!\n Press B to \nCheck SD Property");
           while(true){
             delay(1);
@@ -3269,9 +3270,9 @@ else if (mainmode == 0) { // メニューモードの場合
           M5.Lcd.setTextSize(1);
           M5.Lcd.setCursor(0, 0);
           initializeSDCard();
-          
+          M5.Lcd.fillScreen(BLACK);
           M5.Lcd.println("SD Data:\n  Capacity:" + getSDCardRawCapacity() + "\n  Format:" + getSDCardType() + "\nMisc:" + getSDCardCIDInfo());
-          sd.end();
+          
           while(true){
             delay(1);
             M5.update();
@@ -3282,7 +3283,7 @@ else if (mainmode == 0) { // メニューモードの場合
           
           M5.Lcd.setTextSize(3);
         sita = tttt;
-        sd.end();
+        releaseSDBusForOtherUse();
         M5.Lcd.fillScreen(BLACK);
         textexx();
         positpoint = 0;
@@ -3292,6 +3293,48 @@ else if (mainmode == 0) { // メニューモードの場合
         return;
           
         
+      }else if(positpoint == 1){
+        bool ss = areusure();
+        if(ss){
+          M5.Lcd.fillScreen(BLACK);
+          
+       
+        
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.println("Formating! \nDo Not Touch SD");
+            SD.end();
+        initializeSDCard();
+        bool ss = formatSDCardFull();
+        if(ss){
+          kanketu("Format Completed!",500);
+        }else{
+          kanketu("Format Failed!",500);
+        }
+        M5.Lcd.setTextSize(3);
+        sita = tttt;
+        releaseSDBusForOtherUse();
+        M5.Lcd.fillScreen(BLACK);
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+        mainmode = 0;
+        return;
+      
+
+        }else{
+           M5.Lcd.setTextSize(3);
+        sita = tttt;
+        M5.Lcd.fillScreen(BLACK);
+        textexx();
+        positpoint = 0;
+        holdpositpoint = 0;
+        imano_page = 0;
+        mainmode = 0;
+        return;
+        }
       }
 
 
