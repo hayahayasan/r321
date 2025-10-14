@@ -75,8 +75,11 @@ int createFile(String fileNameToCreate, String targetDirectoryPath);
 int createDirectory(String SuperTT, String DirecXX);
 int getCharWidth();
 int getFontHeight() ;
+extern int resercounter;
+extern bool serious_error_flash ;
 void releaseSDBusForOtherUse();
 String getParentDirectory(String path);
+bool browseFlashDirectoryPaginated(int pagetax, String Directtory) ;
 typedef std::map<String, String> MettDataMap;
 struct MettVariableInfo {
     String variableName;
@@ -174,4 +177,34 @@ String getSDCardRawCapacity();
 bool formatSDCardFull();
 bool initializeSDCardAndCreateFile(const String& filePath);
 std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath, bool& isZero);
+bool boolmax();
+void updatePointer(bool notext = false);
+void shokaipointer();
+void shokaipointer(bool yessdd);
+extern String potlist[];
+extern int numMenuItems;
+void loadPotlistFromSD();
+void drawCenteredText(const String& text, int yPos);
+void drawTopText(bool showAngleBrackets);
+void drawCenterText();
+extern String optiontxt[6];
+extern int currentPos;
+void drawBottomText() ;
+extern bool rootnofile;
+String trimString(const String& s);
+void displayPageInfo(int currentPage, int totalPages);
+bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
+extern String AllName[100];
+std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD);
+void parseMettBlockToMap(const String& variableLines, MettDataMap& dataMap);
+std::vector<String> getUniqueTableNames(const std::vector<MettVariableInfo>& variables);
+String getMettVariableValue(const MettDataMap& tableData, const String& variableName);
+bool isValidFilesystemPath(const String& path);
+
+
+
+
+
+
+
 #endif // SHARED
