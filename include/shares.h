@@ -116,7 +116,7 @@ String inferDataType(const String& valueString) ;
 bool containsInvalidTableNameChars(const String& name);
 bool datt(String opthensuname,String setname);
 const int SD_CS_PIN = 4;
-extern MettDataMap DataToSaveE;
+extern MettDataMap dataToSaveE;
 
 // ----------------------------------------------------------------------
 // 1. フォーマット形式を指定するための定数

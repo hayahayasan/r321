@@ -23,10 +23,10 @@
 
 
 bool datt(String opthensuname,String setname){
-  Serial.println("fff" + getMettVariableValue(DataToSaveE,opthensuname) );
-  if(getMettVariableValue(DataToSaveE,opthensuname) == ""){
-      DataToSaveE[opthensuname] = setname;
-      Serial.println("ddf" + DataToSaveE[opthensuname]);
+  Serial.println("fff" + getMettVariableValue(dataToSaveE,opthensuname) );
+  if(getMettVariableValue(dataToSaveE,opthensuname) == ""){
+      dataToSaveE[opthensuname] = setname;
+      Serial.println("ddf" + dataToSaveE[opthensuname]);
       return true;
   }
   return false;
