@@ -114,8 +114,9 @@ String joinVectorToString(const std::vector<T>& vec) ;
 String joinStringVectorToString(const std::vector<String>& vec);
 String inferDataType(const String& valueString) ;
 bool containsInvalidTableNameChars(const String& name);
-
+bool datt(String opthensuname,String setname);
 const int SD_CS_PIN = 4;
+extern MettDataMap DataToSaveE;
 
 // ----------------------------------------------------------------------
 // 1. フォーマット形式を指定するための定数
@@ -200,7 +201,29 @@ void parseMettBlockToMap(const String& variableLines, MettDataMap& dataMap);
 std::vector<String> getUniqueTableNames(const std::vector<MettVariableInfo>& variables);
 String getMettVariableValue(const MettDataMap& tableData, const String& variableName);
 bool isValidFilesystemPath(const String& path);
-
+void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& success, bool& isEmpty, std::vector<MettVariableInfo>& variables);
+void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError);
+void updatePointerAndDisplay(int ril);
+extern int holdpositpoint;
+void textexx();
+int selectOption(const String options[], int numOptions, const String upperText, const String lowerText);
+extern String sita;
+extern int entryenter;
+extern bool filebrat;
+extern String Textex;
+extern String maereposit;
+void textluck();
+extern bool firstScrollLoop;
+extern String copymotroot;
+extern int sizex;
+extern String tttt;
+extern bool copymotdir;
+extern int holdpositpointd;
+extern int holdimanopaged;
+extern int holdpositpointmaxd;
+extern String ggmode;
+extern String Filelist[];
+extern void mainkansu_optsd();
 
 
 
