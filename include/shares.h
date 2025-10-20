@@ -37,7 +37,8 @@ extern  int SCROLL_SPEED_PIXELS;
 extern String Filelist[100];
 extern String directlist[100];
 extern String ForDlist[100];
-extern void  updatePointer2(bool) ;
+void updatePointer2(int size = 3);
+
 extern String formatBytes(uint64_t bytes);
 extern bool endsWithTxtOrDbm(String filename);
 extern  String RESERVED_NAMES[];
@@ -126,7 +127,7 @@ const int FORMAT_FAT32 = 32;
 bool isValidTableName(const String& tableName, const String existingNames[], size_t arraySize) ;
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableNameToDelete);
 // Struct to hold information about a single metadata file
-
+void displayLoadedVariables(const MettDataMap& dataMap);
 struct CursorPosInfo {
     int pixelX;
     int pixelY;
@@ -160,7 +161,7 @@ extern bool needsRedraw;
 extern bool renameSDItem(String oldPath, String newPath);
 extern int deleteRightmostSDItem(String itemPath) ;
 extern void kanketu(String texx,int frame);
-extern void  updatePointer2();
+
 extern const size_t BUFFER_SIZE;
 extern const char* TABLE_NAME_PATTERN ;
 // 識別子 "NEW_DATA_SET_PATTERN" の定義

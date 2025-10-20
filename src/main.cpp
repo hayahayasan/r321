@@ -25,7 +25,7 @@ int SCROLL_SPEED_PIXELS = 3;
 int frameright;
 int holdpositpointt;
 String tttt = "hello";
-
+const String METT_TABLE_NAME_KEY = "table_name"; 
 
 String RESERVED_NAMES[] = {
     "CON", "PRN", "AUX", "NUL",
@@ -49,7 +49,7 @@ const size_t PATTERN_LEN2 = strlen("--- NEW DATA_SET ---");
 const int METT_CHUNK_SIZE = 1024;
 bool btnc;
 unsigned long lastTextScrollTime;
-void  updatePointer2();
+
 unsigned long TEXT_SCROLL_INTERVAL_MS;
 
 int scrollPos;
@@ -608,6 +608,10 @@ std::vector<String> allTableNames;
  */
 void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
     isError = false;
+    
+    // displayLoadedVariables(data); // 外部関数はMettDataMapに対応するよう修正が必要
+
+    const String effectiveTableName = tableName; 
 
     auto getDirFromPath = [](const String& fullPath) -> String {
         int lastSlash = fullPath.lastIndexOf('/');
@@ -618,7 +622,6 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
     };
 
     auto createDirIfNotExists = [&](const String& dirname) -> bool {
-        // SD::exists と fs.mkdir が利用可能であることを前提とする
         if (SD.exists(dirname.c_str())) {
             return true;
         }
@@ -631,8 +634,8 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         }
     };
 
-    if (!fullFilePath.startsWith("/") || fullFilePath.lastIndexOf('.') == -1 || fullFilePath.substring(fullFilePath.lastIndexOf('.')) != ".mett" || containsInvalidTableNameChars(tableName)) {
-        Serial.println("Error: Basic save validation failed.");
+    if (!fullFilePath.startsWith("/") || fullFilePath.lastIndexOf('.') == -1 || fullFilePath.substring(fullFilePath.lastIndexOf('.')) != ".mett" || containsInvalidTableNameChars(effectiveTableName)) {
+        Serial.println("Error: Basic save validation failed (Path/Extension/TableName check).");
         isError = true;
         return;
     }
@@ -643,8 +646,6 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         return;
     }
 
-    // ファイルを上書きモードでオープン (FILE_WRITE)
-    // 既存のデータをロードしてマージするロジックはここにはありません。
     File file = fs.open(fullFilePath.c_str(), FILE_WRITE);
     if (!file) {
         Serial.printf("Error: Failed to open file for writing (overwrite mode): %s\n", fullFilePath.c_str());
@@ -652,16 +653,23 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         return;
     }
 
-    size_t bytesWritten;
-    
-    // 🌟 修正: NEW DATA SET ヘッダーを TABLE_ID に変更し、TABLE_NAMEを追記
+    // 1. TABLE_ID ヘッダーの書き込み
     if (file.println(TABLE_IDd) == 0) { isError = true; }
-    String tableNameLine = "TABLE_NAME:" + tableName + "\n";
-    if (file.print(tableNameLine) == 0) { isError = true; }
+    
+    // 2. TABLE_NAME ヘッダーの書き込み (引数で指定されたテーブル名を使用)
+    String tableNameLine = "TABLE_NAME:" + effectiveTableName;
+    if (file.println(tableNameLine) == 0) { isError = true; } 
 
-    // 変数データの書き込み
+    // 変数データの書き込み (マップ全体をループ)
     for(const auto& pair : data) {
         String varName = pair.first;
+        
+        // 🌟 修正点 2: 特殊キー METT_TABLE_NAME_KEY ("table_name") の書き込みをスキップ
+        if (varName == METT_TABLE_NAME_KEY) {
+             Serial.printf("Debug: Skipping internal table name key '%s' during save.\n", varName.c_str());
+             continue; 
+        }
+
         if (containsInvalidVariableNameChars(varName)) {
             Serial.printf("Warning: Variable name '%s' contains invalid chars. Skipping.\n", varName.c_str());
             isError = true; 
@@ -670,9 +678,9 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         
         String valueStr = pair.second;
         String dataType = inferDataType(valueStr);
-        String lineToWrite = String(varName.c_str()) + ":" + dataType.c_str() + ":" + valueStr.c_str() + "\n";
+        String lineToWrite = varName + ":" + dataType + ":" + valueStr; 
         
-        if (file.print(lineToWrite) == 0) {
+        if (file.println(lineToWrite) == 0) {
             Serial.printf("Error: Failed to write variable '%s'.\n", varName.c_str());
             isError = true; 
         }
@@ -680,11 +688,10 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
     
     // 最終的な空行
     if (file.println() == 0) { isError = true; }
-
+    
     file.close();
     if (!isError) {
-        // ログを上書き保存に変更
-        Serial.printf("Info: File saved successfully (OVERWRITTEN): %s (Table: %s)\n", fullFilePath.c_str(), tableName.c_str());
+        Serial.printf("Info: File saved successfully (OVERWRITTEN): %s (Table: %s)\n", fullFilePath.c_str(), effectiveTableName.c_str());
     }
 }
 /**
@@ -719,15 +726,9 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
 
     if (file.size() == 0) {
         file.close();
-        // size 0 の場合は success=false, isEmpty=true のままでリターン
         return;
     }
-
-    // IMPORTANT CHANGE: ファイルサイズが0より大きい場合でも、まだ有効なテーブルが
-    // 読み込まれていないため、isEmpty は true のまま維持する。
     
-    Serial.printf("Info (SD Load): Loading file (Chunked Process): %s (Target Table(s): %s)\n", fullFilePath.c_str(), targetTableName.isEmpty() ? "All" : targetTableName.c_str());
-
     // --- ターゲットテーブル名解析 ---
     std::vector<String> targetTableList;
     if (!targetTableName.isEmpty()) {
@@ -797,6 +798,18 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
                     
                     // ターゲットテーブルかどうかの判定
                     shouldLoadCurrentTable = targetTableList.empty() || (std::find(targetTableList.begin(), targetTableList.end(), currentTableNameInFile) != targetTableList.end());
+                    
+                    // 🌟 修正点 3: テーブル名が見つかった場合、特殊キー METT_TABLE_NAME_KEY ("table_name") でvariablesに格納
+                    if (shouldLoadCurrentTable && !currentTableNameInFile.isEmpty()) {
+                        MettVariableInfo tableInfo;
+                        tableInfo.variableName = METT_TABLE_NAME_KEY; 
+                        tableInfo.dataType = "STRING"; 
+                        tableInfo.valueString = currentTableNameInFile;
+                        tableInfo.tableName = currentTableNameInFile;
+                        variables.push_back(tableInfo);
+                    }
+                    // -------------------------------------------------------------
+
                     continue;
                 }
 
@@ -857,12 +870,7 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     
     // --- 最終ステータス設定 ---
     success = true; 
-    
-    // ユーザーの要望に従い、ファイルは開けたが有効なデータ（テーブル）がなかった場合は
-    // isEmptyをtrueのままにする。
     isEmpty = variables.empty(); 
-    
-    Serial.printf("Info (SD Load): Mett file loaded successfully (isEmpty: %s, Loaded Variables: %d)\n", isEmpty ? "true" : "false", variables.size());
 }
 
 #pragma endregion
@@ -1054,21 +1062,51 @@ void shokaipointer2(int pageNum, String filePath  ) {
     }
     
 
-void optkobun(){
+bool test_load(){
+  std::vector<MettVariableInfo> loadedVariablesE;
+  bool temp1;
+  bool temp2;
+  loadMettFile(SD, DirecX + ggmode, "optward",  temp1, temp2, loadedVariablesE);
+  dataToSaveE = copyVectorToMap(loadedVariablesE);
+  if(temp1){
+    
+    return true;
+  }else{
+    return false;
+  }
+}
+
+bool optkobun(){
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setCursor(0, 0);
-  M5.Lcd.println(String("  FlashBU Loc:...") 
+  M5.Lcd.setTextSize(1);
+  std::vector<MettVariableInfo> loadedVariablesE;
+    if(!test_load()){
+    Serial.println("ロードエラー");
+    return false;
+  }
+  dataToSaveE = copyVectorToMap(loadedVariablesE);
+  M5.Lcd.println(String("  Index Number:") + dataToSaveE["table_opt1"] 
             + "\n  tabletype:" + dataToSaveE["table_opt2"] +
-             "\n  tag:...\n\n table options!");
+             "\n  tag:" + dataToSaveE["table_opt3"] + "\n\n table options!");
           positpoint = 0;
           maxpage = -1;
           imano_page = 0;
           positpointmax = 3;
           mainmode = 16;
-          return;
+         
+          bool temp1;
+          bool temp2;
+  return true;
+          
 }
 
 void opt1_kaimei(){
+  if(!test_load()){
+    kanketu("Load Failed!",500);
+    return;
+  }
+  Serial.println("Current SuperT: " + dataToSaveE["table_opt1"]);
   SuperT = dataToSaveE["table_opt1"];
   Textex = "Enter file location.";
   while(true){
@@ -1076,17 +1114,29 @@ void opt1_kaimei(){
     delay(1);
     if(entryenter == 1){
       entryenter = 0;
-      if(isValidTableName(SuperT,AllName,101)){
-        dataToSaveE["table_opt1"] = SuperT;
+      if(true){
+        
         bool sus = false;
-        saveMettFile(SD, DirecX + ggmode, AllName[positpoint], dataToSaveE, sus);
-        if(sus){
+        if(!test_load()){
+          return;
+        }
+        dataToSaveE["table_opt1"] = SuperT;
+        saveMettFile(SD, DirecX + ggmode, "optward", dataToSaveE, sus);
+        if(!sus){
           kanketu("Set Success!",500);
         }else{
           kanketu("Set Failed!",500);
         }
-        optkobun();
-
+        
+        if(!optkobun()){
+          kanketu("Load Failed!",500);
+          M5.Lcd.fillScreen(BLACK);
+          positpoint = holdpositpointd;
+          imano_page = holdimanopaged;
+          positpointmax = holdpositpointmaxd;
+          mainmode = 1;
+          return;
+        }
         return;
       }else{
         Textex = "Invalid Name!";
@@ -1146,13 +1196,15 @@ void setup() {
   
 
 }
-//後でファイル名作成時の拡張子オプションロード追加
+//後でファイル名作成時の拡張子オプションロード追加，テーブルの丸ごとコピー機能追加
+//変数は変更ロックの登録・解除機能，デフォルト数値，NULL置き換え追加
 //ログ機能の追加．ログ追加後，メニューから一発でテーブル編集に飛ぶ機能，つまりファイルのお気に入り指定の追加
+//テーブルコピペ機能（名称を変更したテーブルを複数作成する）
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
 if(mainmode == 16){
-    updatePointer2();
+    updatePointer2(1);
     if(pagemoveflag == 2){
       pagemoveflag = 0;
       return;
@@ -1177,16 +1229,32 @@ if(mainmode == 16){
           SCROLL_INTERVAL_FRAMES = 1;
         SCROLL_SPEED_PIXELS = 3;
         firstScrollLoop = true;
+        dataToSaveE["table_opt1"] = SuperT;
           opt1_kaimei();
           M5.Lcd.fillScreen(BLACK);
           optkobun();
+          if(!optkobun()){
+            M5.Lcd.fillScreen(BLACK);
+            positpoint = holdpositpointd;
+            imano_page = holdimanopaged;
+            positpointmax = holdpositpointmaxd;
+            mainmode = 1;
+            return;
+          }
           return;
         }else if(positpoint == 1){
           M5.Lcd.fillScreen(BLACK);
           String opt22[4] = {"normal","readonly","oncewrite"};//oncewriteは空白セルまたはデフォルトに1回しか書き込めない
           selectOption(opt22,4,"select option!","read options!");
           M5.Lcd.fillScreen(BLACK);
-          optkobun();
+          if(!optkobun()){
+            M5.Lcd.fillScreen(BLACK);
+            positpoint = holdpositpointd;
+            imano_page = holdimanopaged;
+            positpointmax = holdpositpointmaxd;
+            mainmode = 1;
+            return;
+          }
           return;
         }
     }
@@ -1228,7 +1296,7 @@ if(mainmode == 16){
           kanketu("Create Success!",500);
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
-          M5.Lcd.setTextSize(3);
+          M5.Lcd.setTextSize(1);
           M5.Lcd.println("Loading...");
         positpoint = holdpositpoint;
         imano_page = holdimanopage;
@@ -1245,7 +1313,7 @@ if(mainmode == 16){
       }
     }
 }
-
+//後でフォルダ位置を保存してお気に入りリスト作れるようにする
 //テーブルオプション一覧
 //フラッシュファイル空のバックアップ元変更String
 //読み込み方式(通常，readonly,appendonly)
@@ -1359,7 +1427,7 @@ else if(mainmode == 14){
       }else if(positpoint == 4){//options
         M5.Lcd.fillScreen(BLACK);
       M5.Lcd.setCursor(0,0);
-      M5.Lcd.setTextSize(3);
+      M5.Lcd.setTextSize(1);
       holdpositpoint = positpoint;
       holdimanopage = imano_page;
 
@@ -1368,13 +1436,13 @@ else if(mainmode == 14){
     std::vector<MettVariableInfo> loadedVariables;
     M5.Lcd.fillScreen(BLACK);   
     M5.Lcd.println("loading...");
-    loadMettFile(SD, DirecX + ggmode, AllName[positpoint], loadSuccess, fileIsEmpty, loadedVariables);
+    loadMettFile(SD, DirecX + ggmode, "optward", loadSuccess, fileIsEmpty, loadedVariables);
        if(loadSuccess){
         
         dataToSaveE = copyVectorToMap(loadedVariables);
         bool jj = false;
 
-        if(datt("table_opt1","/")){
+        if(datt("table_opt1","0")){
           jj = true;
         }
         if(datt("table_opt2","normal")){
@@ -1385,7 +1453,7 @@ else if(mainmode == 14){
         }
         Serial.println("DD!" + dataToSaveE["table_opt1"]);
         if(jj){
-          saveMettFile(SD, DirecX + ggmode, AllName[positpoint], dataToSaveE, loadSuccess);
+          saveMettFile(SD, DirecX + ggmode, "optward", dataToSaveE, loadSuccess);
           if(loadSuccess){
             kanketu("Option Saved!",200);
           }else{
@@ -1394,7 +1462,14 @@ else if(mainmode == 14){
         }
           
         
-        optkobun();
+        if(!optkobun()){
+            M5.Lcd.fillScreen(BLACK);
+            positpoint = holdpositpointd;
+            imano_page = holdimanopaged;
+            positpointmax = holdpositpointmaxd;
+            mainmode = 1;
+            return;
+          }
           return;
 
 
@@ -1458,7 +1533,7 @@ else if(mainmode == 13){
       M5.Lcd.setTextSize(3);
       holdpositpoint = positpoint;
       holdimanopage = imano_page;
-      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back\n  Export to FLASH" );
+      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back\n  Duplicate" );
       positpoint = 0;
       positpointmax = 7;
       maxpage = -1;

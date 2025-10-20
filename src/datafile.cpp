@@ -221,7 +221,7 @@ void updatePointer(bool notext) {
     // prev_positpoint と現在の positpoint が異なる場合、または prev_positpoint が初期値(-1)の場合
     if (prev_positpoint != positpoint) { 
         // ポインター文字 (">") の幅と高さを取得
-        M5.Lcd.setTextFont(File_goukeifont); // ポインターフォントが設定されていることを確認
+        //M5.Lcd.setTextFont(File_goukeifont); // ポインターフォントが設定されていることを確認
         int pointer_char_width = M5.Lcd.textWidth(">");
         int font_height = M5.Lcd.fontHeight();
 
@@ -355,7 +355,7 @@ bool lefttrue(){
 
 
 // ポインターの位置を更新する関数
-void updatePointer2() {
+void updatePointer2(int size) {
     delay(1);
     M5.Lcd.setTextSize(File_goukeifont);
     // 以前のポインター位置を記憶 (-1は初期状態を示す。これはstaticで一度だけ初期化される)
@@ -416,17 +416,19 @@ void updatePointer2() {
         }
         
       }
+    }else if (lefttrue() && positpoint == 0 && maxpage == -1){
+      btna = true;
+      btnc = false;
+      pagemoveflag = 5;
+        Serial.println("pagemoved");
+        return;
     
     } else if(lefttrue() && positpoint == -1){
       btna = true;
       btnc = false;
       Serial.println("HHH" + String(positpoint));
-      if(maxpage == -1)  {
-        pagemoveflag = 5;
-        Serial.println("pagemoved");
-        return;
-      }
-      else if(imano_page >0){
+      
+      if(imano_page >0){
         pagemoveflag = 3;
         return;
       }else if(imano_page == 0 && maxpage != -1){
@@ -463,6 +465,7 @@ void updatePointer2() {
     
     // ポインターの位置が変更された場合、または初回描画時の処理
     if (prev_positpoint != positpoint) { 
+       M5.Lcd.setTextSize(size);
         int pointer_char_width = M5.Lcd.textWidth(">");
         int font_height = M5.Lcd.fontHeight();
 
@@ -477,6 +480,7 @@ void updatePointer2() {
 
         // 新しいポインターを描画
         M5.Lcd.setTextColor(YELLOW); // 黄色に設定
+       
         M5.Lcd.setCursor(0, positpoint * font_height); // 新しい位置にカーソルを設定 (X=0)
         M5.Lcd.print(">"); // ポインターアイコンを描画
         M5.Lcd.setTextColor(WHITE); // 色を白に戻す
@@ -780,7 +784,31 @@ String getMettVariableValue(const MettDataMap& tableData, const String& variable
     // 存在しない場合は空の文字列を返却
     return "";
 }
+void displayLoadedVariables(const MettDataMap& dataMap) {
+    // 画面全体をクリア
+    
 
+    Serial.println("--- Mett Data Map ---");
+    Serial.println("");
+    
+    int index = 1;
+    
+    // マップ内の各要素 (キーと値のペア) をループして画面に出力
+    // pair.firstが変数名 (Key), pair.secondが値 (Value)
+    for (const auto& pair : dataMap) {
+        
+        // 変数名と値を使って表示用の文字列を整形
+        // 例: 1. Temp: 25.5
+        String displayString = String(index++) + ". " + pair.first + ": " + pair.second;
+        
+        // 整形した文字列を出力
+        Serial.println(displayString);
+    }
+    
+    if (dataMap.empty()) {
+        Serial.println("Map is empty.");
+    }
+}
 // --- SDカードからオプションリストを読み込む関数 ---
 void loadPotlistFromSD() {
     // SD.begin()は既にこの関数の外で成功していると仮定
