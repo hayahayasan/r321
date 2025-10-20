@@ -1066,7 +1066,7 @@ bool test_load(){
   std::vector<MettVariableInfo> loadedVariablesE;
   bool temp1;
   bool temp2;
-  loadMettFile(SD, DirecX + ggmode, "optward",  temp1, temp2, loadedVariablesE);
+  loadMettFile(SD, DirecX + ggmode, AllName[positpoint],  temp1, temp2, loadedVariablesE);
   dataToSaveE = copyVectorToMap(loadedVariablesE);
   if(temp1){
     
@@ -1121,7 +1121,7 @@ void opt1_kaimei(){
           return;
         }
         dataToSaveE["table_opt1"] = SuperT;
-        saveMettFile(SD, DirecX + ggmode, "optward", dataToSaveE, sus);
+        saveMettFile(SD, DirecX + ggmode, AllName[positpoint], dataToSaveE, sus);
         if(!sus){
           kanketu("Set Success!",500);
         }else{
@@ -1436,7 +1436,7 @@ else if(mainmode == 14){
     std::vector<MettVariableInfo> loadedVariables;
     M5.Lcd.fillScreen(BLACK);   
     M5.Lcd.println("loading...");
-    loadMettFile(SD, DirecX + ggmode, "optward", loadSuccess, fileIsEmpty, loadedVariables);
+    loadMettFile(SD, DirecX + ggmode, AllName[positpoint], loadSuccess, fileIsEmpty, loadedVariables);
        if(loadSuccess){
         
         dataToSaveE = copyVectorToMap(loadedVariables);
@@ -1453,7 +1453,7 @@ else if(mainmode == 14){
         }
         Serial.println("DD!" + dataToSaveE["table_opt1"]);
         if(jj){
-          saveMettFile(SD, DirecX + ggmode, "optward", dataToSaveE, loadSuccess);
+          saveMettFile(SD, DirecX + ggmode, AllName[positpoint], dataToSaveE, loadSuccess);
           if(loadSuccess){
             kanketu("Option Saved!",200);
           }else{
