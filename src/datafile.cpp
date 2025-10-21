@@ -2603,6 +2603,21 @@ MettDataMap copyVectorToMap(const std::vector<MettVariableInfo>& variables) {
     for (const auto& var : variables) {
         dataMap[var.variableName] = var.valueString;
     }
+
+    // ★★★ 追加: 変換後のマップ内容をシリアル出力 ★★★
+    Serial.println("\n--- Converted MettDataMap from Vector ---");
+    if (dataMap.empty()) {
+        Serial.println("Map is empty.");
+    } else {
+        int index = 1;
+        for (const auto& pair : dataMap) {
+            String displayString = String(index++) + ". " + pair.first + ": " + pair.second;
+            Serial.println(displayString);
+        }
+    }
+    Serial.println("--- End of Converted Map ---");
+    // ★★★ 追加ここまで ★★★
+
     return dataMap;
 }
 
@@ -2684,89 +2699,50 @@ bool containsInvalidTableNameChars(const String& tableName) {
  */
 std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePath, bool& isZero) {
     std::vector<String> tableNames;
-    std::set<String> uniqueTableNames;
-    
-    // 戻り値パラメーターの初期化
-    isZero = false; 
+    std::set<String> uniqueTableNames; // 重複を避けるためにsetを使用
 
-    if (!fullFilePath.endsWith(".mett") || !fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error: File not found or not a valid .mett file: %s\n", fullFilePath.c_str());
-        isZero = true; // ファイルエラーもテーブルゼロと見なす場合
-        return tableNames;
+    isZero = true; // デフォルトではテーブルは無いものとする
+
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (Get All Names): File not found: %s\n", fullFilePath.c_str());
+        return tableNames; // 空のベクターを返す
     }
 
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!file) {
-        Serial.printf("Error: Failed to open file for reading: %s\n", fullFilePath.c_str());
-        isZero = true;
+        Serial.printf("Error (Get All Names): Failed to open file: %s\n", fullFilePath.c_str());
         return tableNames;
     }
 
-    char buffer[BUFFER_SIZE];
-    String lineBuffer = ""; // バッファ境界を跨ぐ行を一時的に保持
-
-    // ファイルの最後までブロック単位で読み込む (高速化処理)
     while (file.available()) {
-        size_t bytesRead = file.read((uint8_t*)buffer, BUFFER_SIZE);
-        
-        // 前回の残り + 今回のデータを結合
-        String currentBlock = lineBuffer;
-        currentBlock.concat(buffer, bytesRead); 
-        
-        lineBuffer = ""; // リセット
+        String line = file.readStringUntil('\n');
+        line.trim(); // 前後の空白を削除
 
-        int start = 0;
-        int end = 0;
-        
-        // ブロック内で改行を見つけ、行を処理
-        while ((end = currentBlock.indexOf('\n', start)) != -1) {
-            String line = currentBlock.substring(start, end);
-            
-            if (line.startsWith(TABLE_NAME_PATTERN)) {
-                String tableName = line.substring(PATTERN_LEN);
-                tableName.trim();
-                
-                if (!containsInvalidTableNameChars(tableName)) {
-                    uniqueTableNames.insert(tableName);
-                } 
-            }
-            start = end + 1; // 次の行へ
-        }
-
-        // 最後に残ったデータ（次のブロックへ引き継ぐ行の断片）を保持
-        if (start < currentBlock.length()) {
-            lineBuffer = currentBlock.substring(start);
-        }
-    }
-
-    // 最終行の処理
-    if (lineBuffer.startsWith(TABLE_NAME_PATTERN)) {
-        String tableName = lineBuffer.substring(PATTERN_LEN);
-        tableName.trim();
-        if (!containsInvalidTableNameChars(tableName)) {
+        if (line.startsWith("TABLE_NAME:")) {
+            String tableName = line.substring(String("TABLE_NAME:").length());
+            tableName.trim();
             uniqueTableNames.insert(tableName);
         }
     }
-    
     file.close();
 
-    // テーブル数がゼロの場合に isZero を true に設定
-    if (uniqueTableNames.empty()) {
-        isZero = true;
+    if (!uniqueTableNames.empty()) {
+        isZero = false;
+        // setの内容をvectorにコピーして返す
+        for (const auto& name : uniqueTableNames) {
+            tableNames.push_back(name);
+        }
     }
     
     Serial.printf("Info: Found %d unique table names in file '%s'. isZero: %s\n", 
-                  uniqueTableNames.size(), 
+                  (int)uniqueTableNames.size(), 
                   fullFilePath.c_str(), 
                   isZero ? "True" : "False");
-    
-    // setの内容をvectorにコピーして返す
-    for (const auto& name : uniqueTableNames) {
-        tableNames.push_back(name);
-    }
-    
+
     return tableNames;
 }
+
+
 bool _overwriteMettFile(fs::FS &fs, const String& fullFilePath, const String& newContent) {
     File outFile = fs.open(fullFilePath.c_str(), FILE_WRITE);
     if (!outFile) {
@@ -2920,42 +2896,97 @@ void printAllStringsInVector(const std::vector<MettVariableInfo>& variables) {
 }
 
 
-bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableNameToDelete) {
-    if (!fullFilePath.endsWith(".mett")) {
-        Serial.printf("Error (SD Delete): Invalid file extension: %s\n", fullFilePath.c_str());
+bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableName) {
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Info (Delete Table): File does not exist, nothing to remove: %s\n", fullFilePath.c_str());
+        return true; 
+    }
+
+    String tempFilePath = fullFilePath + ".tmp";
+    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
+    
+    if (!originalFile || !tempFile) {
+        if(originalFile) originalFile.close();
+        if(tempFile) tempFile.close();
         return false;
     }
 
-    // 1. 既存のファイル内容全体を読み込む
-    String existingContent = "";
-    File file = fs.open(fullFilePath.c_str(), FILE_READ);
-    if (!file) {
-        Serial.printf("Warning (SD Delete): File not found or failed to open: %s. Nothing to delete.\n", fullFilePath.c_str());
-        return false;
-    }
-    existingContent = file.readString();
-    file.close();
+    String finalFileContentForDebug = "";
+    String blockBuffer = "";
+    bool isTargetBlock = false;
+    bool tableFoundAndRemoved = false;
 
-    // 2. ターゲットテーブルの境界線を検索
-    int blockStartPos = -1;
-    int blockEndPos = -1;
-    
-    if (!_findTableBlock(existingContent, tableNameToDelete, blockStartPos, blockEndPos)) {
-        Serial.printf("Warning (SD Delete): Table '%s' not found in file.\n", tableNameToDelete.c_str());
-        return false; // 削除対象が見つからない場合はエラーではなくfalseを返す
+    while (originalFile.available()) {
+        String line = originalFile.readStringUntil('\n');
+        String trimmedLine = line;
+        trimmedLine.trim();
+
+        if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
+            // 新しいブロックの開始。前のブロックを処理する
+            if (!blockBuffer.isEmpty()) {
+                if (isTargetBlock) {
+                    tableFoundAndRemoved = true; // このブロックは書き込まない
+                    Serial.printf("Debug (Delete Table): Skipping block for table '%s'.\n", tableName.c_str());
+                } else {
+                    tempFile.print(blockBuffer); // ターゲットでなければ書き込む
+                    finalFileContentForDebug += blockBuffer;
+                }
+            }
+            // 新しいブロックのバッファを開始
+            blockBuffer = line + "\n";
+            isTargetBlock = false; // フラグをリセット
+        } else {
+            // ブロックの途中。行をバッファに追加
+            blockBuffer += line + "\n";
+            if (trimmedLine.startsWith("TABLE_NAME:")) {
+                String currentTableName = trimmedLine.substring(trimmedLine.indexOf(':') + 1);
+                currentTableName.trim();
+                if (currentTableName == tableName) {
+                    isTargetBlock = true; // このブロックを削除対象としてマーク
+                }
+            }
+        }
     }
+
+    // ファイルの最後のブロックを処理
+    if (!blockBuffer.isEmpty()) {
+        if (isTargetBlock) {
+            tableFoundAndRemoved = true;
+             Serial.printf("Debug (Delete Table): Skipping final block for table '%s'.\n", tableName.c_str());
+        } else {
+            tempFile.print(blockBuffer);
+            finalFileContentForDebug += blockBuffer;
+        }
+    }
+
+    originalFile.close();
+    tempFile.close();
     
-    // 3. ターゲットテーブルブロックを削除した新しいコンテンツを作成
-    String prefix = existingContent.substring(0, blockStartPos);
-    String suffix = existingContent.substring(blockEndPos);
-    String newContent = prefix + suffix;
-    
-    // 4. ファイル全体を上書き保存
-    if (_overwriteMettFile(fs, fullFilePath, newContent)) {
-        Serial.printf("Info (SD Delete): Table '%s' deleted successfully.\n", tableNameToDelete.c_str());
-        return true;
+    // --- デバッグ出力 ---
+    Serial.println("\n--- Deleting table. New content will be: ---");
+    Serial.print(finalFileContentForDebug);
+    Serial.println("------------------------------------------");
+
+
+    // --- ファイルの入れ替え ---
+    if (fs.remove(fullFilePath.c_str())) {
+        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+            if (tableFoundAndRemoved) {
+                 Serial.printf("Info (Delete Table): Table '%s' was successfully removed.\n", tableName.c_str());
+            } else {
+                 Serial.printf("Warning (Delete Table): Table '%s' not found. No changes made.\n", tableName.c_str());
+            }
+            return true;
+        } else {
+            Serial.printf("Error (Delete Table): Failed to rename temp file.\n");
+            fs.remove(tempFilePath.c_str()); // クリーンアップ
+            return false;
+        }
     } else {
-        return false; // 書き込みエラー
+        Serial.printf("Error (Delete Table): Failed to remove original file.\n");
+        fs.remove(tempFilePath.c_str()); // クリーンアップ
+        return false;
     }
 }
 
@@ -3355,7 +3386,33 @@ void releaseSDBusForOtherUse() {
     // NOTE: sd.end()はフリーズの原因となるため、この関数では実行しません。
 }
 
+void displayMapContents(const String& context, const MettDataMap& dataMap) {
+    Serial.printf("\n--- %s (キー数: %d) ---\n", context.c_str(), dataMap.size());
+    Serial.println("  Index | Key (変数名) | Value (内部データ)");
+    Serial.println("-------------------------------------------------------");
+    int count = 0;
+    for (const auto& pair : dataMap) {
+        // "table_name" キーとその値（テーブル名）もここに出力される
+        Serial.printf("  [%d]   | %s | %s\n", count++, pair.first.c_str(), pair.second.c_str());
+    }
+    Serial.println("-------------------------------------------------------");
+}
 
+void logExistingFileContents(fs::FS &fs, const String& fullFilePath) {
+    // 既存ファイルの内容を読み取りモードで開き、シリアル出力
+    File read_file = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (read_file) {
+        Serial.printf("\n--- 既存ファイルの内容 (上書き前): %s ---\n", fullFilePath.c_str());
+        while (read_file.available()) {
+            // 1文字ずつ読み込み、改行も含めてシリアル出力
+            Serial.write(read_file.read());
+        }
+        Serial.println("\n--- 既存ファイル内容 終了 ---\n");
+        read_file.close();
+    } else {
+        Serial.printf("Info: ファイル %s は存在しないか、読み取りに失敗したため、既存コンテンツはありません。\n", fullFilePath.c_str());
+    }
+}
 
 
 void displayPageInfo(int currentPage, int totalPages) {
@@ -3540,64 +3597,120 @@ bool browseFlashDirectoryPaginated(int pagetax, String Directtory) {
 }
 
 
-bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
-    isError = false;
-    
-    if (!fullFilePath.endsWith(".mett")) {
-        Serial.printf("Error (SD Rename): Invalid file extension: %s\n", fullFilePath.c_str());
-        isError = true;
+bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName) {
+
+    // --- 1. Basic Validation ---
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (Rename): File does not exist: %s\n", fullFilePath.c_str());
         return false;
     }
-    if (containsInvalidTableNameChars(newTableName) || newTableName.isEmpty()) {
-        Serial.printf("Error (SD Rename): Invalid new table name: %s\n", newTableName.c_str());
-        isError = true;
+    if (oldTableName == newTableName) {
+        Serial.println("Warning (Rename): Old and new table names are the same. No changes made.");
+        return true; 
+    }
+    if (newTableName.isEmpty() /* || containsInvalidTableNameChars(newTableName) */) {
+        Serial.printf("Error (Rename): Invalid new table name: '%s'\n", newTableName.c_str());
         return false;
     }
 
-    // 1. 既存のファイル内容全体を読み込む
-    String existingContent = "";
-    File file = fs.open(fullFilePath.c_str(), FILE_READ);
-    if (!file) {
-        Serial.printf("Error (SD Rename): Failed to open file for reading: %s\n", fullFilePath.c_str());
-        isError = true;
+    // --- 2. Pre-scan file for conflicts and existence ---
+    File preScanFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!preScanFile) {
+        Serial.printf("Error (Rename): Could not open file for pre-scan: %s\n", fullFilePath.c_str());
         return false;
     }
-    existingContent = file.readString();
-    file.close();
-
-    // 2. ターゲットテーブルの境界線を検索
-    int blockStartPos = -1;
-    int blockEndPos = -1;
-    
-    if (!_findTableBlock(existingContent, oldTableName, blockStartPos, blockEndPos)) {
-        Serial.printf("Warning (SD Rename): Table '%s' not found in file. Cannot rename.\n", oldTableName.c_str());
-        return false; // 変更対象が見つからない
+    bool oldTableFound = false;
+    bool newTableConflict = false;
+    String targetLinePrefix = "TABLE_NAME:";
+    while(preScanFile.available()){
+        String line = preScanFile.readStringUntil('\n');
+        line.trim();
+        if (line.startsWith(targetLinePrefix)) {
+            String currentTableName = line.substring(targetLinePrefix.length());
+            if (currentTableName == newTableName) {
+                newTableConflict = true;
+            }
+            if (currentTableName == oldTableName) {
+                oldTableFound = true;
+            }
+        }
     }
-    
-    // 3. 既存のブロック内容を抽出し、テーブル名を置換
-    String oldTableBlock = existingContent.substring(blockStartPos, blockEndPos);
-    
-    // TABLE_NAME:oldTableName の行を TABLE_NAME:newTableName に置換
-    String oldNameLine = "TABLE_NAME:" + oldTableName;
-    String newNameLine = "TABLE_NAME:" + newTableName;
-    
-    String newTableBlock = oldTableBlock;
-    newTableBlock.replace(oldNameLine, newNameLine);
+    preScanFile.close();
 
-    // 4. 新しいコンテンツを作成 (古いブロックを新しいブロックで置き換え)
-    String prefix = existingContent.substring(0, blockStartPos);
-    String suffix = existingContent.substring(blockEndPos);
-    String newContent = prefix + newTableBlock + suffix;
+    if (newTableConflict) {
+        Serial.printf("Error (Rename): A table with the name '%s' already exists. Aborting.\n", newTableName.c_str());
+        return false;
+    }
+    if (!oldTableFound) {
+        Serial.printf("Warning (Rename): Table '%s' not found. No changes made.\n", oldTableName.c_str());
+        return true; 
+    }
 
-    // 5. ファイル全体を上書き保存
-    if (_overwriteMettFile(fs, fullFilePath, newContent)) {
-        Serial.printf("Info (SD Rename): Table '%s' successfully renamed to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
-        return true;
+    // --- 3. Rebuild file line-by-line to temp file with replacement ---
+    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!originalFile) {
+        Serial.printf("Error (Rename): Could not re-open original file for processing: %s\n", fullFilePath.c_str());
+        return false;
+    }
+    String tempFilePath = fullFilePath + ".tmp";
+    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
+    if (!tempFile) {
+        Serial.printf("Error (Rename): Failed to open temp file: %s\n", tempFilePath.c_str());
+        originalFile.close();
+        return false;
+    }
+
+    String finalFileContentForDebug = "";
+    
+    while (originalFile.available()) {
+        String line = originalFile.readStringUntil('\n');
+        String trimmedLine = line;
+        trimmedLine.trim();
+        
+        String linePrefix = "TABLE_NAME:";
+        if (trimmedLine.startsWith(linePrefix)) {
+            String currentTableName = trimmedLine.substring(linePrefix.length());
+            if (currentTableName == oldTableName) {
+                // This is the exact line to change. Reconstruct it safely.
+                line = linePrefix + newTableName;
+                tempFile.println(line);
+                finalFileContentForDebug += line + "\n";
+            } else {
+                // It's a TABLE_NAME line, but not the one we're looking for.
+                tempFile.println(line);
+                finalFileContentForDebug += line + "\n";
+            }
+        } else {
+            // Not a TABLE_NAME line, write it as-is.
+            tempFile.println(line);
+            finalFileContentForDebug += line + "\n";
+        }
+    }
+    originalFile.close();
+    tempFile.close();
+    
+    // --- 4. Print debug info ---
+    Serial.println("\n--- Renaming table. New content will be: ---");
+    Serial.print(finalFileContentForDebug);
+    Serial.println("------------------------------------------");
+
+    // --- 5. Swap files ---
+    if (fs.remove(fullFilePath.c_str())) {
+        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+            Serial.printf("Info (Rename): Table '%s' successfully renamed to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
+            return true;
+        } else {
+            Serial.printf("Error (Rename): Failed to rename temp file.\n");
+            fs.remove(tempFilePath.c_str()); // Clean up temp file
+            return false;
+        }
     } else {
-        isError = true;
-        return false; // 書き込みエラー
+        Serial.printf("Error (Rename): Failed to remove original file.\n");
+        fs.remove(tempFilePath.c_str()); // Clean up temp file
+        return false;
     }
 }
+
 
 /**
  * @brief Scans for metadata files (.mett) in the specified directory on the SD card
@@ -3738,3 +3851,322 @@ void parseMettBlockToMap(const String& variableLines, MettDataMap& dataMap) {
     }
 }
 
+
+String trimString(const String& s) {
+    if (s.length() == 0) {
+        return "";
+    }
+    const char* str = s.c_str();
+    size_t first = 0;
+    while (first < s.length() && (str[first] == ' ' || str[first] == '\t' || str[first] == '\n' || str[first] == '\r')) {
+        first++;
+    }
+    if (first == s.length()) {
+        return "";
+    }
+    size_t last = s.length() - 1;
+    while (last > first && (str[last] == ' ' || str[last] == '\t' || str[last] == '\n' || str[last] == '\r')) {
+        last--;
+    }
+    return s.substring(first, last - first + 1);
+}
+
+
+
+
+
+
+
+// M5Stackのセットアップ関数は削除されました。
+// 通常、M5Stackの初期化はsetup()関数で行う必要がありますが、
+// このコードが既存のプロジェクトの一部であり、
+// 別の場所でM5Stackの初期化が行われている場合、この変更で問題ありません。
+#pragma endregion <text input>
+// 毎フレーム呼び出されるメインのテキスト入力処理関数
+void textluck() {
+    // M5.begin() など、M5Stackの初期化がここ以外で行われていることを前提とします。
+    // I2C通信の初期化もここ以外で行われていることを前提とします。
+    // 例: Wire.begin(); Wire.setClock(400000);
+    M5.Lcd.setTextSize(3); // フォントサイズを3に設定
+    M5.Lcd.setTextColor(WHITE, BLACK); // テキスト色を白、背景色を黒に設定
+
+    String inputChar = wirecheck(); // wirecheck()を直接呼び出す
+
+    int oldCursorIndex = cursorIndex; // カーソル位置の変更を検出するために保存
+
+    // --- キー入力処理（長押し挙動なし） ---
+    // "NULL"、"error"、"nokey"、"whattf" 以外の信号を有効なキー入力と見なす
+    if (inputChar != "NULL" && inputChar != "error" && inputChar != "nokey" && inputChar != "whattf") {
+        needsRedraw = true; // 有効な入力があれば再描画が必要
+        if(inputChar == "TAB"){
+          entryenter = 1;
+          
+          return;
+        }
+        if(inputChar == "ESC"){
+          entryenter = 2;
+          
+          return;
+        }
+        if (inputChar == "ENT") {
+            if (SuperT.length() < MAX_STRING_LENGTH) {
+                SuperT = SuperT.substring(0, cursorIndex) + "\n" + SuperT.substring(cursorIndex);
+                cursorIndex++;
+            }
+        } else if (inputChar == "BACK") {
+            if (cursorIndex > 0) {
+                SuperT = SuperT.substring(0, cursorIndex - 1) + SuperT.substring(cursorIndex);
+                cursorIndex--;
+            }
+        } else if (inputChar == "SPACE") {
+            if (SuperT.length() < MAX_STRING_LENGTH) {
+                SuperT = SuperT.substring(0, cursorIndex) + " " + SuperT.substring(cursorIndex);
+                cursorIndex++;
+            }
+        } else if (inputChar == "UP" || inputChar == "DOWN" || inputChar == "LEFT" || inputChar == "RIGHT") {
+            // 矢印キーの場合、performArrowKeyActionを直接呼び出す
+            performArrowKeyAction(inputChar);
+        } else { // 通常の文字
+            if (SuperT.length() < MAX_STRING_LENGTH) {
+                SuperT = SuperT.substring(0, cursorIndex) + inputChar + SuperT.substring(cursorIndex);
+                cursorIndex += inputChar.length();
+            }
+        }
+    }
+    
+    // カーソルインデックスが範囲内にあることを確認
+    if (cursorIndex < 0) cursorIndex = 0;
+    if (cursorIndex > SuperT.length()) cursorIndex = SuperT.length();
+
+    // カーソル位置のピクセル座標を計算し、スクロールオフセットを調整
+    // adjustScroll()内でneedsRedrawが更新される可能性がある
+    CursorPosInfo currentCursorInfo = calculateCursorPixelPos(cursorIndex, SuperT);
+    cursorPixelX = currentCursorInfo.pixelX;
+    cursorPixelY = currentCursorInfo.pixelY;
+    adjustScroll(); // adjustScroll()がneedsRedrawをtrueに設定する可能性あり
+
+    // カーソルインデックスが変更された場合、またはテキスト内容が変更された場合も再描画が必要
+    if (cursorIndex != oldCursorIndex || (inputChar != "NULL" && inputChar != "error" && inputChar != "nokey" && inputChar != "whattf")) {
+        needsRedraw = true;
+    }
+
+    // 再描画が必要な場合のみ画面をクリアし、テキストを描画
+    if (needsRedraw) {
+        // 通常のテキスト入力領域をクリア
+        M5.Lcd.fillRect(0, 0, M5.Lcd.width(), M5.Lcd.height() - getFontHeight(), BLACK); 
+
+        int currentDrawX = -offsetX;
+        int currentDrawY = -offsetY;
+        int charWidth = getCharWidth();
+        int fontHeight = getFontHeight();
+        int textInputAreaHeight = M5.Lcd.height() - getFontHeight(); // 通常のテキスト入力領域の高さ
+
+        for (int i = 0; i < SuperT.length(); ++i) {
+            char c = SuperT.charAt(i);
+
+            if (c == '\n') {
+                currentDrawX = -offsetX; // 新しい行の開始X座標はオフセットを考慮
+                currentDrawY += fontHeight;
+            } else {
+                // 画面の水平方向と垂直方向の範囲内にある場合のみ描画
+                // スクロールテキスト領域にかからないように描画範囲を制限
+                if (currentDrawX + charWidth > 0 && currentDrawX < M5.Lcd.width() &&
+                    currentDrawY + fontHeight > 0 && currentDrawY < textInputAreaHeight) { // 修正: textInputAreaHeightを使用
+                    M5.Lcd.drawChar(c, currentDrawX, currentDrawY);
+                }
+                currentDrawX += charWidth;
+            }
+        }
+        needsRedraw = false; // 描画が完了したのでフラグをリセット
+    }
+
+    // カーソルを描画 (常に表示)
+    // 現在のカーソルのスクリーン座標を計算
+    int currentCursorScreenX = cursorPixelX - offsetX;
+    int currentCursorScreenY = cursorPixelY - offsetY;
+    int textInputAreaHeight = M5.Lcd.height() - getFontHeight(); // 通常のテキスト入力領域の高さ
+
+    // カーソルが通常のテキスト入力領域の範囲内にある場合のみ描画
+    if (currentCursorScreenX >= 0 && currentCursorScreenX < M5.Lcd.width() &&
+        currentCursorScreenY >= 0 && currentCursorScreenY < textInputAreaHeight) { // 修正: textInputAreaHeightを使用
+        M5.Lcd.drawChar('|', currentCursorScreenX, currentCursorScreenY);
+    }
+    
+    // 最後に描画したカーソル位置を更新
+    lastDrawnCursorScreenX = currentCursorScreenX;
+    lastDrawnCursorScreenY = currentCursorScreenY;
+
+    // --- 最下部のスクロールテキスト描画 ---
+    int scrollLineY = M5.Lcd.height() - getFontHeight(); // スクロールテキストのY座標
+
+    // スクロールテキスト領域をクリア
+    M5.Lcd.fillRect(0, scrollLineY, M5.Lcd.width(), getFontHeight(), BLACK);
+    
+    // スクロールロジック
+    scrollFrameCounter++;
+    if (scrollFrameCounter >= SCROLL_INTERVAL_FRAMES) {
+        if (firstScrollLoop) {
+            // 初回ループ時、テキストの左端から開始（scrollOffset は 0 または Textex.length()に応じて調整）
+            // テキストが画面幅より短い場合はスクロール不要
+            if (M5.Lcd.textWidth(Textex) > M5.Lcd.width()) {
+                scrollOffset -= SCROLL_SPEED_PIXELS;
+            } else {
+                scrollOffset = 0; // 画面内に収まる場合は左端に固定
+            }
+
+            // テキストが完全に画面外に出たら、二回目以降のループへ
+            if (scrollOffset < -M5.Lcd.textWidth(Textex)) {
+                scrollOffset = M5.Lcd.width(); // 画面右端から再開
+                firstScrollLoop = false;
+            }
+        } else {
+            // 二回目以降のループ、右端から開始
+            scrollOffset -= SCROLL_SPEED_PIXELS; // 左にスクロール
+            if (scrollOffset < -M5.Lcd.textWidth(Textex)) {
+                scrollOffset = M5.Lcd.width(); // 画面右端から再開
+            }
+        }
+        scrollFrameCounter = 0;
+    }
+
+    // Textexが空でなければ描画
+    if (Textex.length() > 0) {
+        // スクロールオフセットを考慮して描画
+        M5.Lcd.drawString(Textex, scrollOffset, scrollLineY);
+    }
+}
+
+
+
+//#endregion
+bool dexx = false;
+
+//オプション:ファイルソート順番、ファイル拡張子デフォルト、書き込み方式
+
+
+
+
+
+#pragma endregion
+
+#pragma region <flashmonitor>
+
+void listFlashContents(const String& path) {
+  Serial.println("\n==============================================");
+  Serial.printf("★★★ 内蔵フラッシュ閲覧: パス \"%s\" ★★★\n", path.c_str());
+  Serial.println("==============================================");
+
+  if (!SPIFFS.begin(false)) {
+    Serial.println("エラー: SPIFFSの初期化に失敗しました。");
+    return;
+  }
+
+  // 1. パスの正規化 (SPIFFSパスは必ず "/" から始まる)
+  String normalizedPath = path;
+  if (!normalizedPath.startsWith("/")) {
+    normalizedPath = "/" + normalizedPath;
+  }
+  
+  // フラッシュ全体の情報表示
+  Serial.printf("全体サイズ: %d KB | 使用容量: %d KB\n", 
+                 SPIFFS.totalBytes() / 1024, 
+                 SPIFFS.usedBytes() / 1024);
+  Serial.println("----------------------------------------------");
+
+  // 2. 指定されたディレクトリのオープン
+  File dir = SPIFFS.open(normalizedPath); 
+  if (!dir) {
+    Serial.printf("エラー: 指定されたディレクトリ '%s' のオープンに失敗しました。パスを確認してください。\n", normalizedPath.c_str());
+    return;
+  }
+  
+  // open() が成功しても、それがファイルである可能性があるため、isDirectory()で確認
+  if (!dir.isDirectory()) {
+    Serial.printf("エラー: '%s' はディレクトリではなくファイルです。\n", normalizedPath.c_str());
+    dir.close();
+    return;
+  }
+
+  // リストを格納する文字列
+  String folderList = "--- フォルダ ---\n";
+  String fileList = "--- ファイル ---\n";
+  
+  // 3. ディレクトリ内のすべてのエントリを走査
+  while (File file = dir.openNextFile()) {
+    
+    // File.isDirectory() でフォルダかファイルを判定
+    if (file.isDirectory()) {
+      // フォルダの場合、名前を表示
+      folderList += " [DIR] " + String(file.name()) + "\n";
+    } else {
+      // ファイルの場合、名前とサイズを表示
+      fileList += " [FILE] " + String(file.name()) + " (" + String(file.size()) + " バイト)\n";
+    }
+    
+    file.close(); // 開いたファイルを閉じる
+  }
+
+  // 4. 結果の表示
+  Serial.println(folderList);
+  Serial.println(fileList);
+  
+  dir.close(); // ディレクトリへの参照を閉じる
+  
+  Serial.println("==============================================");
+}
+
+
+
+
+
+
+
+#pragma endregion
+//#region Text 1
+void textexx() {
+  if(mainmode == 1){
+    return;
+  }
+  // 使いたいフォントサイズを指定（例: 2）
+  int textSize = 2;
+
+  // mainprintexの行数カウント（\nの数 + 1）
+  int lineCount = 1;
+  for (int i = 0; i < mainprintex.length(); i++) {
+    if (mainprintex.charAt(i) == '\n') {
+      lineCount++;
+    }
+  }
+
+  // 1行の高さ = 8px × textSize
+  int lineHeight = 8 * textSize;
+
+  // mainprintexの表示領域高さ（px）
+  int reservedHeight = lineCount * lineHeight;
+
+  // 画面の下の部分、reservedHeight分はクリアしないようにする
+  M5.Lcd.fillRect(0, reservedHeight, M5.Lcd.width(), M5.Lcd.height() - reservedHeight, BLACK);
+
+  // mainprintexを上部に描画
+  M5.Lcd.setTextSize(textSize);
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.print(mainprintex);
+
+  // sita2を表示する領域はmainprintex領域の下から開始
+  // sita2の表示用y座標
+  int sitaStartY = reservedHeight;
+
+  for (int i = 0; i < sita.length(); i++) {
+    String sita2 = sita.substring(0, i + 1);
+
+    // sita2の領域だけ一旦クリア
+    M5.Lcd.fillRect(0, sitaStartY, M5.Lcd.width(), lineHeight, BLACK);
+
+    // sita2描画
+    M5.Lcd.setCursor(0, sitaStartY);
+    M5.Lcd.print(sita2 );
+
+    delay(50);
+  }
+}

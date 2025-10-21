@@ -118,6 +118,26 @@ bool containsInvalidTableNameChars(const String& name);
 bool datt(String opthensuname,String setname);
 const int SD_CS_PIN = 4;
 extern MettDataMap dataToSaveE;
+void displayMapContents(const String& context, const MettDataMap& dataMap);
+void logExistingFileContents(fs::FS &fs, const String& fullFilePath);
+extern const int CURSOR_BLINK_INTERVAL; // カーソル点滅のフレーム間隔
+extern const int MAX_STRING_LENGTH ; 
+extern int lastDrawnCursorScreenX ; 
+extern int lastDrawnCursorScreenY ;
+extern int scrollOffset ; // スクロールテキストの描画オフセット
+extern int scrollFrameCounter ;
+extern String mainprintex;
+extern int  TABLE_IDd;
+extern const String METT_TABLE_NAME_KEY ; 
+extern const int METT_CHUNK_SIZE;
+extern int holdimanopage;
+extern int holdpositpointmax;
+extern int holdpositpointt;
+extern int maindex;
+extern String  sitagar[10];
+extern bool beginizeSD;
+extern bool showAngleBrackets; 
+extern unsigned long lastBlinkToggleTime;
 
 // ----------------------------------------------------------------------
 // 1. フォーマット形式を指定するための定数

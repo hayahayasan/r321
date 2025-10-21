@@ -21,6 +21,143 @@
 #include <SPI.h> 
 #include "shares.h"
 
+const String METT_TABLE_NAME_KEY = "table_name"; 
+const int METT_CHUNK_SIZE = 1024;
+const int MAX_STRING_LENGTH = 65535; 
+const int CURSOR_BLINK_INTERVAL = 10; // カーソル点滅のフレーム間隔
+String sitagar[10] = {"Net Status","Wifi","FLASHBrowser","SDBrowser","Configs","Options","SD Eject/Format","User Management","Log","Help/About"};
+int SCROLL_INTERVAL_FRAMES = 1;
+int SCROLL_SPEED_PIXELS = 3;
+int frameright;
+int holdpositpointt;
+String tttt = "hello";
+
+
+String RESERVED_NAMES[] = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+};
+String optiontxt[6];
+int frameleft;
+bool btna;
+int TABLE_IDd = 0;
+MettDataMap dataToSaveE;
+int holdimanopage;
+bool beginizeSD = false;
+const size_t BUFFER_SIZE = 4096;
+const char* TABLE_NAME_PATTERN = "TABLE_NAME:";
+// 識別子 "NEW_DATA_SET_PATTERN" の定義
+const char* NEW_DATA_SET_PATTERN = "--- NEW DATA_SET ---";
+const size_t PATTERN_LEN = strlen("TABLE_NAME:");
+const size_t PATTERN_LEN1 = strlen("TABLE_NAME:");
+const size_t PATTERN_LEN2 = strlen("--- NEW DATA_SET ---");
+
+bool btnc;
+unsigned long lastTextScrollTime;
+
+unsigned long TEXT_SCROLL_INTERVAL_MS;
+
+int scrollPos;
+//後で実装　ファイルのゴミ箱移動オプション
+//ファイルコピペ時に、ペースト後「カットしますか」を出す
+#pragma region <hensu>
+String mainprintex = "M5Core3 LAN Activationer";
+String sita = "";
+String ggmode = "";
+
+static bool sd_card_initialized = false; // SDカードが初期化されているか
+
+// --- コピー操作キャンセルフラグ ---
+volatile bool cancelCopyOperation = false;
+
+int mainmode = 0;
+int maindex = 0;
+String maereposit = "";
+int sizex = 2;
+bool serious_error_flash = false;
+int resercounter;
+int address = 0;
+int imano_page = 0;
+int holdpositpointmax = 0;
+int maxpage = 0;
+int maxLinesPerPage = 0;
+int maxLinesPerPageSave = 0;
+int maxLinesPerPage2 = 0;
+int maxLinesPerPage3 = 0;
+int File_goukeifont = 3;
+bool sderror = false;
+int positpoint;
+int holdpositpoint;
+int positpointmax;
+int positpointmaxg;
+bool filebrat = false;
+String g_copySourcePath; // コピー元パス (ファイルまたはフォルダ)
+String g_destinationDirPath; // ペースト先ディレクトリのパス
+bool g_isSourceFolder; // コピー元がフォルダであるかどうかのフラグ
+int holdpositpointd = 0;
+int holdimanopaged = 0;
+int holdpositpointmaxd = 0;
+String Tex2;
+int pagemoveflag = 0;
+String Filelist[100];
+
+String directlist[100];
+String ForDlist[100];
+String DirecX="";
+String lastArrowKeyInput = "NULL"; // 前のフレームで受け取った矢印キー入力（"UP", "DOWN", "LEFT", "RIGHT", "NULL"）
+int arrowKeyHoldCounter = 0;       // 現在の矢印キーが押され続けているフレーム数
+int arrowKeyRepeatCounter = 0;     // 連続実行が最後に発生してからのフレーム数
+bool isArrowKeyRepeating = false;  // キーが現在連続実行状態であるか
+int nullCount = 0; 
+int lastDrawnCursorScreenX = -9999; 
+int lastDrawnCursorScreenY = -9999;
+
+
+String Textex = "!"; // 最下部にスクロール表示するテキスト
+String Textex2 = "";
+int scrollOffset = 0; // スクロールテキストの描画オフセット
+int scrollFrameCounter = 0; // スクロールフレームカウンター
+
+bool firstScrollLoop = false;
+int LONG_PRESS_THRESHOLD_FRAMES = 50; // 長押しと判断するまでのフレーム数 (変更: 500 -> 50)
+int REPEAT_INTERVAL_FRAMES = 30;      // 連続実行の間隔フレーム数 (変更: 400 -> 30)
+int NULL_RESET_THRESHOLD = 3; 
+int entryenter = 0; 
+String copymotroot;
+int positpointmain1;
+bool copymotdir;
+bool modordir;
+static int frameCounter = 0;
+
+struct SdEntryInfo {
+  String name;
+  bool isDirectory;
+};
+
+
+ // SuperTに格納可能な最大文字数
+
+
+#pragma endregion <henssu>
+#pragma region <hensu2>
+
+bool isStart = true;
+
+bool redrawRequired = true; // 再描画が必要かどうかのフラグ
+int lastValidIndex = 0;     // 最後に有効な項目のインデックス
+// 追加するグローバル変数
+String JJ = "Test JJ Text"; // JJの初期値
+String currentPosDisplayText = ""; // 最下部に表示されるCurrentPosのテキスト
+// 再描画最適化のための変数
+String lastDrawnJj = ""; 
+String lastDrawnCurrentPosText = "";
+
+String AllName[100];
+// 点滅関連のグローバル変数
+unsigned long lastBlinkToggleTime = 0;
+bool showAngleBrackets = true; 
+
 
 bool datt(String opthensuname,String setname){
   Serial.println("fff" + getMettVariableValue(dataToSaveE,opthensuname) );
