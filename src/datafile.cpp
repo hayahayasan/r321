@@ -33,6 +33,7 @@ String karadirectname;
 int numMenuItems = 6;
 int currentPos;
 int goukei_page;
+
 bool otroot;
 bool rootnofile;
 String SuperT = ""; // 入力されたテキストを保持する文字列
@@ -2714,13 +2715,17 @@ std::vector<String> getAllTableNamesInFile(fs::FS &fs, const String& fullFilePat
         return tableNames;
     }
 
+    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+    const int TABLE_NAME_PREFIX_LEN = 11;
+
     while (file.available()) {
         String line = file.readStringUntil('\n');
         line.trim(); // 前後の空白を削除
 
-        if (line.startsWith("TABLE_NAME:")) {
-            String tableName = line.substring(String("TABLE_NAME:").length());
+        if (line.startsWith(TABLE_NAME_PREFIX)) {
+            String tableName = line.substring(TABLE_NAME_PREFIX_LEN);
             tableName.trim();
+            // ★★★ 修正: 空のテーブル名もカウントするように変更 ★★★
             uniqueTableNames.insert(tableName);
         }
     }

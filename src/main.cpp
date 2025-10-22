@@ -30,7 +30,7 @@
 #pragma region <funcdef>
 
 
-
+int holdpositpoints;
 #pragma endregion
 
 //配列のNULL代入も作る
@@ -285,6 +285,7 @@ void updatePointerAndDisplay(int ril) {
 // Global variables
 const int itemsPerPage = 8; // Number of items to display on a page
 std::vector<String> allTableNames;
+std::vector<String> allTableNames2;
 String fefe;
 
 
@@ -801,7 +802,7 @@ bool loadmett(){
 
 void shokaipointer3(){
   bool tt = false;
-  allTableNames = getAllTableNamesInFile(SD, DirecX + ggmode,tt);
+  allTableNames = allTableNames2;
   for(int i = 0; i < 100; i++){
       AllName[i] = "";
     }
@@ -812,12 +813,14 @@ void shokaipointer3(){
     int start = imano_page * itemsPerPage;
     int end = start + holdpositpointmax;
     for (int i = start; i < end; ++i) {
-      Serial.println("ALLT*" + allTableNames[i]);
+   //   Serial.println("ALLT*" + allTableNames[i]);
         
         AllName[ii] = allTableNames[i];
+        Serial.println("FFN:" + ii + AllName[ii]);
         ii++;
     }
   fefe = AllName[holdpositpoint];
+  Serial.println("the name is" + fefe);
 }
 
 void shokaipointer2(int pageNum, String filePath  ) {
@@ -835,7 +838,7 @@ void shokaipointer2(int pageNum, String filePath  ) {
     // Get all table names from a single file
     bool tt = false;
     allTableNames = getAllTableNamesInFile(SD, filePath,tt);
-
+    allTableNames2 = allTableNames;
     if (allTableNames.empty()) {
         M5.Lcd.fillScreen(BLACK);
         Serial.println("No tables found.");
@@ -874,10 +877,12 @@ void shokaipointer2(int pageNum, String filePath  ) {
     } else {
         positpointmax = itemsPerPage ;
     }
-    Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
+   // Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
     // Use positpointmax for the loop
     int start = pageNum * itemsPerPage;
-    int end = start + positpointmax;
+    
+    int end = start + positpointmax  ;
+    
     if(totalItems % itemsPerPage == 0){
       maxLinesPerPage = totalItems / itemsPerPage;
     }else{
@@ -894,8 +899,11 @@ void shokaipointer2(int pageNum, String filePath  ) {
     for (int i = start; i < end; ++i) {
         M5.Lcd.println("  " + allTableNames[i]);
         AllName[ii] = allTableNames[i];
+        Serial.println("    nams:" + AllName[ii]);
         ii++;
     }
+    fefe = AllName[holdpositpoints];
+    Serial.println("posits;" + String(holdpositpoints) + "jj" + fefe);
     M5.Lcd.setTextSize(2);
     M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
     M5.Lcd.printf("Page: %d/%d", pageNum + 1, totalPages);
@@ -942,14 +950,14 @@ bool optkobun(){
           
 }
 
-void opt1_kaimei(){
+void opt1_kaimei(int id){
   if(!test_load()){
     kanketu("Load Failed!",500);
     return;
   }
   Serial.println("Current SuperT: " + dataToSaveE["table_opt1"]);
   SuperT = dataToSaveE["table_opt1"];
-  Textex = "Enter file location.";
+  
   while(true){
     textluck();
     delay(1);
@@ -961,7 +969,12 @@ void opt1_kaimei(){
         if(!test_load()){
           return;
         }
-        dataToSaveE["table_opt1"] = SuperT;
+        if(id == 0){
+            dataToSaveE["table_opt1"] = SuperT;
+        }else if(id == 1){
+            dataToSaveE["table_opt3"] = SuperT;
+        }
+        
         shokaipointer3();
         Serial.println("fefff" + AllName[holdpositpoint]);
         saveMettFile(SD, DirecX + ggmode, fefe, dataToSaveE, sus);
@@ -1018,7 +1031,7 @@ void createjj(){
           shokaipointer3();
           saveMettFile(SD, DirecX + ggmode, fefe, dataToSaveE, loadSuccess);
           if(!loadSuccess){
-            kanketu("Option Saved!",200);
+            //kanketu("Option Saved!",200);
           }else{
            kanketu("Option Save Failed!",200);
           }
@@ -1026,7 +1039,88 @@ void createjj(){
         return;
 }
 
+bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
+    isError = false;
 
+    // --- 1. Validation ---
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (Duplicate): File does not exist: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+    if (oldTableName == newTableName || newTableName.isEmpty()) {
+         Serial.printf("Error (Duplicate): New table name is invalid or same as old name.\n");
+         isError = true;
+         return false;
+    }
+    // (Note: containsInvalidTableNameChars のチェックは省略)
+
+    // --- 2. Check for conflicts (★ 修正: 統合された関数を呼び出す) ---
+    bool isZero_dummy;
+    std::vector<String> allNames = getAllTableNamesInFile(fs, fullFilePath, isZero_dummy);
+    bool oldTableFound = false;
+    for (const auto& name : allNames) {
+        if (name == newTableName) {
+            Serial.printf("Error (Duplicate): New table name '%s' already exists.\n", newTableName.c_str());
+            isError = true;
+            return false;
+        }
+        if (name == oldTableName) {
+            oldTableFound = true;
+        }
+    }
+    if (!oldTableFound) {
+         Serial.printf("Error (Duplicate): Old table name '%s' not found.\n", oldTableName.c_str());
+         isError = true;
+         return false;
+    }
+    
+    // --- 3. Load variables from old table ---
+    std::vector<MettVariableInfo> existingVars;
+    bool loadSuccess, loadEmpty;
+    loadMettFile(fs, fullFilePath, oldTableName, loadSuccess, loadEmpty, existingVars);
+    if (!loadSuccess) {
+        Serial.printf("Error (Duplicate): Failed to load data from old table '%s'.\n", oldTableName.c_str());
+        isError = true;
+        return false;
+    }
+
+    // --- 4. Build new table block string ---
+    String newTableBlock = "";
+    newTableBlock += "### METT_TABLE_ID ###\n";
+    newTableBlock += "TABLE_NAME:" + newTableName + "\n";
+    
+    if (!loadEmpty) {
+        for (const auto& var : existingVars) {
+            // loadMettFileで読み込んだデータ型(dataType)もそのまま使用して複製
+            newTableBlock += var.variableName + ":" + var.dataType + ":" + var.valueString + "\n";
+        }
+    }
+    newTableBlock += "\n"; // ブロックの最後に空行
+
+    // --- 5. Append new block to the file ---
+    File file = fs.open(fullFilePath.c_str(), FILE_APPEND);
+    if (!file) {
+        Serial.printf("Error (Duplicate): Failed to open file for appending: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+    
+    Serial.println("\n--- Appending New Duplicated Table Block ---");
+    Serial.print(newTableBlock);
+    Serial.println("--- End of Appending Block ---");
+
+    if (file.print(newTableBlock)) {
+        Serial.printf("Info (Duplicate): Table '%s' successfully duplicated to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
+        file.close();
+        return true;
+    } else {
+        Serial.printf("Error (Duplicate): Failed to write new block to file.\n");
+        file.close();
+        isError = true;
+        return false;
+    }
+}
 
 
 void setup() {
@@ -1090,7 +1184,7 @@ if(mainmode == 16){
       return;
     }else if((pagemoveflag == 5) ){
       pagemoveflag = 0;
-      positpoint = holdpositpoint;
+      positpoint = 0;
       imano_page = holdimanopage;
       mainmode = 13;
       M5.Lcd.fillScreen(BLACK);
@@ -1105,11 +1199,12 @@ if(mainmode == 16){
           M5.Lcd.fillScreen(BLACK);
           SCROLL_INTERVAL_FRAMES = 1;
         SCROLL_SPEED_PIXELS = 3;
+        Textex = "Enter Index Numbers.";
         firstScrollLoop = true;
-        dataToSaveE["table_opt1"] = SuperT;
-          opt1_kaimei();
+         SuperT = dataToSaveE["table_opt1"];
+          opt1_kaimei(0);
           M5.Lcd.fillScreen(BLACK);
-          optkobun();
+          
           if(!optkobun()){
             M5.Lcd.fillScreen(BLACK);
             positpoint = holdpositpointd;
@@ -1122,8 +1217,30 @@ if(mainmode == 16){
         }else if(positpoint == 1){
           M5.Lcd.fillScreen(BLACK);
           String opt22[4] = {"normal","readonly","oncewrite"};//oncewriteは空白セルまたはデフォルトに1回しか書き込めない
-          selectOption(opt22,4,"select option!","read options!");
+          int tt = selectOption(opt22,4,"select option!","read options!");
+          dataToSaveE["table_opt2"] = opt22[tt];
           M5.Lcd.fillScreen(BLACK);
+          bool loadSuccess = false;
+           saveMettFile(SD, DirecX + ggmode, fefe, dataToSaveE, loadSuccess);
+          if(!optkobun() || loadSuccess){
+            M5.Lcd.fillScreen(BLACK);
+            positpoint = holdpositpointd;
+            imano_page = holdimanopaged;
+            positpointmax = holdpositpointmaxd;
+            mainmode = 1;
+            return;
+          }
+          return;
+        }else if(positpoint == 2){
+                    M5.Lcd.fillScreen(BLACK);
+          SCROLL_INTERVAL_FRAMES = 1;
+        SCROLL_SPEED_PIXELS = 3;
+        Textex = "Enter tag name.";
+        firstScrollLoop = true;
+        SuperT = dataToSaveE["table_opt3"];
+          opt1_kaimei(1);
+          M5.Lcd.fillScreen(BLACK);
+          
           if(!optkobun()){
             M5.Lcd.fillScreen(BLACK);
             positpoint = holdpositpointd;
@@ -1184,7 +1301,7 @@ if(mainmode == 16){
           M5.Lcd.println("Loading...");
         
         imano_page = holdimanopage;
-          mainmode = 12;
+          mainmode = 13;
           
           imano_page = holdimanopage;
           holdpositpointmax = holdpositpointmax;
@@ -1314,9 +1431,9 @@ else if(mainmode == 14){
       M5.Lcd.setCursor(0,0);
       M5.Lcd.setTextSize(1);
       
-      holdpositpoint = positpoint;
+      
       Serial.println("point:" + String(holdpositpoint) + "name:" + AllName[holdpositpoint]);
-      fefe = AllName[holdpositpoint];
+      fefe = AllName[holdpositpoints];
        
       holdimanopage = imano_page;
 
@@ -1340,8 +1457,7 @@ else if(mainmode == 14){
             mainmode = 1;
             return;
           }
-          return;
-
+            
 
         }
        else{
@@ -1360,9 +1476,10 @@ else if(mainmode == 14){
     }
 }
 else if(mainmode == 13){
+
   if(maxLinesPerPage != -1){
         updatePointer2();
-
+        holdpositpoints = positpoint;
     if(pagemoveflag == 1){
       pagemoveflag = 0;
       imano_page = 0;
@@ -1404,9 +1521,9 @@ else if(mainmode == 13){
       holdpositpointmax = positpointmax;
       holdpositpoint = positpoint;
       holdimanopage = imano_page;
-      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Back\n  Duplicate" );
+      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Duplicate  Deleterowswithname" );
       positpoint = 0;
-      positpointmax = 7;
+      positpointmax = 6;
       maxpage = -1;
       mainmode = 14;
       return;

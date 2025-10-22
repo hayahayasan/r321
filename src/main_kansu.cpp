@@ -171,11 +171,12 @@ bool datt(String opthensuname,String setname){
 
 int selectOption(const String options[], int numOptions, const String upperText, const String lowerText) {
     // 実際に表示するオプションと元のインデックスを抽出
-    String validOptions[100];
+    // (options[i]が空文字列でないものだけを抽出)
+    String validOptions[100]; // 最大100個まで
     int validIndices[100];
     int validCount = 0;
 
-    for (int i = 0; i < numOptions; i++) {
+    for (int i = 0; i < numOptions && validCount < 100; i++) {
         if (options[i].length() > 0) {
             validOptions[validCount] = options[i];
             validIndices[validCount] = i; 
@@ -184,52 +185,53 @@ int selectOption(const String options[], int numOptions, const String upperText,
     }
 
     if (validCount == 0) {
-        // オプションがない場合の処理
+        // 表示するオプションが一つもなかった場合
         M5.Lcd.fillScreen(RED);
-        M5.Lcd.setTextFont(3);
+        M5.Lcd.setTextFont(3); // フォントサイズ3
         M5.Lcd.setTextColor(WHITE);
         M5.Lcd.setCursor(10, M5.Lcd.height() / 2 - 10);
         M5.Lcd.printf("No options!");
         delay(3000);
         M5.Lcd.fillScreen(BLACK);
-        return -1;
+        return -1; // エラーとして-1を返す
     }
 
     int selectedIndex = 0; // validOptions配列における現在の選択インデックス
     const int FONT_SIZE = 3; // フォントサイズを3に固定
 
     // 表示位置の計算
-    // M5Stack CoreのLCDは320x240。フォントサイズ3の高さは約24ピクセル。
     M5.Lcd.setTextFont(FONT_SIZE);
-    int text_height = M5.Lcd.fontHeight(FONT_SIZE);
+    int text_height = M5.Lcd.fontHeight(FONT_SIZE); // フォントサイズ3の高さを取得 (約24px)
     int padding_y = 10;
     
-    // Y座標の計算
+    // Y座標の定義
     const int Y_UPPER = padding_y;
     const int Y_SELECT = Y_UPPER + text_height + padding_y;
     const int Y_LOWER = Y_SELECT + text_height + padding_y;
     
-    // X座標（中央寄せの代わりに、左端から少しパディング）
+    // X座標（左端からのパディング）
     const int X_CURSOR = 10;
-    const int TEXT_MAX_WIDTH = M5.Lcd.width() - X_CURSOR;
+    const int TEXT_MAX_WIDTH = M5.Lcd.width() - X_CURSOR; // テキスト表示の最大幅
 
     // 画面の初期描画
     M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.setTextColor(WHITE); // デフォルトの文字色
 
-    // 1. Upper Text (SELECT OPTION に相当) を描画
+    // 1. Upper Text (例: "SELECT OPTION") を描画
     M5.Lcd.setCursor(X_CURSOR, Y_UPPER);
     M5.Lcd.print(upperText);
 
-    // 3. Lower Text を描画
+    // 3. Lower Text (操作説明など) を描画
     M5.Lcd.setCursor(X_CURSOR, Y_LOWER);
     M5.Lcd.print(lowerText);
     
     // 2. 選択肢の初期描画
-    // 選択肢表示エリアを黒で初期化（後の再描画で使うため）
+    // 選択肢表示エリアを黒で初期化
     M5.Lcd.fillRect(X_CURSOR, Y_SELECT, TEXT_MAX_WIDTH, text_height, BLACK); 
     M5.Lcd.setCursor(X_CURSOR, Y_SELECT);
-    M5.Lcd.setTextColor(YELLOW, BLUE); // 選択時の色（文字色, 背景色）
+    
+    // ★修正箇所 1/2: 背景色を BLUE から BLACK に変更
+    M5.Lcd.setTextColor(YELLOW, BLACK); // 選択時の色（文字色=黄, 背景色=黒）
     M5.Lcd.printf("-%s-", validOptions[selectedIndex].c_str());
 
     while (true) {
@@ -238,13 +240,13 @@ int selectOption(const String options[], int numOptions, const String upperText,
 
         bool selectionChanged = false;
 
-        // BtnA: 上へ (インデックスを減らす)
+        // BtnA (左): 上へ (インデックスを減らす)
         if (M5.BtnA.wasPressed()) {
             selectedIndex = (selectedIndex == 0) ? validCount - 1 : selectedIndex - 1;
             selectionChanged = true;
         }
 
-        // BtnC: 下へ (インデックスを増やす)
+        // BtnC (右): 下へ (インデックスを増やす)
         if (M5.BtnC.wasPressed()) {
             selectedIndex = (selectedIndex == validCount - 1) ? 0 : selectedIndex + 1;
             selectionChanged = true;
@@ -257,18 +259,19 @@ int selectOption(const String options[], int numOptions, const String upperText,
             
             // 新しい選択肢を描画
             M5.Lcd.setCursor(X_CURSOR, Y_SELECT);
-            M5.Lcd.setTextColor(YELLOW, BLUE); // 選択肢の色
+            
+            // ★修正箇所 2/2: 背景色を BLUE から BLACK に変更
+            M5.Lcd.setTextColor(YELLOW, BLACK); // 選択肢の色
             M5.Lcd.printf("-%s-", validOptions[selectedIndex].c_str());
         }
 
-        // BtnB: 決定 (ループを抜けて選択されたインデックスを返す)
+        // BtnB (中央): 決定
         if (M5.BtnB.wasPressed()) {
-            // 元の配列におけるインデックスを返す
+            // 元の配列(options[])におけるインデックスを返す
             return validIndices[selectedIndex]; 
         }
 
-        // ループ処理を継続 (遅延1ms)
-        delay(1);
+        delay(1); // CPU負荷軽減
     }
 }
 
