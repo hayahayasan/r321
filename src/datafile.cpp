@@ -58,7 +58,7 @@ const std::vector<String> reservedWords = {
     "FORCE_LAST_MODIFIED", "FORCE_LAST_USER"
 };
 
-
+const std::vector<String> reservedHensuName;
 
 bool boolmax(){
   Serial.println("maxLinesPerPage3:" + String(maxLinesPerPage3) + "positpoint:" + String(positpoint) + "maxLinesPerPage:" + String(maxLinesPerPage)    );
@@ -2332,6 +2332,60 @@ void kanketu(String texx,int frame){
     M5.Lcd.fillScreen(BLACK); // 画面を黒でクリア
     M5.Lcd.setTextFont(File_goukeifont); // フォントサイズを元に戻す
 }
+
+bool getVariableNamesInTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& isZero, std::vector<String>& variableNames) {
+    variableNames.clear();
+    isZero = false;
+
+    // --- 1. 物理ファイルチェック ---
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (Get Var Names): File not found: %s\n", fullFilePath.c_str());
+        return false;
+    }
+
+    // --- 2. テーブル存在チェック ---
+    bool dummyIsZero;
+    std::vector<String> allTables = getAllTableNamesInFile(fs, fullFilePath, dummyIsZero);
+    bool tableFound = false;
+    for (const auto& name : allTables) {
+        if (name == targetTableName) {
+            tableFound = true;
+            break;
+        }
+    }
+    if (!tableFound) {
+        Serial.printf("Error (Get Var Names): Table '%s' not found in file.\n", targetTableName.c_str());
+        return false; // テーブル名が存在しない
+    }
+
+    // --- 3. テーブルが存在するので、変数を読み込む ---
+    // (loadMettFileは指定テーブルが見つからなくてもtrue, empty=trueで返すが、
+    //  ここでは既にテーブルの存在がわかっているので、確実にそのテーブルを読みに行く)
+    std::vector<MettVariableInfo> loadedVariables;
+    bool loadSuccess, fileIsEmpty;
+    loadMettFile(fs, fullFilePath, targetTableName, loadSuccess, fileIsEmpty, loadedVariables);
+
+    if (!loadSuccess) {
+        // これは基本的に発生しないはずだが、念のため
+        Serial.printf("Error (Get Var Names): loadMettFile failed unexpectedly.\n");
+        return false; // 物理的な読み込みエラー
+    }
+
+    // --- 4. 結果を処理 ---
+    if (fileIsEmpty || loadedVariables.empty()) {
+        Serial.printf("Info (Get Var Names): Table '%s' was found but contains 0 variables.\n", targetTableName.c_str());
+        isZero = true;
+    } else {
+        isZero = false;
+        for (const auto& varInfo : loadedVariables) {
+            variableNames.push_back(varInfo.variableName);
+        }
+        Serial.printf("Info (Get Var Names): Found %d variables in table '%s'.\n", (int)variableNames.size(), targetTableName.c_str());
+    }
+
+    return true; // 処理成功
+}
+
 
 
 /**

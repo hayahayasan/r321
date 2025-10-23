@@ -690,7 +690,88 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     success = true;
     isEmpty = variables.empty();
 }
+bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
+    isError = false;
 
+    // --- 1. Validation ---
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (Duplicate): File does not exist: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+    if (oldTableName == newTableName || newTableName.isEmpty()) {
+         Serial.printf("Error (Duplicate): New table name is invalid or same as old name.\n");
+         isError = true;
+         return false;
+    }
+    // (Note: containsInvalidTableNameChars のチェックは省略)
+
+    // --- 2. Check for conflicts (★ 修正: 統合された関数を呼び出す) ---
+    bool isZero_dummy;
+    std::vector<String> allNames = getAllTableNamesInFile(fs, fullFilePath, isZero_dummy);
+    bool oldTableFound = false;
+    for (const auto& name : allNames) {
+        if (name == newTableName) {
+            Serial.printf("Error (Duplicate): New table name '%s' already exists.\n", newTableName.c_str());
+            isError = true;
+            return false;
+        }
+        if (name == oldTableName) {
+            oldTableFound = true;
+        }
+    }
+    if (!oldTableFound) {
+         Serial.printf("Error (Duplicate): Old table name '%s' not found.\n", oldTableName.c_str());
+         isError = true;
+         return false;
+    }
+    
+    // --- 3. Load variables from old table ---
+    std::vector<MettVariableInfo> existingVars;
+    bool loadSuccess, loadEmpty;
+    loadMettFile(fs, fullFilePath, oldTableName, loadSuccess, loadEmpty, existingVars);
+    if (!loadSuccess) {
+        Serial.printf("Error (Duplicate): Failed to load data from old table '%s'.\n", oldTableName.c_str());
+        isError = true;
+        return false;
+    }
+
+    // --- 4. Build new table block string ---
+    String newTableBlock = "";
+    newTableBlock += "### METT_TABLE_ID ###\n";
+    newTableBlock += "TABLE_NAME:" + newTableName + "\n";
+    
+    if (!loadEmpty) {
+        for (const auto& var : existingVars) {
+            // loadMettFileで読み込んだデータ型(dataType)もそのまま使用して複製
+            newTableBlock += var.variableName + ":" + var.dataType + ":" + var.valueString + "\n";
+        }
+    }
+    newTableBlock += "\n"; // ブロックの最後に空行
+
+    // --- 5. Append new block to the file ---
+    File file = fs.open(fullFilePath.c_str(), FILE_APPEND);
+    if (!file) {
+        Serial.printf("Error (Duplicate): Failed to open file for appending: %s\n", fullFilePath.c_str());
+        isError = true;
+        return false;
+    }
+    
+    Serial.println("\n--- Appending New Duplicated Table Block ---");
+    Serial.print(newTableBlock);
+    Serial.println("--- End of Appending Block ---");
+
+    if (file.print(newTableBlock)) {
+        Serial.printf("Info (Duplicate): Table '%s' successfully duplicated to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
+        file.close();
+        return true;
+    } else {
+        Serial.printf("Error (Duplicate): Failed to write new block to file.\n");
+        file.close();
+        isError = true;
+        return false;
+    }
+}
 
 #pragma endregion
 
@@ -976,7 +1057,7 @@ void opt1_kaimei(int id){
         }
         
         shokaipointer3();
-        Serial.println("fefff" + AllName[holdpositpoint]);
+        Serial.println("fefff" + fefe);
         saveMettFile(SD, DirecX + ggmode, fefe, dataToSaveE, sus);
         if(!sus){
           kanketu("Set Success!",500);
@@ -1005,6 +1086,66 @@ void opt1_kaimei(int id){
     }
   }
 }
+
+void opt_hukusei(){
+  if(!test_load()){
+    kanketu("Load Failed!",500);
+    return;
+  }
+  Serial.println("Current SuperT: " + dataToSaveE["table_opt1"]);
+  
+  
+  while(true){
+    textluck();
+    delay(1);
+    if(entryenter == 1){
+      entryenter = 0;
+      if(isValidTableName(SuperT,AllName,100)){
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.println("Duplicating...");
+        shokaipointer3();
+        bool ee = false;
+        duplicateMettFile(SD,DirecX + ggmode,fefe,SuperT,ee);
+        if(!ee){
+          kanketu("Duplicated!",200);
+          positpoint = 0;
+      imano_page = holdimanopage;
+      mainmode = 13;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+
+      return;
+        }else{
+          kanketu("Duplicate Failed!",500);
+          positpoint = 0;
+      imano_page = holdimanopage;
+      mainmode = 13;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+
+      return;
+        }
+
+      }else{
+        Textex = "Invalid Name!";
+      }
+    }else if(entryenter == 2){
+      entryenter = 0;
+      M5.Lcd.fillScreen(BLACK);
+              optkobun();
+          return;
+    }
+  }
+}
+
+
+
+
 void createjj(){
   std::vector<MettVariableInfo> loadedVariablesE;
        bool loadSuccess = false;
@@ -1039,88 +1180,7 @@ void createjj(){
         return;
 }
 
-bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
-    isError = false;
 
-    // --- 1. Validation ---
-    if (!fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error (Duplicate): File does not exist: %s\n", fullFilePath.c_str());
-        isError = true;
-        return false;
-    }
-    if (oldTableName == newTableName || newTableName.isEmpty()) {
-         Serial.printf("Error (Duplicate): New table name is invalid or same as old name.\n");
-         isError = true;
-         return false;
-    }
-    // (Note: containsInvalidTableNameChars のチェックは省略)
-
-    // --- 2. Check for conflicts (★ 修正: 統合された関数を呼び出す) ---
-    bool isZero_dummy;
-    std::vector<String> allNames = getAllTableNamesInFile(fs, fullFilePath, isZero_dummy);
-    bool oldTableFound = false;
-    for (const auto& name : allNames) {
-        if (name == newTableName) {
-            Serial.printf("Error (Duplicate): New table name '%s' already exists.\n", newTableName.c_str());
-            isError = true;
-            return false;
-        }
-        if (name == oldTableName) {
-            oldTableFound = true;
-        }
-    }
-    if (!oldTableFound) {
-         Serial.printf("Error (Duplicate): Old table name '%s' not found.\n", oldTableName.c_str());
-         isError = true;
-         return false;
-    }
-    
-    // --- 3. Load variables from old table ---
-    std::vector<MettVariableInfo> existingVars;
-    bool loadSuccess, loadEmpty;
-    loadMettFile(fs, fullFilePath, oldTableName, loadSuccess, loadEmpty, existingVars);
-    if (!loadSuccess) {
-        Serial.printf("Error (Duplicate): Failed to load data from old table '%s'.\n", oldTableName.c_str());
-        isError = true;
-        return false;
-    }
-
-    // --- 4. Build new table block string ---
-    String newTableBlock = "";
-    newTableBlock += "### METT_TABLE_ID ###\n";
-    newTableBlock += "TABLE_NAME:" + newTableName + "\n";
-    
-    if (!loadEmpty) {
-        for (const auto& var : existingVars) {
-            // loadMettFileで読み込んだデータ型(dataType)もそのまま使用して複製
-            newTableBlock += var.variableName + ":" + var.dataType + ":" + var.valueString + "\n";
-        }
-    }
-    newTableBlock += "\n"; // ブロックの最後に空行
-
-    // --- 5. Append new block to the file ---
-    File file = fs.open(fullFilePath.c_str(), FILE_APPEND);
-    if (!file) {
-        Serial.printf("Error (Duplicate): Failed to open file for appending: %s\n", fullFilePath.c_str());
-        isError = true;
-        return false;
-    }
-    
-    Serial.println("\n--- Appending New Duplicated Table Block ---");
-    Serial.print(newTableBlock);
-    Serial.println("--- End of Appending Block ---");
-
-    if (file.print(newTableBlock)) {
-        Serial.printf("Info (Duplicate): Table '%s' successfully duplicated to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
-        file.close();
-        return true;
-    } else {
-        Serial.printf("Error (Duplicate): Failed to write new block to file.\n");
-        file.close();
-        isError = true;
-        return false;
-    }
-}
 
 
 void setup() {
@@ -1171,6 +1231,8 @@ void setup() {
 //変数は変更ロックの登録・解除機能，デフォルト数値，NULL置き換え追加
 //ログ機能の追加．ログ追加後，メニューから一発でテーブル編集に飛ぶ機能，つまりファイルのお気に入り指定の追加
 //テーブルコピペ機能（名称を変更したテーブルを複数作成する）
+
+//変数機能：作成，削除，複製，リネーム，変数値設定，変数値のNULL，変数値デフォルト値の設定，変数値タイプ（数値またはリストまたはDate），変数値のリセット，オプション，全テーブルへの列追加，全テーブルから列削除
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
@@ -1471,6 +1533,28 @@ else if(mainmode == 14){
       maxpage = maxLinesPerPage;
       return;
        }
+      }else if(positpoint == 5){//Duplicate
+        bool tt = areusure();
+        holdpositpointt = positpoint;
+        if(tt){
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+            Textex = "Choose New Name.Tab to Enter";
+            SuperT = "";
+            opt_hukusei();
+
+        }else{
+          positpoint = holdpositpoint;
+      imano_page = holdimanopage;
+      mainmode = 13;
+      M5.Lcd.fillScreen(BLACK);
+      positpointmax = 5;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      return;
+        }
+      }else if(positpoint == 0){//open
+
       }
       
     }
@@ -1561,46 +1645,7 @@ else if(mainmode == 13){
   }
 
 }
- else if(mainmode == 12){
-    if(M5.BtnA.wasPressed()){
-      M5.Lcd.fillScreen(BLACK);
-        M5.Lcd.setTextSize(File_goukeifont);
-        positpoint = 0;
-        mainmode = 1;
-        positpointmax = holdpositpointmaxd;
-        imano_page = holdimanopaged;
-        // SDカードコンテンツの初期表示
-        shokaipointer();
-        return;
-    }
-    if(ggmode.endsWith(".mett") && M5.BtnB.wasPressed()){
-      M5.Lcd.fillScreen(BLACK);
-      if(!checkSDCardOnly){
-        kanketu("SD card not found!",500);
-        M5.Lcd.fillScreen(BLACK);
-        mainmode = 1;
-        positpoint = 0;
-        holdpositpoint = 0;
-        
-        imano_page = 0;
-        frameright  = 1;
-        frameleft = 1;
-        shokaipointer();
-        return;
-      }
-
-
-      mainmode = 13;
-      M5.Lcd.setCursor(0,0);
-      M5.Lcd.setTextSize(3);
-      M5.Lcd.println("Loading...");
-      Serial.println("fe" + DirecX + ggmode);
-      shokaipointer2(0,DirecX + ggmode);
-      maxpage = maxLinesPerPage;
-      Serial.println("sus" + String(maxpage));
-      return;
-    }
- }
+ 
  #pragma region <optmodee>//0=拡張子 1=文字コード 2=ソート 3=オンラインタイプ
  
 

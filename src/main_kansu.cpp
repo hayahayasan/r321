@@ -159,6 +159,447 @@ unsigned long lastBlinkToggleTime = 0;
 bool showAngleBrackets = true; 
 
 
+bool appendUtf8(String &str, uint32_t cp) {
+    char buffer[5]; // 最大4バイト + ヌル終端
+    int len = 0;
+
+    if (cp <= 0x7F) {
+        buffer[len++] = (char)cp;
+    } else if (cp <= 0x7FF) {
+        buffer[len++] = (char)(0xC0 | (cp >> 6));
+        buffer[len++] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp <= 0xFFFF) {
+        buffer[len++] = (char)(0xE0 | (cp >> 12));
+        buffer[len++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buffer[len++] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp <= 0x10FFFF) {
+        buffer[len++] = (char)(0xF0 | (cp >> 18));
+        buffer[len++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        buffer[len++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buffer[len++] = (char)(0x80 | (cp & 0x3F));
+    } else {
+        // 不正なコードポイント (Unicodeの範囲外) -> 置換文字 (U+FFFD)
+        buffer[len++] = (char)0xEF;
+        buffer[len++] = (char)0xBF;
+        buffer[len++] = (char)0xBD;
+    }
+    
+    buffer[len] = '\0';
+    return str.concat(buffer, len);
+}
+
+/**
+ * @brief UTF-8のStringから1文字（コードポイント）を読み進めます。
+ * @param str [in] 対象のStringオブジェクト
+ * @param index [in/out] 読み取り開始位置。読み取り後、次の文字の開始位置に更新されます。
+ * @return uint32_t Unicodeコードポイント。終端の場合は 0、不正なシーケンスの場合は 0xFFFD。
+ */
+uint32_t getNextUtf8CodePoint(const String &str, size_t &index) {
+    size_t len = str.length();
+    if (index >= len) {
+        return 0; // 終端
+    }
+
+    uint8_t b1 = (uint8_t)str.charAt(index++);
+    
+    // 1-byte (ASCII)
+    if (b1 < 0x80) {
+        return b1;
+    }
+
+    // 不正なシーケンス（2バイト目以降が単独で出現）
+    if ((b1 & 0xC0) == 0x80) {
+        return 0xFFFD; 
+    }
+
+    // 2-byte
+    if ((b1 & 0xE0) == 0xC0) {
+        if (index >= len) return 0xFFFD; // 途中で終端
+        uint8_t b2 = (uint8_t)str.charAt(index++);
+        if ((b2 & 0xC0) != 0x80) return 0xFFFD;
+        return ((uint32_t)(b1 & 0x1F) << 6) | (b2 & 0x3F);
+    }
+
+    // 3-byte
+    if ((b1 & 0xF0) == 0xE0) {
+        if (index + 1 >= len) return 0xFFFD; // 途中で終端
+        uint8_t b2 = (uint8_t)str.charAt(index++);
+        uint8_t b3 = (uint8_t)str.charAt(index++);
+        if ((b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80) return 0xFFFD;
+        return ((uint32_t)(b1 & 0x0F) << 12) | ((uint32_t)(b2 & 0x3F) << 6) | (b3 & 0x3F);
+    }
+
+    // 4-byte
+    if ((b1 & 0xF8) == 0xF0) {
+        if (index + 2 >= len) return 0xFFFD; // 途中で終端
+        uint8_t b2 = (uint8_t)str.charAt(index++);
+        uint8_t b3 = (uint8_t)str.charAt(index++);
+        uint8_t b4 = (uint8_t)str.charAt(index++);
+        if ((b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80 || (b4 & 0xC0) != 0x80) return 0xFFFD;
+        return ((uint32_t)(b1 & 0x07) << 18) | ((uint32_t)(b2 & 0x3F) << 12) | ((uint32_t)(b3 & 0x3F) << 6) | (b4 & 0x3F);
+    }
+
+    return 0xFFFD; // 不正な開始バイト (C1, F5-FF)
+}
+
+
+/**
+ * @brief SDカードの指定されたファイルを読み込み、UTF-8のStringに変換して格納します。
+ * * ファイルの先頭でBOMを検出し、文字コードを判別します。
+ * * UTF-16/UTF-32の場合はUTF-8に変換しながら読み込みます。
+ * * 読み込みはバッファリングされ、Stringのメモリ限界（メモリ不足）に達すると停止します。
+ *
+ * @param filePath [in] 読み込むファイルのフルパス (例: "/input.txt")
+ * @param SSText [out] 読み込んだ内容を格納するUTF-8 String (参照渡し)。
+ * この関数を呼ぶと、既存の内容はクリアされます。
+ * @param mozikode [out] 検出した文字コード (参照渡し)
+ * 0: BOMなし (不明/ANSI/UTF-8)
+ * 1: UTF-8 (BOMあり)
+ * 2: UTF-16 BE (BOMあり)
+ * 3: UTF-16 LE (BOMあり)
+ * 4: ファイルが空
+ * 5: UTF-32 BE (BOMあり)
+ * 6: UTF-32 LE (BOMあり)
+ * @return bool 処理に成功した場合は true。SDカードが利用不可、ファイルが開けない場合は false。
+ * (メモリ限界で読み込みが途中で停止した場合でも true を返します)
+ */
+bool readSdFileToStringForced(const String& filePath, String &SSText, int &mozikode) {
+
+    // 1. SDカードのチェック
+    if (SD.cardType() == CARD_NONE) {
+        Serial.println("SD Card not found or not initialized.");
+        return false;
+    }
+
+    // 2. ファイルを開く
+    File file = SD.open(filePath, FILE_READ);
+    if (!file) {
+        Serial.printf("Failed to open file for reading: %s\n", filePath.c_str());
+        return false;
+    }
+
+    // 3. Stringをクリアし、文字コードを初期化
+    SSText = ""; // 既存の内容をクリア
+    mozikode = 0; // デフォルトはBOMなし
+
+    // 4. ファイルサイズチェック
+    if (file.size() == 0) {
+        mozikode = 4; // ファイルが空
+        file.close();
+        return true;
+    }
+
+    // 5. BOM(Byte Order Mark)の検知
+    byte bom[4]; // UTF-32検知のために4バイト読み込む
+    int readBOM = file.readBytes((char*)bom, 4);
+
+    if (readBOM >= 4 && bom[0] == 0x00 && bom[1] == 0x00 && bom[2] == 0xFE && bom[3] == 0xFF) {
+        mozikode = 5; // UTF-32 BE (BOMスキップ済み)
+    } else if (readBOM >= 4 && bom[0] == 0xFF && bom[1] == 0xFE && bom[2] == 0x00 && bom[3] == 0x00) {
+        mozikode = 6; // UTF-32 LE (BOMスキップ済み)
+    } else if (readBOM >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
+        mozikode = 1; // UTF-8 (BOMスキップ済み)
+        file.seek(3); // 3バイト消費したのでシーク位置を戻す
+    } else if (readBOM >= 2 && bom[0] == 0xFE && bom[1] == 0xFF) {
+        mozikode = 2; // UTF-16 BE
+        file.seek(2); // 2バイトだけBOMだったので、シーク位置を2に戻す
+    } else if (readBOM >= 2 && bom[0] == 0xFF && bom[1] == 0xFE) {
+        mozikode = 3; // UTF-16 LE
+        file.seek(2); // 2バイトだけBOMだったので、シーク位置を2に戻す
+    } else {
+        mozikode = 0; // BOMなし
+        file.seek(0); // ファイルの先頭に戻る
+    }
+
+    // 6. 分割読み込み (文字コード変換)
+    const int bufferSize = 128; 
+    char buffer[bufferSize];
+    bool memoryError = false;
+
+    switch (mozikode) {
+        case 0: // BOMなし (UTF-8 or ANSIとして読み込む)
+        case 1: // UTF-8 (BOMあり)
+        {
+            // 高速なバイト単位の読み込み (変換不要)
+            while (file.available()) {
+                int bytesRead = file.read((uint8_t*)buffer, bufferSize);
+                if (bytesRead > 0) {
+                    if (!SSText.concat(buffer, bytesRead)) {
+                        Serial.println("String memory limit reached.");
+                        memoryError = true;
+                        break; 
+                    }
+                } else {
+                    break;
+                }
+            }
+            break;
+        }
+
+        case 2: // UTF-16 BE
+        case 3: // UTF-16 LE
+        {
+            uint16_t highSurrogate = 0;
+            byte w_buffer[2];
+            while (file.read(w_buffer, 2) == 2) {
+                uint16_t w_char;
+                if (mozikode == 2) { // BE
+                    w_char = (w_buffer[0] << 8) | w_buffer[1];
+                } else { // LE
+                    w_char = (w_buffer[1] << 8) | w_buffer[0];
+                }
+
+                if (w_char >= 0xD800 && w_char <= 0xDBFF) {
+                    // サロゲートペア（上位）
+                    highSurrogate = w_char;
+                    continue;
+                }
+
+                uint32_t codePoint;
+                if (w_char >= 0xDC00 && w_char <= 0xDFFF) {
+                    // サロゲートペア（下位）
+                    if (highSurrogate != 0) {
+                        // 結合
+                        codePoint = 0x10000 + (((highSurrogate & 0x3FF) << 10) | (w_char & 0x3FF));
+                        highSurrogate = 0;
+                    } else {
+                        // 上位がない下位サロゲート（不正）
+                        codePoint = 0xFFFD; // 置換文字
+                    }
+                } else {
+                    // サロゲートペアではない
+                    if (highSurrogate != 0) {
+                        // 下位が来なかった（不正）
+                        if (!appendUtf8(SSText, 0xFFFD)) { // 置換文字を追加
+                             Serial.println("String memory limit reached.");
+                             memoryError = true;
+                             break;
+                        }
+                    }
+                    codePoint = w_char;
+                    highSurrogate = 0;
+                }
+
+                if (memoryError) break;
+
+                if (!appendUtf8(SSText, codePoint)) {
+                     Serial.println("String memory limit reached.");
+                     memoryError = true;
+                     break;
+                }
+            }
+            break;
+        }
+
+        case 5: // UTF-32 BE
+        case 6: // UTF-32 LE
+        {
+            byte d_buffer[4];
+            while (file.read(d_buffer, 4) == 4) {
+                uint32_t codePoint;
+                if (mozikode == 5) { // BE
+                    codePoint = ((uint32_t)d_buffer[0] << 24) | ((uint32_t)d_buffer[1] << 16) | ((uint32_t)d_buffer[2] << 8) | d_buffer[3];
+                } else { // LE
+                    codePoint = ((uint32_t)d_buffer[3] << 24) | ((uint32_t)d_buffer[2] << 16) | ((uint32_t)d_buffer[1] << 8) | d_buffer[0];
+                }
+                
+                if (!appendUtf8(SSText, codePoint)) {
+                     Serial.println("String memory limit reached.");
+                     break;
+                }
+            }
+            break;
+        }
+    } // end switch(mozikode)
+
+    // 7. ファイルを閉じる
+    file.close();
+    return true;
+}
+
+/**
+ * @brief UTF-8 Stringの内容を、指定された文字コード(BOM)に変換してSDカードのファイルに上書き保存します。
+ *
+ * @param filePath [in] 書き込むファイルのフルパス (例: "/output.txt")
+ * @param SSText [in] 書き込む内容のUTF-8 Stringオブジェクト。
+ * @param mozikode [in] 書き込む文字コード (BOMの書き込みに使用)
+ * 0: BOMなし, 1: UTF-8, 2: UTF-16 BE, 3: UTF-16 LE, 5: UTF-32 BE, 6: UTF-32 LE
+ * 4 (空ファイル) の場合はBOMなしとして扱われます。
+ * @return bool 処理に成功した場合は true。SDカードが利用不可、ファイルが開けない場合は false。
+ */
+bool writeStringToFileForced(const String& filePath, const String &SSText, int mozikode) {
+
+    // 1. ファイルを開く
+    File file = SD.open(filePath, FILE_WRITE);
+    if (!file) {
+        Serial.printf("Failed to open file for writing: %s\n", filePath.c_str());
+        return false;
+    }
+
+    // 2. mozikodeに基づいてBOMを書き込む
+    size_t bomWritten = 0;
+    size_t expectedBomSize = 0;
+
+    switch (mozikode) {
+        case 1: // UTF-8
+            {
+                const byte bom[] = {0xEF, 0xBB, 0xBF};
+                expectedBomSize = sizeof(bom);
+                bomWritten = file.write(bom, expectedBomSize);
+            }
+            break;
+        case 2: // UTF-16 BE
+            {
+                const byte bom[] = {0xFE, 0xFF};
+                expectedBomSize = sizeof(bom);
+                bomWritten = file.write(bom, expectedBomSize);
+            }
+            break;
+        case 3: // UTF-16 LE
+            {
+                const byte bom[] = {0xFF, 0xFE};
+                expectedBomSize = sizeof(bom);
+                bomWritten = file.write(bom, expectedBomSize);
+            }
+            break;
+        case 5: // UTF-32 BE
+            {
+                const byte bom[] = {0x00, 0x00, 0xFE, 0xFF};
+                expectedBomSize = sizeof(bom);
+                bomWritten = file.write(bom, expectedBomSize);
+            }
+            break;
+        case 6: // UTF-32 LE
+            {
+                const byte bom[] = {0xFF, 0xFE, 0x00, 0x00};
+                expectedBomSize = sizeof(bom);
+                bomWritten = file.write(bom, expectedBomSize);
+            }
+            break;
+        case 0: // BOMなし
+        case 4: // (読み込み時)空ファイルだった場合
+        default:
+            bomWritten = 0;
+            expectedBomSize = 0;
+            break;
+    }
+
+    if (expectedBomSize > 0 && bomWritten != expectedBomSize) {
+        Serial.println("Error: Failed to write BOM.");
+        file.close();
+        return false;
+    }
+
+    // 3. Stringの内容を変換しながら書き込む
+    size_t dataWritten = 0;
+    size_t expectedDataSize = 0;
+
+    switch (mozikode) {
+        case 0: // BOMなし
+        case 1: // UTF-8
+        case 4: // (読み込み時)空ファイル
+        default:
+            // String (UTF-8) の内容をそのまま書き込む
+            if (SSText.length() > 0) {
+                expectedDataSize = SSText.length();
+                dataWritten = file.write((const uint8_t*)SSText.c_str(), SSText.length());
+            }
+            break;
+
+        case 2: // UTF-16 BE
+        case 3: // UTF-16 LE
+        {
+            size_t index = 0;
+            while (index < SSText.length()) {
+                uint32_t cp = getNextUtf8CodePoint(SSText, index);
+                if (cp == 0) break; // 終端
+
+                byte w_buffer[4]; // サロゲートペア用に最大4バイト
+                size_t bytesToWrite = 0;
+
+                if (cp <= 0xFFFF) {
+                    // BMP (サロゲートペア不要)
+                    bytesToWrite = 2;
+                    if (mozikode == 2) { // BE
+                        w_buffer[0] = (byte)(cp >> 8);
+                        w_buffer[1] = (byte)(cp & 0xFF);
+                    } else { // LE
+                        w_buffer[0] = (byte)(cp & 0xFF);
+                        w_buffer[1] = (byte)(cp >> 8);
+                    }
+                } else {
+                    // サロゲートペア
+                    bytesToWrite = 4;
+                    uint32_t cp_s = cp - 0x10000;
+                    uint16_t high = 0xD800 | ((cp_s >> 10) & 0x3FF);
+                    uint16_t low = 0xDC00 | (cp_s & 0x3FF);
+                    
+                    if (mozikode == 2) { // BE
+                        w_buffer[0] = (byte)(high >> 8);
+                        w_buffer[1] = (byte)(high & 0xFF);
+                        w_buffer[2] = (byte)(low >> 8);
+                        w_buffer[3] = (byte)(low & 0xFF);
+                    } else { // LE
+                        w_buffer[0] = (byte)(high & 0xFF);
+                        w_buffer[1] = (byte)(high >> 8);
+                        w_buffer[2] = (byte)(low & 0xFF);
+                        w_buffer[3] = (byte)(low >> 8);
+                    }
+                }
+                
+                size_t w = file.write(w_buffer, bytesToWrite);
+                dataWritten += w;
+                expectedDataSize += bytesToWrite;
+                if (w != bytesToWrite) break; // 書き込みエラー
+            }
+            break;
+        }
+
+        case 5: // UTF-32 BE
+        case 6: // UTF-32 LE
+        {
+            size_t index = 0;
+            while (index < SSText.length()) {
+                uint32_t cp = getNextUtf8CodePoint(SSText, index);
+                if (cp == 0) break; // 終端
+
+                byte d_buffer[4];
+                expectedDataSize += 4;
+
+                if (mozikode == 5) { // BE
+                    d_buffer[0] = (byte)(cp >> 24);
+                    d_buffer[1] = (byte)(cp >> 16);
+                    d_buffer[2] = (byte)(cp >> 8);
+                    d_buffer[3] = (byte)(cp & 0xFF);
+                } else { // LE
+                    d_buffer[0] = (byte)(cp & 0xFF);
+                    d_buffer[1] = (byte)(cp >> 8);
+                    d_buffer[2] = (byte)(cp >> 16);
+                    d_buffer[3] = (byte)(cp >> 24);
+                }
+                
+                size_t w = file.write(d_buffer, 4);
+                dataWritten += w;
+                if (w != 4) break; // 書き込みエラー
+            }
+            break;
+        }
+    } // end switch
+
+    // 4. ファイルを閉じる
+    file.close();
+
+    // 5. データ書き込みサイズの確認
+    if (dataWritten != expectedDataSize) {
+        Serial.println("Error: Failed to write complete String data (Encoding mismatch or disk full?).");
+        return false; 
+    }
+    
+    return true;
+}
+
+
+
 bool datt(String opthensuname,String setname){
   Serial.println("fff" + getMettVariableValue(dataToSaveE,opthensuname) );
   if(getMettVariableValue(dataToSaveE,opthensuname) == ""){
@@ -1286,7 +1727,7 @@ if(sse == "E"){
       holdimanopaged = imano_page;
       holdpositpointmaxd = positpointmax;
       mainmode = 12;
-      if(ggmode.endsWith(".mett") || ggmode.endsWith(".tbl") || ggmode.endsWith(".txt")){
+      if(ggmode.endsWith(".mett") ||  ggmode.endsWith(".txt")){
         M5.Lcd.printf("Wanna Edit? Press BtnB\n");
       }
       return;
@@ -1518,7 +1959,44 @@ if(sse == "E"){
         return;// !nosd の if ブロック終了 (ここに閉じ括弧を追加しました)
   }
 
-}
+}else if(mainmode == 12){
+    if(M5.BtnA.wasPressed()){
+      M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(File_goukeifont);
+        positpoint = 0;
+        mainmode = 1;
+        positpointmax = holdpositpointmaxd;
+        imano_page = holdimanopaged;
+        // SDカードコンテンツの初期表示
+        shokaipointer();
+        return;
+    }
+    if(ggmode.endsWith(".txt") && M5.BtnB.wasPressed()){
+      M5.Lcd.fillScreen(BLACK);
+      if(!checkSDCardOnly){
+        kanketu("SD card not found!",500);
+        M5.Lcd.fillScreen(BLACK);
+        mainmode = 1;
+        positpoint = 0;
+        holdpositpoint = 0;
+        
+        imano_page = 0;
+        frameright  = 1;
+        frameleft = 1;
+        shokaipointer();
+        return;
+      }
+
+
+      mainmode = -11;
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.println("Loading...");
+      Serial.println("fe" + DirecX + ggmode);
+      SuperT = 
+      return;
+    }
+ }
 }
 
 

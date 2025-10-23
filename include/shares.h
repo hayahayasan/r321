@@ -12,7 +12,7 @@ extern int positpointmaxgmain1;
 extern int positpointmaxmain1;
 extern int positpointmaxmain2;
 extern int maxLinesPerPage;
-
+void shokaipointer2(int pageNum, String filePath  );
 extern int mainmode;
 extern int imano_page;
 extern int maxpage;
@@ -148,6 +148,7 @@ bool isValidTableName(const String& tableName, const String existingNames[], siz
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableNameToDelete);
 // Struct to hold information about a single metadata file
 void displayLoadedVariables(const MettDataMap& dataMap);
+bool getVariableNamesInTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& isZero, std::vector<String>& variableNames);
 struct CursorPosInfo {
     int pixelX;
     int pixelY;
@@ -245,6 +246,7 @@ extern int holdpositpointmaxd;
 extern String ggmode;
 extern String Filelist[];
 extern void mainkansu_optsd();
+bool readSdFileToStringForced(const String& filePath, String &SSText, int &mozikode);
 
 
 
