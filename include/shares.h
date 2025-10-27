@@ -245,6 +245,7 @@ extern int holdimanopaged;
 extern int holdpositpointmaxd;
 extern String ggmode;
 extern String Filelist[];
+extern int fontdd;
 extern void mainkansu_optsd();
 bool readSdFileToStringForced(const String& filePath, String &SSText, int &mozikode);
 

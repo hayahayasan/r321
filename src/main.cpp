@@ -1554,7 +1554,8 @@ else if(mainmode == 14){
       return;
         }
       }else if(positpoint == 0){//open
-
+        M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
       }
       
     }

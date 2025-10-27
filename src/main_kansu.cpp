@@ -112,7 +112,7 @@ bool isArrowKeyRepeating = false;  // キーが現在連続実行状態である
 int nullCount = 0; 
 int lastDrawnCursorScreenX = -9999; 
 int lastDrawnCursorScreenY = -9999;
-
+int fontdd = 0;
 
 String Textex = "!"; // 最下部にスクロール表示するテキスト
 String Textex2 = "";
@@ -263,6 +263,7 @@ uint32_t getNextUtf8CodePoint(const String &str, size_t &index) {
  * @return bool 処理に成功した場合は true。SDカードが利用不可、ファイルが開けない場合は false。
  * (メモリ限界で読み込みが途中で停止した場合でも true を返します)
  */
+String mozikk[7] = {"No BOM","BOM UTF8","UTF16BE","UTF16LE","No Texts","UTF32 BE","UTF32 LE"};
 bool readSdFileToStringForced(const String& filePath, String &SSText, int &mozikode) {
 
     // 1. SDカードのチェック
@@ -1988,13 +1989,131 @@ if(sse == "E"){
       }
 
 
-      mainmode = -11;
+      
       M5.Lcd.setCursor(0,0);
       M5.Lcd.setTextSize(3);
       M5.Lcd.println("Loading...");
       Serial.println("fe" + DirecX + ggmode);
-      SuperT = 
+      String dirrr = DirecX + ggmode;
+      
+      Serial.println("dt" + dirrr);
+      String Texx = "";
+      bool suc = readSdFileToStringForced(dirrr,Texx,fontdd);
+      SuperT = Texx;
+      if(suc){
+        mainmode = -11;
+        M5.Lcd.fillScreen(BLACK);
+        Textex =  "This character code:" + mozikk[fontdd] + "   Press Tab to save!";
+        return;
+      }else{
+        kanketu("File Load Error!",500);
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        mainmode = 1;
+        positpoint = holdpositpoint;
+        shokaipointer();
+        return;
+      }
+      
+    }else if(ggmode.endsWith(".mett") && M5.BtnB.wasPressed()){
+      M5.Lcd.fillScreen(BLACK);
+      if(!checkSDCardOnly){
+        kanketu("SD card not found!",500);
+        M5.Lcd.fillScreen(BLACK);
+        mainmode = 1;
+        positpoint = 0;
+        holdpositpoint = 0;
+        
+        imano_page = 0;
+        frameright  = 1;
+        frameleft = 1;
+        shokaipointer();
+        return;
+      }
+
+
+      mainmode = 13;
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.println("Loading...");
+      Serial.println("fe" + DirecX + ggmode);
+      shokaipointer2(0,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      Serial.println("sus" + String(maxpage));
       return;
+    }
+ }else if(mainmode == -11){
+   delay(1);
+    textluck();
+    if(entryenter == 2){//back
+      entryenter = 0;
+      bool ss = areusure();
+      if(ss){
+       
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        mainmode = 1;
+        positpoint = holdpositpoint;
+        shokaipointer();
+        return;
+      }else{
+        M5.Lcd.fillScreen(BLACK);
+      }
+    }else if(entryenter == 1){//enter
+      entryenter = 0;
+      M5.Lcd.fillScreen(BLACK);
+      mainmode = -12;
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.println("  No BOM\n  UTF8\n  UTF16\n  UTF32");
+      positpointmax = 4;
+      maxpage = -1;
+      positpoint = 0;
+      return;
+    }
+
+
+
+ }else if(mainmode == -12){
+    updatePointer2(3);
+    if(pagemoveflag == 2){
+      pagemoveflag = 0;
+      return;
+    }else if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      return;
+    }else if((pagemoveflag == 5) ){
+      pagemoveflag = 0;
+      M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        mainmode = -11;
+
+      return;
+    
+    }else if(M5.BtnB.wasPressed()){
+      if(positpoint == 0){
+        fontdd = 0;
+      }else if(positpoint == 1){
+        fontdd = 1;
+      }else if(positpoint == 2){
+        fontdd = 2;
+      }else if(positpoint == 3){
+        fontdd = 5;
+      }
+      M5.Lcd.fillScreen(BLACK);
+      bool ss = writeStringToFileForced(DirecX + ggmode,SuperT,fontdd);
+      if(ss){
+        kanketu("File Saved!",500);
+      }else{
+        kanketu("File Save Error!",500);
+      }
+      M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        mainmode = 1;
+        positpoint = holdpositpoint;
+        positpointmax = holdpositpointmax;
+        shokaipointer();
+        return;
     }
  }
 }
