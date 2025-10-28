@@ -248,6 +248,29 @@ extern String Filelist[];
 extern int fontdd;
 extern void mainkansu_optsd();
 bool readSdFileToStringForced(const String& filePath, String &SSText, int &mozikode);
+bool containsInvalidChars(const String& str);
+std::vector<String> splitString(const String& str, char delim = ',');
+String joinStringVector(const std::vector<String>& vec, const char* delim = ",");
+void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
+std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool* isError);
+bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& oldVariableName, const String& newVariableName, bool* isError);
+bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName, bool* isError);
+void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
+                          int pageNumber, int itemsPerPage,
+                          std::vector<String>& variableNames, std::vector<String>& values,
+                          bool zenbu, bool& isZero, bool& isError, int& allhensucount);
+void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
+std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool* isError);
+bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
+bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableName, bool* isError);
+
+
+
+
+
+
+
+
 
 
 

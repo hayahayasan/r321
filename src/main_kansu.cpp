@@ -1743,6 +1743,9 @@ if(sse == "E"){
     delay(1);
   
 
+
+
+
     //Serial.println("IMA:" + ForDlist[nowposit()] + "bango" + nowposit());
     if(!nosd){ // !nosd の if ブロック開始
 
@@ -1902,9 +1905,48 @@ if(sse == "E"){
         M5.Lcd.setTextSize(3);
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
-        if(Filelist[nowposit()] )
-       M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+       
+
+
+        if(Filelist[nowposit()].endsWith(".txt" )||  Filelist[nowposit()].endsWith(".mett") ){
+          bool sss = false;
+          int ggcounter = 0;
+          while(true){
+            delay(1);
+            M5.update();
+            if(M5.BtnB.isPressed()){
+              ggcounter++;
+            }
+            if(!M5.BtnB.isPressed()  || ggcounter > 600){
+              break;
+            }
+          }
+          if(ggcounter > 600){
+            ggmode = Filelist[nowposit()];
+            mainmode = 13;
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.println("Loading...");
+      Serial.println("fe" + DirecX + ggmode);
+      shokaipointer2(0,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      Serial.println("sus" + String(maxpage));
+      return;
+          }else{
+            M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
         return;
+          }
+        }else{
+          M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+        return;
+        }
+         
+
+
+
+
+
+       
       }
       else if(DirecX != "/" && btna && imano_page == 0 && positpoint == -1){//前リダイレクトに戻る
         DirecX = maeredirect(DirecX); // 一つ前のディレクトリに戻る
