@@ -258,11 +258,14 @@ bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String
 void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
                           int pageNumber, int itemsPerPage,
                           std::vector<String>& variableNames, std::vector<String>& values,
-                          bool zenbu, bool& isZero, bool& isError, int& allhensucount);
+                          bool zenbu,  bool& isError, int& allhensucount) ;
 void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
 std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool* isError);
 bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableName, bool* isError);
+bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName);
+bool CreateMettFirstHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVarName);
+
 
 
 

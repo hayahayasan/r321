@@ -4473,11 +4473,11 @@ void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targ
 void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
                           int pageNumber, int itemsPerPage,
                           std::vector<String>& variableNames, std::vector<String>& values,
-                          bool zenbu, bool& isZero, bool& isError, int& allhensucount) { // allhensucountを追加
+                          bool zenbu,  bool& isError, int& allhensucount) { // allhensucountを追加
 
     // 初期化とエラーリセット
     isError = false; // デフォルトで成功
-    isZero = false;
+    
     allhensucount = 0; // 新しい出力引数を初期化
     variableNames.clear();
     values.clear();
@@ -4499,11 +4499,7 @@ void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& 
     const size_t totalVariables = fullVariables.size();
     allhensucount = (int)totalVariables; // 総変数数を設定
 
-    if (totalVariables == 0) {
-        isZero = true;
-        Serial.println("Warning: テーブルに変数が存在しません。isZero = true。");
-        return;
-    }
+   
 
     // --- 4. ページ計算とデータ抽出 ---
     int startIndex = 0;
@@ -4952,3 +4948,208 @@ bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& old
     }
 }
 
+bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName) {
+    
+    // --- 1. 命名規則の検証 ---
+
+    if (newVariableName.isEmpty()) {
+        Serial.println("Error (Validate Var Name): Variable name cannot be empty.");
+        return false;
+    }
+    if (newVariableName.length() >= 1001) {
+        Serial.println("Error (Validate Var Name): Variable name is too long (>= 1000 chars).");
+        return false;
+    }
+    if (newVariableName.indexOf(':') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character ':'.");
+        return false;
+    }
+    if (newVariableName.indexOf('.') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '.'.");
+        return false;
+    }
+    if (newVariableName.indexOf(' ') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character ' ' (half-width space).");
+        return false;
+    }
+    if (newVariableName.indexOf('　') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '　' (full-width space).");
+        return false;
+    }
+    if (newVariableName.indexOf('\n') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '\\n' (newline).");
+        return false;
+    }
+
+    // ▼▼▼ ここから追加 ▼▼▼
+    if (newVariableName.indexOf('\\') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '\\'.");
+        return false;
+    }
+    if (newVariableName.indexOf('*') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '*'.");
+        return false;
+    }
+    if (newVariableName.indexOf('?') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '?'.");
+        return false;
+    }
+    if (newVariableName.indexOf('"') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '\"'.");
+        return false;
+    }
+    if (newVariableName.indexOf('<') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '<'.");
+        return false;
+    }
+    if (newVariableName.indexOf('>') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '>'.");
+        return false;
+    }
+    if (newVariableName.indexOf('|') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '|'.");
+        return false;
+    }
+    if (newVariableName.indexOf('-') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character '-'.");
+        return false;
+    }
+    if (newVariableName.indexOf(';') != -1) {
+        Serial.println("Error (Validate Var Name): Variable name contains forbidden character ';'.");
+        return false;
+    }
+    // ▲▲▲ 追加ここまで ▲▲▲
+
+
+    // --- 2. 重複チェック ---
+    
+    // ExtractTablePageMett を zenbu=true で呼び出し、全変数名を取得
+    std::vector<String> existingNames;
+    std::vector<String> dummyValues;
+    bool extractError = false;
+    int totalVars = 0;
+
+    ExtractTablePageMett(fs, fullFilePath, targetTableName, 
+                         1, 1, // ページング引数は使われない
+                         existingNames, dummyValues, 
+                         true, // zenbu = true
+                         extractError, totalVars);
+
+    // ExtractTablePageMett が失敗した場合（例: loadMettFileでのI/Oエラー）
+    if (extractError) {
+        Serial.println("Error (Validate Var Name): Failed to extract existing variable names for duplication check.");
+        return false;
+    }
+
+    // 取得したリストと照合
+    for (const auto& name : existingNames) {
+        if (name == newVariableName) {
+            Serial.printf("Error (Validate Var Name): Variable name '%s' already exists in table '%s'.\n", newVariableName.c_str(), targetTableName.c_str());
+            return false;
+        }
+    }
+
+    // すべてのチェックをパス
+    Serial.printf("Info (Validate Var Name): Variable name '%s' passed validation.\n", newVariableName.c_str());
+    return true;
+}
+
+bool CreateMettFirstHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVarName) {
+    
+
+    // --- 1. Basic Validation ---
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (CreateVar): File not found: %s\n", fullFilePath.c_str());
+     
+        return false;
+    }
+    // (バリデーション関数 isValidVariableNameSyntax があればここで呼び出すのが望ましい)
+    // (呼び出し側で isValidAndUniqueVariableName を呼んでいると仮定し、ここでは簡易チェックのみ)
+    if (newVarName.isEmpty() || newVarName.indexOf(':') != -1 || newVarName.indexOf('\n') != -1) {
+         Serial.printf("Error (CreateVar): Invalid new variable name syntax: '%s'\n", newVarName.c_str());
+        
+         return false;
+    }
+
+    // --- 2. Rebuild file line-by-line to temp file with insertion ---
+    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!originalFile) {
+        Serial.printf("Error (CreateVar): Could not open original file: %s\n", fullFilePath.c_str());
+       
+        return false;
+    }
+    String tempFilePath = fullFilePath + ".tmp";
+    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
+    if (!tempFile) {
+        Serial.printf("Error (CreateVar): Failed to open temp file: %s\n", tempFilePath.c_str());
+        originalFile.close();
+      
+        return false;
+    }
+
+    bool tableFound = false;
+    bool inTargetTable = false; // 挿入が完了したかを示すフラグとしても使用
+    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+    const int TABLE_NAME_PREFIX_LEN = 11;
+
+    while (originalFile.available()) {
+        String line = originalFile.readStringUntil('\n');
+        
+        // 常に元の行を書き込む
+        tempFile.println(line);
+
+        String trimmedLine = line;
+        trimmedLine.trim();
+
+        if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
+            inTargetTable = false; // テーブルブロックを抜けた
+        } else if (!inTargetTable && trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+            // まだ挿入しておらず、TABLE_NAME行に遭遇した
+            String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
+            currentTableName.trim();
+            
+            if (currentTableName == targetTableName) {
+                // ターゲットテーブルを見つけた！
+                tableFound = true;
+                inTargetTable = true; // このテーブル内ではもう二度と挿入しない
+
+                // ★★★ ここで新しい変数行とオプション行を挿入 ★★★
+                String varLine = newVarName + ":UNKNOWN:"; // 値は空
+                String optLine = newVarName + "_options:STRING:default"; // 型とデフォルト値を指定
+
+                tempFile.println(varLine);
+                tempFile.println(optLine);
+                
+                Serial.printf("Info (CreateVar): Inserting new var '%s' into table '%s'.\n", newVarName.c_str(), targetTableName.c_str());
+            }
+        }
+    }
+    originalFile.close();
+    tempFile.close();
+
+    // --- 3. Post-check and File Swap ---
+    if (!tableFound) {
+        Serial.printf("Error (CreateVar): Target table '%s' was not found in the file.\n", targetTableName.c_str());
+       
+        fs.remove(tempFilePath.c_str()); // 不要な一時ファイルを削除
+        return false;
+    }
+
+    // --- 4. Swap files ---
+    if (fs.remove(fullFilePath.c_str())) {
+        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+            Serial.printf("Info (CreateVar): Variable '%s' added successfully.\n", newVarName.c_str());
+            return true;
+        } else {
+            Serial.printf("Error (CreateVar): Failed to rename temp file.\n");
+       
+            fs.remove(tempFilePath.c_str()); // Clean up temp file
+            return false;
+        }
+    } else {
+        Serial.printf("Error (CreateVar): Failed to remove original file.\n");
+      
+        fs.remove(tempFilePath.c_str()); // Clean up temp file
+        return false;
+    }
+}

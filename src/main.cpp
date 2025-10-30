@@ -34,6 +34,7 @@ int holdpositpoints;
 int holdpositpointx = 0;
 int holdmaxpagex = 0;
 int holdimanopagex = 0;
+String MMName;
 #pragma endregion
 
 //配列のNULL代入も作る
@@ -45,6 +46,7 @@ int holdimanopagex = 0;
 
 std::vector<String> allhensuname;
 std::vector<String> allhensuvalue;
+std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","Default Value","Fill NULL","Duplicate","Edit Datecheck","Put/Delete Linker","pasterow Alltable","Atai/Type Copy","Atai/Type Paste","Exit"};
 String TTM;
 
 
@@ -444,36 +446,20 @@ bool removeMettTable(fs::FS &fs, const String& fullFilePath, const String& table
  * @return bool 処理の試行が成功したかどうか (ファイルが見つからない、書き込みエラーなど)
  */
 
-void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) { // bool* を bool& に変更
-    isError = true; // デフォルトでエラー
-
-    // --- 0. パスとテーブル名の検証 ---
-    
-    if (containsInvalidChars(tableName)) {
-        return;
-    }
-    for (const auto& pair : data) {
-        if (containsInvalidChars(pair.first)) {
-             return;
-        }
-        // 値(pair.second)には無効文字チェックは不要
-    }
-
+ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
+    isError = false;
+    Serial.println("\n--- Input MettDataMap for Save ---");
+    // displayLoadedVariables(data); // 非表示
+    Serial.println("--- End of Input MettDataMap ---");
 
     // --- 1. 既存のデータを読み込んでマージ用マップを作成 ---
     MettDataMap mergedData;
     if (fs.exists(fullFilePath.c_str())) {
-        std::vector<MettVariableInfo> existingVariables; // ここで宣言
-        bool loadSuccess, isEmpty, loadError; // isErrorをここで宣言
-        loadMettFile(fs, fullFilePath, tableName, loadSuccess, isEmpty, existingVariables); // isError と引数順序を変更
-
-        if (!loadSuccess) {
-             Serial.printf("Error (Save): 既存データのロードに失敗しました。保存を中止します。\n");
-             return;
-        }
-
-        if (loadSuccess && !isEmpty) {
-            for (const auto& var : existingVariables) {
+        std::vector<MettVariableInfo> existingVars;
+        bool loadSuccess, loadEmpty;
+        loadMettFile(fs, fullFilePath, tableName, loadSuccess, loadEmpty, existingVars);
+        if (loadSuccess && !loadEmpty) {
+            for (const auto& var : existingVars) {
                 mergedData[var.variableName] = var.valueString;
             }
         }
@@ -484,153 +470,93 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         mergedData[pair.first] = pair.second;
     }
 
-    // --- 3. 一時ファイルへのストリーミング書き込み ---
+    // --- 3. 一時ファイルへのストリーミング書き込み (★ 修正: 真のラインバイラインストリーミング) ---
     String tempFilePath = fullFilePath + ".tmp";
     File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
     if (!tempFile) {
         Serial.printf("Error (Save): Failed to open temp file: %s\n", tempFilePath.c_str());
+        isError = true;
         return;
     }
 
-    bool tableReplaced = false;
+    bool tableProcessed = false; // 更新/挿入が完了したか
+    bool inTargetBlock = false;  // 現在、処理対象のブロック内にいるか
+
+    const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
+    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+    const int TABLE_NAME_PREFIX_LEN = 11;
+
     if (fs.exists(fullFilePath.c_str())) {
         File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
         if (!originalFile) {
             Serial.printf("Error (Save): Failed to open original file for reading: %s\n", fullFilePath.c_str());
             tempFile.close();
             fs.remove(tempFilePath.c_str());
+            isError = true;
             return;
         }
 
-        String currentBlockBuffer = "";
-        bool isTargetBlock = false;
-        String currentTableName = ""; // 現在処理中のテーブル名を保持
-
-        // ブロック単位で書き込むラムダ関数
-        auto writeBlock = [&](const String& blockBuffer) {
-            if (isTargetBlock) {
-                // (1) ヘッダー（IDとTABLE_NAME）は保持
-                String headerBuffer = "";
-                String dataBuffer = ""; // 変数行とオプション行
-                int newlinePos1 = blockBuffer.indexOf('\n');
-                if (newlinePos1 != -1) {
-                    headerBuffer += blockBuffer.substring(0, newlinePos1 + 1); // ### METT_TABLE_ID ###\n
-                    int newlinePos2 = blockBuffer.indexOf('\n', newlinePos1 + 1);
-                    if (newlinePos2 != -1) {
-                        headerBuffer += blockBuffer.substring(newlinePos1 + 1, newlinePos2 + 1); // TABLE_NAME:...\n
-                        dataBuffer = blockBuffer.substring(newlinePos2 + 1); // 残りのデータ
-                    } else {
-                        headerBuffer += blockBuffer.substring(newlinePos1 + 1); // TABLE_NAME:... (改行なしの場合)
-                    }
-                } else {
-                    headerBuffer = blockBuffer; // ### METT_TABLE_ID ### のみ
-                }
-
-                tempFile.print(headerBuffer);
-
-                std::set<String> varsWithOption;
-
-                // (2) 既存のHENSU_OPTIONSをスキャンして保持＆変数名を記録
-                int startIdx = 0;
-                while(startIdx < dataBuffer.length()) {
-                    int endIdx = dataBuffer.indexOf('\n', startIdx);
-                    if (endIdx == -1) endIdx = dataBuffer.length();
-                    String line = dataBuffer.substring(startIdx, endIdx);
-                    String trimmedLine = line;
-                    trimmedLine.trim();
-
-                    // 終端マーカーはここでは書き込まない
-                    if (trimmedLine.startsWith("------END_TABLE_")) {
-                        startIdx = endIdx + 1;
-                        continue;
-                    }
-
-                    if (trimmedLine.startsWith("HENSU_OPTIONS:")) {
-                         // 新形式 HENSU_OPTIONS:variableName:options
-                         int c1 = trimmedLine.indexOf(':');
-                         if (c1 != -1) {
-                             String varName = trimmedLine.substring(c1 + 1);
-                             int c2 = varName.indexOf(':');
-                             if (c2 != -1) {
-                                 varName = varName.substring(0, c2); // varName部分
-                                 tempFile.println(line); // 一致したらそのまま書き戻す
-                                 varsWithOption.insert(varName);
-                             } else {
-                                // 不正な形式のHENSU_OPTIONSは無視
-                             }
-                         } else {
-                            // 不正な形式のHENSU_OPTIONSは無視
-                         }
-                    }
-                    startIdx = endIdx + 1;
-                }
-
-                // (3) mergedDataからvar:String:valueを書き込む
-                //    (削除された変数はmergedDataに含まれないので書き込まれない)
-                for (const auto& pair : mergedData) {
-                    // String dataType = inferDataType2(pair.second); // データ型推測は不要に
-                    tempFile.printf("%s:String:%s\n", pair.first.c_str(), pair.second.c_str()); // データ型は常にString
-
-                    // (4) 新しい変数 or 既存変数でオプションがまだない場合、空のオプションを追記
-                    if (varsWithOption.find(pair.first) == varsWithOption.end()) {
-                        tempFile.printf("HENSU_OPTIONS:%s:\n", pair.first.c_str()); // テーブル名を削除
-                    }
-                }
-
-                // (5) 終端マーカーを追加
-                tempFile.printf("------END_TABLE_%s------\n", tableName.c_str());
-                tableReplaced = true;
-            } else {
-                // 対象外のブロックはそのまま書き込む
-                tempFile.print(blockBuffer);
-            }
-        };
-
-
-        // 元ファイルを1行ずつ読み、ブロックを構築
         while (originalFile.available()) {
             String line = originalFile.readStringUntil('\n');
             String trimmedLine = line;
             trimmedLine.trim();
 
-            if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
-                if (!currentBlockBuffer.isEmpty()) {
-                    writeBlock(currentBlockBuffer);
-                }
-                currentBlockBuffer = line + "\n";
-                isTargetBlock = false;
-                currentTableName = ""; // テーブル名をリセット
-            } else {
-                currentBlockBuffer += line + "\n";
-                if (trimmedLine.startsWith("TABLE_NAME:")) {
-                    String name = trimmedLine.substring(trimmedLine.indexOf(':') + 1);
-                    name.trim();
-                    currentTableName = name; // 現在のテーブル名を記録
-                    if (name == tableName) {
-                        isTargetBlock = true;
+            if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
+                // ブロックの境界
+                inTargetBlock = false;
+                tempFile.println(line); // ID行は常に書き込む
+            } else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+                // テーブル名行
+                String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
+                currentTableName.trim();
+                
+                if (currentTableName == tableName) {
+                    // ★ ターゲットテーブル発見
+                    inTargetBlock = true;
+                    tableProcessed = true;
+                    
+                    // 1. TABLE_NAME行を書き込む
+                    tempFile.println(line);
+                    
+                    // 2. マージした全変数を書き込む
+                    Serial.printf("Debug (Save): Writing merged data for table '%s'.\n", tableName.c_str());
+                    for (const auto& pair : mergedData) {
+                        if (pair.first != "table_name") {
+                            // (データ型はsaveMettFileの責務外とし、UNKNOWNで書き込む)
+                            tempFile.println(pair.first + ":UNKNOWN:" + pair.second);
+                        }
                     }
+                    tempFile.println(); // ブロックの最後に空行
+                } else {
+                    // 他テーブルのTABLE_NAME行
+                    inTargetBlock = false;
+                    tempFile.println(line);
+                }
+            } else {
+                // 変数行、コメント、空行など
+                if (!inTargetBlock) {
+                    // ターゲットブロックの外側 (他のテーブルの変数など) -> そのまま書き込む
+                    tempFile.println(line);
+                } else {
+                    // ターゲットブロックの内側 -> スキップ (マージ済みデータを書き込んだため)
+                    // (何もしない)
                 }
             }
-        }
-        // 最後のブロックを書き込む
-        if (!currentBlockBuffer.isEmpty()) {
-            writeBlock(currentBlockBuffer);
         }
         originalFile.close();
     }
 
     // --- 4. ファイル内に既存テーブルがなかった場合 (新規追加) ---
-    if (!tableReplaced) {
-        tempFile.println("### METT_TABLE_ID ###");
-        tempFile.println("TABLE_NAME:" + tableName);
+    if (!tableProcessed) {
+        Serial.printf("Debug (Save): Appending new table '%s'.\n", tableName.c_str());
+        tempFile.println(TABLE_ID_PREFIX);
+        tempFile.println(String(TABLE_NAME_PREFIX) + tableName);
         for (const auto& pair : mergedData) {
-             // String dataType = inferDataType2(pair.second); // データ型推測は不要に
-            tempFile.printf("%s:String:%s\n", pair.first.c_str(), pair.second.c_str()); // データ型は常にString
-            // 新規テーブルなので、空のオプション行も追記
-            tempFile.printf("HENSU_OPTIONS:%s:\n", pair.first.c_str()); // テーブル名を削除
+            if (pair.first != "table_name") {
+                tempFile.println(pair.first + ":UNKNOWN:" + pair.second);
+            }
         }
-        // 新規テーブルの終端マーカーを追加
-        tempFile.printf("------END_TABLE_%s------\n", tableName.c_str());
+        tempFile.println();
     }
 
     tempFile.close();
@@ -651,8 +577,8 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         }
     }
 
-    if (!(isError)) {
-        Serial.printf("Info (Save): File saved successfully. Table '%s' was %s.\n", tableName.c_str(), tableReplaced ? "updated" : "added");
+    if (!isError) {
+        Serial.printf("Info (Save): File saved successfully. Table '%s' was %s.\n", tableName.c_str(), tableProcessed ? "updated" : "added");
     }
 }
 
@@ -1002,9 +928,9 @@ void shokaipointer4(int pagenum = 0){
   bool tt = false;
 
   int itemsPerP = 8;
-        bool iszero = false;
+        
         int ahc = 0;
-  ExtractTablePageMett(SD,DirecX + ggmode,TTM,pagenum,itemsPerP,allhensuname,allhensuvalue,false,iszero,tt,ahc);
+  ExtractTablePageMett(SD,DirecX + ggmode,TTM,pagenum,itemsPerP,allhensuname,allhensuvalue,false,tt,ahc);
   if(!tt){
         M5.Lcd.fillScreen(BLACK);
         Serial.println("Load Error.");
@@ -1027,7 +953,9 @@ void shokaipointer4(int pagenum = 0){
     positpoint = 0;
     M5.Lcd.setTextSize(3);
     frameleft = 0;
-  if (iszero) {
+     M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+  if (allhensuname.empty()) {
         M5.Lcd.fillScreen(BLACK);
         Serial.println("No tables found.");
         maxLinesPerPage = -1;
@@ -1061,6 +989,7 @@ void shokaipointer4(int pagenum = 0){
     }else{
       maxLinesPerPage = (ahc / itemsPerPage) + 1;
     }
+   
     for (int i = start; i < end; ++i) {
         M5.Lcd.println("  " + allhensuname[i] +":val:" + allhensuvalue[i]);
         
@@ -1318,8 +1247,122 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
- if(mainmode == 17){
+ if(mainmode ==18){
+  entryenter = 0;
+   textluck();
+   if(entryenter == 1){
+    entryenter = 0;
+    bool mm = isValidAndUniqueVariableName(SD,DirecX + ggmode,TTM,SuperT);
+    if(!mm){
+      Textex = "Invalid Name!";
+    }else{
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Creating...");
+      bool gg = CreateMettFirstHensu(SD,DirecX + ggmode,TTM,SuperT);
+      if(gg){
+        kanketu("Hensu Created!",500);
+      }else{
+        kanketu("Hensu Create Failed!",500);
+      }
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          TTM = AllName[holdpositpoints];
+          holdpositpointx = positpoint;
+          holdmaxpagex = maxpage;
+          holdimanopagex = imano_page;
+          positpoint = 0;
+          imano_page = 0;
+        shokaipointer4();
+        mainmode = 17;
+        return;
+    }
+   }else if(entryenter == 2){
+    entryenter = 0;
+      M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          TTM = AllName[holdpositpoints];
+          holdpositpointx = positpoint;
+          holdmaxpagex = maxpage;
+          holdimanopagex = imano_page;
+          positpoint = 0;
+          imano_page = 0;
+        shokaipointer4();
+        mainmode = 17;
+        return;
+   }  
+ }
+ else if(mainmode == 17){
+    if(maxLinesPerPage == -1){
+      if(M5.BtnB.wasPressed()){
+        
+        bool ii = areubunki("Create Hensu","Cancel");
+        if(ii){
+          mainmode = 18;
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          shokaipointer4(imano_page);
+      maxpage = maxLinesPerPage;
+      SuperT = "";
+      Textex = "Enter Hensu Table Name.";
+      return;
+        }else{
+                imano_page = holdimanopagex;
+      positpoint = holdpositpointx;
+      shokaipointer2(holdimanopagex,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      mainmode = 13;
+      M5.Lcd.fillScreen(BLACK);
+      
+      
+      return;
+        }
+      }
+    }else{
+          updatePointer2();
+        holdpositpoints = positpoint;
+    if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      imano_page = 0;
+      positpoint = 0;
+      Serial.println("fefe1!");
+      shokaipointer4(imano_page);
+      maxpage = maxLinesPerPage;
+      return;
+    }else if(pagemoveflag == 2){
+      pagemoveflag = 0;
+      imano_page = imano_page + 1;
+      positpoint = 0;
+      Serial.println("fefe2!");
+      shokaipointer4(imano_page);
+      maxpage = maxLinesPerPage;
+      return;
+    }else if(pagemoveflag == 3){
+      pagemoveflag = 0;
+      imano_page = imano_page - 1;
+      
+      positpoint = positpointmaxg - 1;
+      shokaipointer4(imano_page);
+      maxpage = maxLinesPerPage;
+      return;
+    }else if (pagemoveflag == 4){
+      
+            imano_page = holdimanopagex;
+      positpoint = holdpositpointx;
+      shokaipointer2(holdimanopagex,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      mainmode = 13;
+      M5.Lcd.fillScreen(BLACK);
+      
+      
+      return;
+    }else if(M5.BtnB.wasPressed()){
+      
+      return;
 
+    }
+ }
  }
 else if(mainmode == 16){
     updatePointer2(1);
@@ -1700,9 +1743,9 @@ else if(mainmode == 13){
       holdpositpointmax = positpointmax;
       holdpositpoint = positpoint;
       holdimanopage = imano_page;
-      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Duplicate\n  Deleterowswithname" );
+      M5.Lcd.println("  Open\n  Create\n  Rename\n  Delete\n  TableOptions\n  Duplicate\n  Deleterowswithname\n  Kensaku Value" );
       positpoint = 0;
-      positpointmax = 7;
+      positpointmax = 8;
       maxpage = -1;
       mainmode = 14;
       return;
