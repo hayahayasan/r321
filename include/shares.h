@@ -216,7 +216,6 @@ void drawBottomText() ;
 extern bool rootnofile;
 String trimString(const String& s);
 void displayPageInfo(int currentPage, int totalPages);
-bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
 extern String AllName[100];
 std::vector<FileMettData> scanAndExtractMettData(fs::FS &fs, String DirecD);
 void parseMettBlockToMap(const String& variableLines, MettDataMap& dataMap);
@@ -252,20 +251,44 @@ bool containsInvalidChars(const String& str);
 std::vector<String> splitString(const String& str, char delim = ',');
 String joinStringVector(const std::vector<String>& vec, const char* delim = ",");
 void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
-std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool* isError);
+std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool& isNull, bool& isError);
 bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& oldVariableName, const String& newVariableName, bool* isError);
 bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName, bool* isError);
 void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
-                          int pageNumber, int itemsPerPage,
-                          std::vector<String>& variableNames, std::vector<String>& values,
-                          bool zenbu,  bool& isError, int& allhensucount) ;
+                                int pageNumber, int itemsPerPage,
+                                std::vector<String>& variableNames, std::vector<String>& values,
+                                std::vector<String>& ids, // ★★★ 変更: int -> String ★★★
+                                bool zenbu,  bool& isError, int& allhensucount);
 void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
-std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool* isError);
 bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableName, bool* isError);
 bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName);
-bool CreateMettFirstHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVarName);
+void createMettHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, 
+                           const String& targetVariableName, const String& value, 
+                           bool isWrite, int id, bool& isError);
+bool loadMettHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, 
+                         String& value, bool& idIsNull, int& idReturn);
 
+bool saveHensuId(fs::FS &fs, const String& fullFilePath, const String& targetTableName, 
+                       const String& targetVariableName, bool isNull, int idValue);
+ bool loadHensuId(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, 
+                       bool& idIsNull, int& idReturn);
+bool removeMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, bool& isError);
+bool removeMettVariable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName, bool& isError);
+bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
+extern const int itemsPerPage ; // Number of items to display on a page
+extern std::vector<String> allTableNames;
+extern std::vector<String> allTableNames2;
+extern String fefe;
+void updatePointerAndDisplay(int ril) ;
+bool initializeSDCard(String ss) ;
+void showmozinn(const String& text) ;
+void createjj();
+void opt_hukusei();
+void shokaipointer3();
+void opt1_kaimei(int id);
+bool optkobun();
+bool test_load();
 
 
 
