@@ -37,6 +37,8 @@ int holdimanopagex = 0;
 std::vector<String> hensuopt2;
 int holdpositpointx2 = 0;
 int holdimanopagex2 = 0;
+int holdpositpointx3 = 0;
+int holdimanopagex3 = 0;
 String MMName;
 #pragma endregion
 
@@ -675,7 +677,7 @@ void shokaipointer4(int pagenum = 0){
     M5.Lcd.setTextSize(1);
     for (int i = start; i < end; ++i) {
       
-        M5.Lcd.printf("  %s id:%s val:%s\n", allhensuname[i].c_str(), ids[i].c_str(), allhensuvalue[i].c_str());
+        M5.Lcd.printf("  %s id:%s val:%s\n", allhensuname[i].c_str(), ids[i].c_str(), GyakuhenkanTxt(allhensuvalue[i].c_str()));
 
     }
     M5.Lcd.setTextSize(2);
@@ -704,6 +706,11 @@ void shokaioptionhensu(){
     opttt.push_back("susdummy3:");
     opttt.push_back("susdummy4:");
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
+    if(sus){
+      Serial.println("HensuOptions Save Error.");
+    }else{
+      Serial.println("HensuOptions Save Succeed.");
+    }
   }
 }
 void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
@@ -748,7 +755,7 @@ void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
     // Use positpointmax for the loop
     int start = dd;
     
-    int end = positpointmax  ;
+    int end = dd + positpointmax  ;
     
     if(ahc % itemsPerP == 0){
       maxpage = ahc / itemsPerP;
@@ -826,8 +833,44 @@ void setup() {
 void loop() {
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
+ if(mainmode == 20){
+    textluck();
+    if(entryenter == -1){
+      SuperT + SuperT + ",";
+      entryenter = 0;
+    }else if(entryenter == 1){
+      entryenter = 0;
+      if(!isValidHensuValue(SuperT,false)){//配列指定してないとき
+        Textex = "Invalid Value!";
+        return;
+      }
+      bool ss;
+      createMettHensu(SD,DirecX + ggmode,TTM,hensuopt[holdpositpointx3],SuperT,false,0,ss);
+      if(!ss){
+        kanketu("Hensu Edited!",500);
+      }else{
+        kanketu("Hensu Edit Failed!",500);
+      }
+      M5.Lcd.fillScreen(BLACK);
+              imano_page = holdimanopagex2;
+      positpoint = holdpositpointx2;
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
 
- if(mainmode == 19){
+    }else if(entryenter == 2){
+      entryenter = 0;
+      positpoint = holdpositpointx3;
+      imano_page = holdimanopagex3;
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.println("loading..");
+      mainmode = 19;
+      imano_page = 0;
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(imano_page);
+    }
+ }
+ else if(mainmode == 19){
       updatePointer2(3);
       
       if(pagemoveflag == 1){
@@ -870,12 +913,14 @@ void loop() {
       if(positpoint == 0){
         M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
-          
+          holdpositpointx3 = positpoint;
+          holdimanopagex3 = imano_page;
           String TTM2 = hensuopt[positpoint];
           bool tt;
           int id;
           String sus;
           bool yy = loadMettHensu(SD,DirecX + ggmode,TTM,TTM2,sus,tt,id);
+          sus = GyakuhenkanTxt(sus);
           if(yy){
             M5.Lcd.setTextSize(1);
             M5.Lcd.println("(Press C to Edit,A to quit) your Value is...");

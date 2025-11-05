@@ -259,7 +259,7 @@ void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& 
                                 std::vector<String>& variableNames, std::vector<String>& values,
                                 std::vector<String>& ids, // ★★★ 変更: int -> String ★★★
                                 bool zenbu,  bool& isError, int& allhensucount);
-void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
+void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool& isError);
 bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableName, bool* isError);
 bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName);
@@ -289,6 +289,8 @@ void shokaipointer3();
 void opt1_kaimei(int id);
 bool optkobun();
 bool test_load();
+bool isValidHensuValue(String& text, bool isHairetsu);
+String GyakuhenkanTxt(const String& text);
 
 
 

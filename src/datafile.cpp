@@ -523,7 +523,10 @@ bool isValidFilesystemPath(const String& path) {
         Serial.println("Path Validation Error: Path is empty.");
         return false;
     }
-
+    if(path.indexOf("METT_TABLE_ID") != -1 || path.indexOf("TABLE_NAME") != -1 || path.indexOf("HENSU_OPTIONS") != -1){
+        Serial.println("Path Validation Error: Path contains reserved keywords.");
+        return false;
+    }
     // 2. パスは '/' (ルート) から始まる必要がある (Windowsのドライブレター形式は想定外)
     if (path.charAt(0) != '/') {
         Serial.printf("Path Validation Error: Path must start with '/'. Found: %c\n", path.charAt(0));
@@ -3941,10 +3944,13 @@ void textluck() {
                 SuperT = SuperT.substring(0, cursorIndex - 1) + SuperT.substring(cursorIndex);
                 cursorIndex--;
             }
-        } else if (inputChar == "SPACE") {
+        } else if (inputChar == "SPACE" ) {
             if (SuperT.length() < MAX_STRING_LENGTH) {
                 SuperT = SuperT.substring(0, cursorIndex) + " " + SuperT.substring(cursorIndex);
                 cursorIndex++;
+            }
+            if(mainmode == 20){
+                entryenter = -1;
             }
         } else if (inputChar == "UP" || inputChar == "DOWN" || inputChar == "LEFT" || inputChar == "RIGHT") {
             // 矢印キーの場合、performArrowKeyActionを直接呼び出す
@@ -5821,4 +5827,76 @@ void createjj(){
           }
         }
         return;
+}
+
+
+bool isValidHensuValue(String& text, bool isHairetsu) {
+    // 1. 文字長のチェック
+    if (text.length() > 10000) {
+        Serial.printf("Error (ValidateValue): テキストが長すぎます (Max 10000文字)。\n");
+        return false;
+    }
+
+    // 2. 改行のチェック
+    if (!isHairetsu) {
+        // 配列でない場合、改行は許可されない
+        if (text.indexOf('\n') != -1) {
+            Serial.printf("Error (ValidateValue): 改行は許可されていません (isHairetsu=false)。\n");
+            return false;
+        }
+    }
+
+    // --- ここから下は検証成功 (true を返す) ---
+    
+    // 3. エンコード処理
+    
+    // 3a. まず '&' を '&6' に置換 (他の置換より先に実行)
+    text.replace("&", "&6");
+
+    // 3b. isHairetsu=true の場合のみ改行を '&n' に置換
+    if (isHairetsu) {
+        text.replace("\n", "&n");
+    }
+    
+    // 3c. その他の禁止文字を置換
+    text.replace(":", "&1");
+    text.replace("_", "&2"); // (注: ユーザー指定の ',' ではなく '_' を採用)
+    text.replace("#", "&3");
+    text.replace("%", "&4");
+    text.replace(";", "&5");
+
+    // ★ 修正: エンドマーカー "&e" を追加
+    text += "&e";
+
+    return true; // 検証・エンコード成功
+}
+
+// ★★★ 追加: GyakuhenkanTxt ★★★
+/**
+ * @brief isValidHensuValueでエンコードされた文字列を、元の表示可能な形式にデコード（逆変換）します。
+ * ★ 修正: 末尾のエンドマーカー "&e" を削除します。
+ *
+ * @param text エンコードされたテキスト (空文字も対応可)
+ * @return String デコードされたテキスト
+ */
+String GyakuhenkanTxt(const String& text) {
+    String decodedText = text;
+
+    // ★ 修正: 末尾のエンドマーカー "&e" があれば削除
+    if (decodedText.endsWith("&e")) {
+        decodedText = decodedText.substring(0, decodedText.length() - 2);
+    }
+
+    // 1. '&n' や '&1' などの特殊コードを文字に戻す
+    decodedText.replace("&1", ":");
+    decodedText.replace("&2", "_");
+    decodedText.replace("&3", "#");
+    decodedText.replace("&4", "%");
+    decodedText.replace("&5", ";");
+    decodedText.replace("&n", "\n");
+
+    // 2. 最後に '&6' を '&' に戻す (他の置換が完了した後に実行)
+    decodedText.replace("&6", "&");
+
+    return decodedText;
 }
