@@ -291,6 +291,8 @@ bool optkobun();
 bool test_load();
 bool isValidHensuValue(String& text, bool isHairetsu);
 String GyakuhenkanTxt(const String& text);
+String getDateTimeString();
+
 
 
 

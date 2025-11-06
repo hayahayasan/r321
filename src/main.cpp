@@ -51,7 +51,7 @@ String MMName;
 
 std::vector<String> allhensuname;
 std::vector<String> allhensuvalue;
-std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","Default Value","Fill NULL","Duplicate","Edit Datecheck","Put/Delete Linker","pasterow Alltable","Atai/Type Copy","Atai/Type Paste","Exit"};
+std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","Fill NULL","Duplicate","Check Date","Put/Delete Linker","pasterow Alltable","Atai/Type Duplicate","Duplicatetotbl","Exit"};
 String TTM;
 
 
@@ -686,8 +686,62 @@ void shokaipointer4(int pagenum = 0){
 
 
 }    
+
+void checkemptyhensu(String Hensu,String atai,String Kaerichi = ""){
+  bool nullp;
+  bool sus;
+  std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
+    if(sus){
+    Serial.println("HensuOptions Load Error.");
+    return;
+  }
+  if(std::find(opttt.begin(), opttt.end(), Hensu) == opttt.end()){
+    opttt.push_back(Hensu + ":" + atai);
+    saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
+    if(sus){
+      Serial.println("HensuOptions Save Error.");
+      return;
+    }else{
+      Serial.println("HensuOptions Save Succeed.");
+      return;
+    }
+  }else{
+    Serial.println("HensuOptions Exists.");
+    String yyy = ""; // 結果を格納する変数
+
+
+if(yyy == ""){
+  for (String& line : opttt) {
+    
+    // 2. Stringの indexOf() メソッドで部分一致をチェックします。
+    //    -1 以外が返ってきたら、文字列が見つかったことを意味します。
+    if (line.indexOf(Hensu + ":") != -1) {
+      
+      if(line.substring(line.indexOf(":") + 1) ==""){
+        line = Hensu + ":" + atai;
+        saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
+        if(sus){
+          Serial.println("HensuOptions initial Save Error.");
+          Kaerichi = atai;
+          return;
+        }else{
+          Serial.println("HensuOptions initial Save Succeed.");
+          Kaerichi = atai;
+          return;
+        }
+      }else{
+        Kaerichi = line.substring(line.indexOf(":") + 1);
+        return;
+      }
+    }
+  }
+}
+
+    return;
+  }
+}
 void shokaioptionhensu(){
-  String TTM2 = hensuopt[positpoint];
+  
   bool nullp;
   bool sus;
   int optionlength = 10;
@@ -702,8 +756,8 @@ void shokaioptionhensu(){
     opttt.push_back("tagname:");
     opttt.push_back("vectorlength:");
     opttt.push_back("kinshi_moji:");
-    opttt.push_back("susdummy2:");
-    opttt.push_back("susdummy3:");
+    opttt.push_back("made_date:");
+    opttt.push_back("last_date:");
     opttt.push_back("susdummy4:");
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
     if(sus){
@@ -711,6 +765,9 @@ void shokaioptionhensu(){
     }else{
       Serial.println("HensuOptions Save Succeed.");
     }
+  }else{
+    Serial.println("Already Loaded");
+    return;
   }
 }
 void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
@@ -916,6 +973,7 @@ void loop() {
           holdpositpointx3 = positpoint;
           holdimanopagex3 = imano_page;
           String TTM2 = hensuopt[positpoint];
+          shokaioptionhensu();
           bool tt;
           int id;
           String sus;
@@ -1082,6 +1140,7 @@ void loop() {
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.println("loading..");
       mainmode = 19;
+      
       imano_page = 0;
       M5.Lcd.setTextFont(3);
       shokaipointer5(0);
@@ -1168,6 +1227,28 @@ else if(mainmode == 16){
             return;
           }
           return;
+        }else if(positpoint == 3){
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.setTextSize(1);
+          showmozinn("The Date:\n  Createdat:" + dataToSaveE["table_opt4"] + "\n  Lastat:" + dataToSaveE["table_opt5"] + "\n  NowTime:" + getDateTimeString());
+          while(true){
+            M5.delay(1);
+            M5.update();
+            if(M5.BtnB.wasPressed()){
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.setTextSize(3);
+              break;
+            }
+          }
+          shokaipointer3();
+          std::vector<MettVariableInfo> loadedVariablese;
+          loadMettFile(SD,DirecX + ggmode,fefe,sus,sus,loadedVariablese);
+            dataToSaveE = copyVectorToMap(loadedVariablese);
+            if(!optkobun()){
+
+            }
         }
     }
 }
@@ -1354,7 +1435,7 @@ else if(mainmode == 14){
       
       Serial.println("point:" + String(holdpositpoint) + "name:" + AllName[holdpositpoint]);
       fefe = AllName[holdpositpoints];
-       
+        
       holdimanopage = imano_page;
 
       bool loadSuccess = false;
@@ -1414,6 +1495,8 @@ else if(mainmode == 14){
 #pragma endregion
       }else if(positpoint == 0){//open
         M5.Lcd.fillScreen(BLACK);
+        fefe = AllName[holdpositpoint];
+        createjj();
           M5.Lcd.setCursor(0,0);
           TTM = AllName[holdpositpoints];
           holdpositpointx = positpoint;
@@ -1760,7 +1843,24 @@ else if (mainmode == 0) { // メニューモードの場合
 }
 
 
+String getDateTimeString() {
+    m5::rtc_datetime_t dt;
+    M5.Rtc.getDateTime(&dt); // RTCから現在時刻を取得
 
+    char buffer[20]; // "YYYY-MM-DD_hh:mm:ss" (19文字) + 終端文字
+    
+    snprintf(buffer, sizeof(buffer), 
+             "%04d-%02d-%02d_%02d:%02d:%02d",
+             dt.date.year,
+             dt.date.month,
+             dt.date.date,
+             dt.time.hours,
+             dt.time.minutes,
+             dt.time.seconds
+    );
+
+    return String(buffer);
+}
 
 
 

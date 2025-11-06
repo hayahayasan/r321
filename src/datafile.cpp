@@ -5666,11 +5666,12 @@ bool optkobun(){
  
   M5.Lcd.println(String("  Index Number:") + dataToSaveE["table_opt1"] 
             + "\n  tabletype:" + dataToSaveE["table_opt2"] +
-             "\n  tag:" + dataToSaveE["table_opt3"] + "\n\n table options!");
+             "\n  tag:" + dataToSaveE["table_opt3"] +
+             "\n  date1/2:(check)"+ "\n\n table options!");
           positpoint = 0;
           maxpage = -1;
           imano_page = 0;
-          positpointmax = 3;
+          positpointmax = 4;
           mainmode = 16;
          
           bool temp1;
@@ -5705,10 +5706,14 @@ void opt1_kaimei(int id){
         }
         
         shokaipointer3();
+        std::vector<MettVariableInfo> loadedVariablese;
+          loadMettFile(SD,DirecX + ggmode,fefe,sus,sus,loadedVariablese);
+            dataToSaveE = copyVectorToMap(loadedVariablese);
         Serial.println("fefff" + fefe);
         saveMettFile(SD, DirecX + ggmode, fefe, dataToSaveE, sus);
         if(sus){
           kanketu("Set Success!",500);
+          
         }else{
           kanketu("Set Failed!",500);
         }
@@ -5813,6 +5818,12 @@ void createjj(){
           jj = true;
         }
         if(datt("table_opt3","")){
+          jj = true;
+        }
+        if(datt("table_opt4",getDateTimeString())){
+          jj = true;
+        }
+        if(datt("table_opt5",getDateTimeString())){
           jj = true;
         }
         Serial.println("DD!" + dataToSaveE["table_opt1"]);
