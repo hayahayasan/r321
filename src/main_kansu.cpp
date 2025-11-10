@@ -601,15 +601,6 @@ bool writeStringToFileForced(const String& filePath, const String &SSText, int m
 
 
 
-bool datt(String opthensuname,String setname){
-  Serial.println("fff" + getMettVariableValue(dataToSaveE,opthensuname) );
-  if(getMettVariableValue(dataToSaveE,opthensuname) == ""){
-      dataToSaveE[opthensuname] = setname;
-      Serial.println("ddf" + dataToSaveE[opthensuname]);
-      return true;
-  }
-  return false;
-}
 
 int selectOption(const String options[], int numOptions, const String upperText, const String lowerText) {
     // 実際に表示するオプションと元のインデックスを抽出
@@ -1908,7 +1899,7 @@ if(sse == "E"){
        
 
 
-        if(Filelist[nowposit()].endsWith(".txt" )||  Filelist[nowposit()].endsWith(".mett") ){
+        if(Filelist[positpoint].endsWith(".txt" )||  Filelist[positpoint].endsWith(".mett") ){
           bool sss = false;
           int ggcounter = 0;
           while(true){

@@ -535,6 +535,7 @@ void shokaipointer2(int pageNum, String filePath  ) {
     // Get all table names from a single file
     bool tt = false;
     allTableNames = getAllTableNamesInFile(SD, filePath,tt);
+    Serial.println("Tables found: " + String(allTableNames.size()));
     allTableNames2 = allTableNames;
     if (allTableNames.empty()) {
         M5.Lcd.fillScreen(BLACK);
@@ -885,9 +886,12 @@ void setup() {
 //変数は変更ロックの登録・解除機能，デフォルト数値，NULL置き換え追加
 //ログ機能の追加．ログ追加後，メニューから一発でテーブル編集に飛ぶ機能，つまりファイルのお気に入り指定の追加
 //テーブルコピペ機能（名称を変更したテーブルを複数作成する）
-
+bool tututu;
 //変数機能：作成，削除，複製，リネーム，変数値設定，変数値のNULL，変数値デフォルト値の設定，変数値タイプ（数値またはリストまたはDate），変数値のリセット，オプション，全テーブルへの列追加，全テーブルから列削除
 void loop() {
+  if(mainmode == 13){
+    tututu = false;
+  }
   M5.update(); // ボタン状態を更新
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
  if(mainmode == 20){
@@ -1242,13 +1246,9 @@ else if(mainmode == 16){
               break;
             }
           }
-          shokaipointer3();
-          std::vector<MettVariableInfo> loadedVariablese;
-          loadMettFile(SD,DirecX + ggmode,fefe,sus,sus,loadedVariablese);
-            dataToSaveE = copyVectorToMap(loadedVariablese);
-            if(!optkobun()){
-
-            }
+          
+          
+            shokaipointer3();
         }
     }
 }
@@ -1495,8 +1495,8 @@ else if(mainmode == 14){
 #pragma endregion
       }else if(positpoint == 0){//open
         M5.Lcd.fillScreen(BLACK);
-        fefe = AllName[holdpositpoint];
-        createjj();
+        fefe = AllName[holdpositpoints];
+        
           M5.Lcd.setCursor(0,0);
           TTM = AllName[holdpositpoints];
           holdpositpointx = positpoint;
@@ -1504,8 +1504,19 @@ else if(mainmode == 14){
           holdimanopagex = imano_page;
           positpoint = 0;
           imano_page = 0;
-        shokaipointer4();
+        
         maxpage = maxLinesPerPage;
+        
+   
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0,0);
+    M5.Lcd.println("Checking the table_options...");
+    createjj();
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0,0);
+      shokaipointer4();
+  
+        
         shokaioptionhensu();
         mainmode = 17;
         return;
@@ -1514,8 +1525,9 @@ else if(mainmode == 14){
     }
 }
 else if(mainmode == 13){
-
+  
   if(maxLinesPerPage != -1){
+    
         updatePointer2();
         holdpositpoints = positpoint;
     if(pagemoveflag == 1){
@@ -1842,25 +1854,24 @@ else if (mainmode == 0) { // メニューモードの場合
 
 }
 
-
 String getDateTimeString() {
     m5::rtc_datetime_t dt;
     M5.Rtc.getDateTime(&dt); // RTCから現在時刻を取得
 
-    char buffer[20]; // "YYYY-MM-DD_hh:mm:ss" (19文字) + 終端文字
-    
-    snprintf(buffer, sizeof(buffer), 
-             "%04d-%02d-%02d_%02d:%02d:%02d",
-             dt.date.year,
-             dt.date.month,
-             dt.date.date,
-             dt.time.hours,
-             dt.time.minutes,
-             dt.time.seconds
-    );
+    // ゼロパディング用のヘルパーラムダ
+    auto pad = [](int num) -> String {
+        return (num < 10) ? "0" + String(num) : String(num);
+    };
 
-    return String(buffer);
+    // String 連結で "YYYY-MM-DD_hh:mm:ss" 形式を作成
+    String dateTimeString = String(dt.date.year) + "-" +
+                            pad(dt.date.month) + "-" +
+                            pad(dt.date.date) + "_" +
+                            pad(dt.time.hours) + ":" +
+                            pad(dt.time.minutes) + ":" +
+                            pad(dt.time.seconds);
+
+    return dateTimeString;
 }
-
 
 
