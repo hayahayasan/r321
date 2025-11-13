@@ -51,7 +51,7 @@ String MMName;
 
 std::vector<String> allhensuname;
 std::vector<String> allhensuvalue;
-std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","Fill NULL","Duplicate","Check Date","Put/Delete Linker","pasterow Alltable","Atai/Type Duplicate","Duplicatetotbl","Exit"};
+std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Hensu Dup","Duplicatetotbl","Exit"};
 String TTM;
 
 
@@ -84,7 +84,10 @@ String TTM;
 
     // --- 1. 既存のデータを読み込んでマージ用マップを作成 ---
     std::map<String, MettVariableInfo> mergedInfo; // MettDataMap ではなく MettVariableInfo を保持
+    std::vector<String> existingOptionsLines; // ★ HENSU_OPTIONS行を保持するベクター
+    
     if (fs.exists(fullFilePath.c_str())) {
+        // 1a. データ変数を読み込む
         std::vector<MettVariableInfo> existingVars;
         bool loadSuccess, loadEmpty;
         loadMettFile(fs, fullFilePath, tableName, loadSuccess, loadEmpty, existingVars);
@@ -92,6 +95,32 @@ String TTM;
             for (const auto& var : existingVars) {
                 mergedInfo[var.variableName] = var;
             }
+        }
+
+        // 1b. ★ HENSU_OPTIONS行を別途読み込む (ストリーミング)
+        File originalFile_options = fs.open(fullFilePath.c_str(), FILE_READ); // 別のハンドルを使用
+        if (originalFile_options) {
+            bool inTargetBlock = false;
+            while (originalFile_options.available()) {
+                String line = originalFile_options.readStringUntil('\n');
+                String trimmedLine = line;
+                trimmedLine.trim();
+
+                if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
+                    inTargetBlock = false;
+                } else if (trimmedLine.startsWith("TABLE_NAME:")) {
+                    String currentTableName = trimmedLine.substring(String("TABLE_NAME:").length());
+                    currentTableName.trim();
+                    if (currentTableName == tableName) {
+                        inTargetBlock = true;
+                    } else {
+                        inTargetBlock = false;
+                    }
+                } else if (inTargetBlock && trimmedLine.startsWith("HENSU_OPTIONS:")) {
+                    existingOptionsLines.push_back(line); // ★ オプション行を保持
+                }
+            }
+            originalFile_options.close();
         }
     }
 
@@ -107,7 +136,7 @@ String TTM;
         }
     }
 
-    // --- 3. ★★★ 修正: HENSU_OPTIONS: を保持するストリーミング書き込み ★★★
+    // --- 3. 一時ファイルへのストリーミング書き込み ---
     String tempFilePath = fullFilePath + ".tmp";
     File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
     if (!tempFile) {
@@ -118,12 +147,10 @@ String TTM;
 
     bool tableProcessed = false;
     bool inTargetBlock = false;
+    bool foundFirstTableId = false; // ★★★ 追加: 最初のID行を見つけたか
     const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
     const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
     const int TABLE_NAME_PREFIX_LEN = 11;
-    
-    // ★ 挿入用の HENSU_OPTIONS: 行を準備 (新規テーブル用)
-    std::map<String, bool> optionsWritten;
 
     if (fs.exists(fullFilePath.c_str())) {
         File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
@@ -140,12 +167,24 @@ String TTM;
             String trimmedLine = line;
             trimmedLine.trim();
 
+            // ★★★ 追加: 最初のID行が見つかるまでヘッダーをスキップ ★★★
+            if (!foundFirstTableId) {
+                if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
+                    // 最初のID行を発見
+                    foundFirstTableId = true;
+                    // この行から処理を開始 (この行は書き込む)
+                } else {
+                    // 最初のID行より前のテキスト -> スキップ
+                    Serial.printf("Debug (Save): Skipping header text: %s\n", line.c_str());
+                    continue; // 次の行へ
+                }
+            }
+            // ★★★ ここまで ★★★
+
             if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
-                // ブロック境界
                 inTargetBlock = false;
                 tempFile.println(line); 
-            } 
-            else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+            } else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
                 String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
                 currentTableName.trim();
                 
@@ -160,71 +199,62 @@ String TTM;
                     for (const auto& pair : mergedInfo) { 
                         if (pair.first != "table_name") {
                             tempFile.println(pair.second.variableName + ":" + pair.second.dataType + ":" + pair.second.valueString);
-                            optionsWritten[pair.first] = false; // HENSU_OPTIONS が必要かマーク
                         }
                     }
+
+                    // ★ 2. 保持していた HENSU_OPTIONS: 行を書き込む
+                    Serial.printf("Debug (Save): Writing %d preserved HENSU_OPTIONS lines.\n", (int)existingOptionsLines.size());
+                    for (const auto& optLine : existingOptionsLines) {
+                        tempFile.println(optLine);
+                    }
+                    
+                    // ★ 3. 新規追加された変数の HENSU_OPTIONS: 行も書き込む
+                    for (const auto& pair : mergedInfo) {
+                        bool optionExists = false;
+                        String optionPrefix = "HENSU_OPTIONS:" + pair.first + ":";
+                        for(const auto& optLine : existingOptionsLines) {
+                            if (optLine.startsWith(optionPrefix)) {
+                                optionExists = true;
+                                break;
+                            }
+                        }
+                        // ★ 新規変数（オプション行がまだ存在しない）の場合
+                        if (!optionExists) {
+                             Serial.printf("Debug (Save): Writing new HENSU_OPTIONS line for '%s'.\n", pair.first.c_str());
+                             tempFile.println("HENSU_OPTIONS:" + pair.first + ":");
+                        }
+                    }
+
+                  
                 } else {
                     inTargetBlock = false;
                 }
-            } 
-            else {
+            } else {
                 // 変数行、HENSU_OPTIONS行、コメント、空行
-                if (inTargetBlock) {
-                    // ★ ターゲットブロックの内側
-                    
-                    int firstColon = trimmedLine.indexOf(':');
-                    int secondColon = trimmedLine.indexOf(':', firstColon + 1);
-                    
-                    if (firstColon > 0 && secondColon > firstColon) {
-                        // データ変数行 -> スキップ (マージ済みデータを書き込んだため)
-                    } else {
-                        // データ変数行ではない (HENSU_OPTIONS, コメント, 空行)
-                        tempFile.println(line); // ★ これらを保持する
-                        
-                        // ★ もしこれが保持した HENSU_OPTIONS 行なら、マークを true にする
-                        if (trimmedLine.startsWith("HENSU_OPTIONS:")) {
-                            String varName = trimmedLine.substring(String("HENSU_OPTIONS:").length());
-                            int optColon = varName.indexOf(':');
-                            if (optColon != -1) {
-                                varName = varName.substring(0, optColon);
-                            }
-                            if (optionsWritten.count(varName)) {
-                                optionsWritten[varName] = true; // 保持済み
-                            }
-                        }
-                    }
-
-                } else {
+                if (!inTargetBlock) {
                     // ターゲットブロックの外側
                     tempFile.println(line);
                 }
+                // ★ ターゲットブロックの内側はスキップ
+                // (データ変数とオプション行は上で処理済みのため)
             }
-        } // end while
-        originalFile.close();
-        
-        // ★ ターゲットブロックがファイル末尾だった場合の処理
-        // (このロジックは while の後、tempFile.close() の前であるべきだが、)
-        // (現状のロジックでは、最後のブロックは while ループの外で処理されない)
-        // (↑いや、`originalFile.available()` が false になったらループを抜けるので、)
-        // (最後の行まで処理されるはず)
-        
-        // ★ 足りない HENSU_OPTIONS: 行を追加 (既存テーブルに新規変数を追加した場合)
-        if (tableProcessed && inTargetBlock) { // (inTargetBlockはループ終了時にはfalseかも)
-            Serial.printf("Debug (Save): Checking for missing HENSU_OPTIONS lines in existing table.\n");
-            for (const auto& pair : optionsWritten) {
-                if (pair.second == false) { // false = 保持されていない (新規追加)
-                    tempFile.println("HENSU_OPTIONS:" + pair.first + ":");
-                }
-            }
-            tempFile.println(); // ブロックの最後に空行
         }
-
-    } // end if (fs.exists(...))
+        originalFile.close();
+    } // if fs.exists
 
     // --- ファイル内に既存テーブルがなかった場合 (新規追加) ---
     if (!tableProcessed) {
         Serial.printf("Debug (Save): Appending new table '%s'.\n", tableName.c_str());
-        tempFile.println(TABLE_ID_PREFIX);
+        
+        // ★ 修正: 新規ファイル(またはヘッダーのみのファイル)の場合、foundFirstTableIdはfalse
+        // その場合でも、ID行から書き始める
+        if (!foundFirstTableId) {
+             tempFile.println(TABLE_ID_PREFIX); // 新規ファイルならID行を書き込む
+        } else {
+            // 既存ファイルの末尾なら改行で始める
+             tempFile.println(TABLE_ID_PREFIX);
+        }
+        
         tempFile.println(String(TABLE_NAME_PREFIX) + tableName);
         for (const auto& pair : mergedInfo) { 
             if (pair.first != "table_name") {
@@ -297,13 +327,31 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     }
     
     String currentTableNameInFile = "";
-    bool shouldLoadCurrentTable = false; // ★★★ 修正: 初期値をfalseに
+    bool shouldLoadCurrentTable = false; 
     bool inTableContext = false; 
+    bool foundFirstTableId = false; // ★★★ 追加: 最初のID行を見つけたか
 
     while (file.available()) {
         String line = file.readStringUntil('\n');
         String originalLine = line; 
         line.trim();
+
+        // ★★★ 追加: 最初のID行が見つかるまで他の行を無視する ★★★
+        if (!foundFirstTableId) {
+            if (line.startsWith("### METT_TABLE_ID ###")) {
+                Serial.println("Debug (Load): Found first TABLE_ID. Starting parse.");
+                foundFirstTableId = true;
+                // この行自体は処理済みとして、次の行からコンテキスト解析を開始
+                inTableContext = false; 
+                currentTableNameInFile = "";
+                shouldLoadCurrentTable = false;
+                continue; // 次の行へ
+            }
+            // 最初のIDが見つかるまで、TABLE_NAMEや変数行はすべて無視する
+            continue; 
+        }
+        // ★★★ ここまで ★★★
+
 
         if (line.startsWith("#") || line.isEmpty()) {
             continue;
@@ -312,7 +360,7 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
         if (line.startsWith("### METT_TABLE_ID ###")) {
             Serial.println("Debug (Load): Found TABLE_ID. Resetting current table context.");
             currentTableNameInFile = "";
-            shouldLoadCurrentTable = false; // ★★★ 修正: テーブルコンテキストを抜けるのでfalseに
+            shouldLoadCurrentTable = false; 
             inTableContext = false; 
             continue;
         }
@@ -322,7 +370,6 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
             int colonIndex = line.indexOf(':');
             currentTableNameInFile = (colonIndex != -1) ? line.substring(colonIndex + 1) : "";
             currentTableNameInFile.trim();
-            // ★★★ 修正: テーブル名が完全に一致する場合のみ読み込むようにロジックを修正 ★★★
             shouldLoadCurrentTable = (targetTableName == currentTableNameInFile);
             if (shouldLoadCurrentTable) {
                 Serial.printf("Debug (Load): Found target table '%s'. Loading variables.\n", currentTableNameInFile.c_str());
@@ -332,7 +379,6 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
             continue;
         }
 
-        // ★★★ 変更: HENSU_OPTIONS: で始まる行はデータ変数ではないので無視する ★★★
         if (line.startsWith("HENSU_OPTIONS:")) {
             continue;
         }
@@ -341,17 +387,23 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
             int firstColon = line.indexOf(':');
             int secondColon = line.indexOf(':', firstColon + 1);
             if (firstColon > 0 && secondColon > firstColon) {
-                // ★★★ 修正: 構造体の全メンバをゼロ初期化する ★★★
-                MettVariableInfo varInfo = {}; 
-                
+                MettVariableInfo varInfo;
+                varInfo.variableName = "";
+                varInfo.dataType = "";
+                varInfo.valueString = "";
+                varInfo.tableName = "";
+                varInfo.Options = "";
+                varInfo.Test = "";
+                varInfo.id1 = 0;
+                varInfo.id2 = 0;
+                varInfo.id3 = 0;
+                varInfo.id4 = 0;
+
                 varInfo.variableName = line.substring(0, firstColon);
                 varInfo.dataType = line.substring(firstColon + 1, secondColon); // ID (String)
                 varInfo.valueString = line.substring(secondColon + 1);
                 varInfo.tableName = currentTableNameInFile;
                 varInfo.id1 = varInfo.dataType.toInt(); // ID (int)
-                
-                // (Options, Test, id2, id3, id4 はゼロ/空 のまま)
-                
                 variables.push_back(varInfo);
                 Serial.printf("Debug (Load): Loaded Var -> Name: %s, ID: %s, Value: %s\n", varInfo.variableName.c_str(), varInfo.dataType.c_str(), varInfo.valueString.c_str());
             } else {
@@ -360,7 +412,17 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
         }
     }
 
-    // ★★★ 追加: 最終的にロードされたベクターの内容をシリアル出力 ★★★
+    // ★★★ 追加: 最終チェック ★★★
+    if (!foundFirstTableId) {
+        Serial.printf("Warning (Load): File %s does not contain any '### METT_TABLE_ID ###'. No data loaded.\n", fullFilePath.c_str());
+        variables.clear();
+        success = true; // ファイル読み込み自体は成功
+        isEmpty = true; // データは0件
+        file.close();
+        return;
+    }
+    // ★★★ ここまで ★★★
+
     Serial.println("\n--- Final Loaded Variables (Vector) ---");
     if (variables.empty()) {
         Serial.println("Vector is empty.");
@@ -376,7 +438,6 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
         }
     }
     Serial.println("--- End of Final Loaded Variables ---");
-    // ★★★ 追加ここまで ★★★
 
     file.close();
     success = true;
@@ -750,16 +811,16 @@ void shokaioptionhensu(){
   if(sus){
     Serial.println("HensuOptions Load Error.");
   }else if(nullp || optionlength > opttt.size()){
-    opttt.push_back("datatype:");
-    opttt.push_back("defaultvalue:");
-    opttt.push_back("isvalueNULL:");
-    opttt.push_back("data_lock:");
-    opttt.push_back("tagname:");
-    opttt.push_back("vectorlength:");
-    opttt.push_back("kinshi_moji:");
-    opttt.push_back("made_date:");
-    opttt.push_back("last_date:");
-    opttt.push_back("susdummy4:");
+    opttt.push_back("datatype;");
+    opttt.push_back("defaultvalue;");
+    opttt.push_back("isvalueNULL;");
+    opttt.push_back("data_lock;");
+    opttt.push_back("tagname;");
+    opttt.push_back("vectorlength;");
+    opttt.push_back("kinshi_moji;");
+    opttt.push_back("made_date;");
+    opttt.push_back("last_date;");
+    opttt.push_back("susdummy4;");
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
     if(sus){
       Serial.println("HensuOptions Save Error.");
@@ -801,7 +862,7 @@ void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
          M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
 
-    int totalPages2 = 0;
+    
     
     positpointmax = itemsPerP;
   
@@ -820,6 +881,7 @@ void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
     }else{
       maxpage = (ahc / itemsPerP) + 1;
     }
+    int totalPages2 = maxpage;
     M5.Lcd.setTextSize(3);
     for (int i = start; i < end; ++i) {
       
@@ -889,10 +951,13 @@ void setup() {
 bool tututu;
 //変数機能：作成，削除，複製，リネーム，変数値設定，変数値のNULL，変数値デフォルト値の設定，変数値タイプ（数値またはリストまたはDate），変数値のリセット，オプション，全テーブルへの列追加，全テーブルから列削除
 void loop() {
+
+
   if(mainmode == 13){
     tututu = false;
   }
   M5.update(); // ボタン状態を更新
+  
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
  if(mainmode == 20){
     textluck();
@@ -1135,7 +1200,7 @@ void loop() {
       shokaipointer2(holdimanopagex,DirecX + ggmode);
       maxpage = maxLinesPerPage;
       mainmode = 13;
-      M5.Lcd.fillScreen(BLACK);
+      
       
       
       return;
@@ -1144,7 +1209,8 @@ void loop() {
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.println("loading..");
       mainmode = 19;
-      
+      holdpositpointx2 = positpoint;
+      holdimanopagex2 = imano_page;
       imano_page = 0;
       M5.Lcd.setTextFont(3);
       shokaipointer5(0);

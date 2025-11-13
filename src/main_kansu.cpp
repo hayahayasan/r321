@@ -159,6 +159,46 @@ unsigned long lastBlinkToggleTime = 0;
 bool showAngleBrackets = true; 
 
 
+
+void suguseni(){
+
+Serial.println("feaef" + Filelist[holdpositpoint]);
+
+  
+          if(Filelist[holdpositpoint].endsWith(".txt" )||  Filelist[holdpositpoint].endsWith(".mett") ){
+          bool sss = false;
+          int ggcounter = 0;
+          while(true){
+            delay(1);
+            
+            if(M5.BtnB.isPressed()){
+              ggcounter++;
+            }
+            if(!M5.BtnB.isPressed()  || ggcounter > 600){
+              break;
+            }
+            M5.update();
+          }
+          if(ggcounter > 600){
+            ggmode = Filelist[nowposit()];
+            mainmode = 13;
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.println("Loading...");
+      Serial.println("fe" + DirecX + ggmode);
+      shokaipointer2(0,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      Serial.println("sus" + String(maxpage));
+      return;
+          }else{
+            M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+        return;
+          }
+        }else{
+          M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+        return;
+        }
+}
 bool appendUtf8(String &str, uint32_t cp) {
     char buffer[5]; // 最大4バイト + ヌル終端
     int len = 0;
@@ -1746,6 +1786,7 @@ if(sse == "E"){
     if(!otroot && !nosd){
       updatePointer(false);
     }
+   
        
        if(btnc && pagemoveflag == 5){
           imano_page = 0;
@@ -1897,40 +1938,9 @@ if(sse == "E"){
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.setTextColor(WHITE);
        
+        suguseni();
+        
 
-
-        if(Filelist[positpoint].endsWith(".txt" )||  Filelist[positpoint].endsWith(".mett") ){
-          bool sss = false;
-          int ggcounter = 0;
-          while(true){
-            delay(1);
-            M5.update();
-            if(M5.BtnB.isPressed()){
-              ggcounter++;
-            }
-            if(!M5.BtnB.isPressed()  || ggcounter > 600){
-              break;
-            }
-          }
-          if(ggcounter > 600){
-            ggmode = Filelist[nowposit()];
-            mainmode = 13;
-      M5.Lcd.setCursor(0,0);
-      M5.Lcd.setTextSize(3);
-      M5.Lcd.println("Loading...");
-      Serial.println("fe" + DirecX + ggmode);
-      shokaipointer2(0,DirecX + ggmode);
-      maxpage = maxLinesPerPage;
-      Serial.println("sus" + String(maxpage));
-      return;
-          }else{
-            M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
-        return;
-          }
-        }else{
-          M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
-        return;
-        }
          
 
 

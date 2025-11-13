@@ -425,7 +425,7 @@ void updatePointer2(int size) {
         Serial.println("pagemoved");
         return;
     
-    } else if(lefttrue() && positpoint == -1){
+    } else if(lefttrue() && positpoint == 0){
       btna = true;
       btnc = false;
       Serial.println("HHH" + String(positpoint));
@@ -4257,6 +4257,16 @@ std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, con
 
     // ★★★ 自動修復ロジック ★★★
     if (isError == false && isNull == true) {
+        
+        // ★★★ 追加: 変数名が空の場合は、自動修復しない ★★★
+        if (targetVariableName.isEmpty()) {
+            Serial.printf("Warning (loadHensuOptions): Target variable name is empty. Skipping auto-create.\n");
+            isError = false; // エラーではない
+            isNull = true;   // 見つからなかった
+            return options;
+        }
+        // ★★★ ここまで ★★★
+
         // I/Oエラーはなく、行が見つからなかった場合
         Serial.printf("Warning (loadHensuOptions): Options not found for %s:%s. Creating empty entry...\n", targetTableName.c_str(), targetVariableName.c_str());
         
@@ -4285,200 +4295,161 @@ std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, con
     return options; // 見つからなかった場合 (空のベクター, isNull=true, isError=false)
 }
 
+void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool& isError) {
+    isError = false;
 
+  
+    // ★★★ ここまで ★★★
+
+    // --- オプション要素の検証 ---
+    for(const String& opt : options) {
+        if (opt.indexOf(',') != -1) {
+            Serial.printf("Error (saveHensuOptions): Option element '%s' for %s:%s contains invalid character ','.\n", opt.c_str(), targetTableName.c_str(), targetVariableName.c_str());
+            isError = true;
+            return;
+        }
+         if (containsInvalidChars(opt)) { // ':' や '-' などもチェック
+            Serial.printf("Error (saveHensuOptions): Option element '%s' for %s:%s contains invalid characters.\n", opt.c_str(), targetTableName.c_str(), targetVariableName.c_str());
+            isError = true;
+            return;
+        }
+    }
+    
+    // --- 1. オプションベクターを単一のStringに変換 (ヘルパー関数使用) ---
+    String optionsString = joinStringVector(options, ",");
+    Serial.printf("\n--- Input for saveHensuOptions (Var: %s, Options: %s) ---\n", 
+                  targetVariableName.c_str(), optionsString.c_str());
+
+
+    // --- 2. ストリーミング書き込みのための準備 ---
+    String tempFilePath = fullFilePath + ".tmp";
+    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
+    if (!tempFile) {
+        Serial.printf("Error (saveHensuOptions): Failed to open temp file: %s\n", tempFilePath.c_str());
+        isError = true;
+        return;
+    }
+
+    bool tableFound = false;
+    bool inTargetBlock = false;
+    bool optionProcessed = false; // オプション行が処理（上書きまたは新規追加）されたか
+    String targetLinePrefix = "HENSU_OPTIONS:" + targetVariableName + ":";
+    String newOptionLine = targetLinePrefix + optionsString; // 書き込む行
+
+    const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
+    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+    const int TABLE_NAME_PREFIX_LEN = 11;
+
+    // --- 3. 元ファイルが存在する場合のみ、ストリーミング読み書き実行 ---
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (saveHensuOptions): File does not exist: %s\n", fullFilePath.c_str());
+        isError = true;
+        tempFile.close();
+        fs.remove(tempFilePath.c_str());
+        return;
+    }
+    
+    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!originalFile) {
+        Serial.printf("Error (saveHensuOptions): Failed to open original file: %s\n", fullFilePath.c_str());
+        tempFile.close();
+        fs.remove(tempFilePath.c_str());
+        isError = true;
+        return;
+    }
+
+    while (originalFile.available()) {
+        String line = originalFile.readStringUntil('\n');
+        String trimmedLine = line;
+        trimmedLine.trim();
+
+        if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
+            // ブロック境界
+            if (inTargetBlock && !optionProcessed) {
+                // ★ 新規作成 (ブロックの末尾に追加)
+                Serial.printf("Debug (saveHensuOptions): Option line not found in block. Appending new line for '%s'.\n", targetVariableName.c_str());
+                tempFile.println(newOptionLine);
+                optionProcessed = true;
+            }
+            inTargetBlock = false;
+            tempFile.println(line); 
+        } 
+        else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+            // テーブル名行
+            String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
+            currentTableName.trim();
+            
+            tempFile.println(line); // テーブル名行は常に書き込む
+
+            if (currentTableName == targetTableName) { 
+                inTargetBlock = true;
+                tableFound = true;
+            } else {
+                inTargetBlock = false;
+            }
+        } 
+        else if (inTargetBlock) {
+            // ターゲットブロック内の行
+            if (trimmedLine.startsWith(targetLinePrefix)) {
+                // ★ 上書き対象のオプション行を発見
+                optionProcessed = true;
+                tempFile.println(newOptionLine);
+                Serial.printf("Debug (saveHensuOptions): Rewriting option line for '%s'.\n", targetVariableName.c_str());
+            } else {
+                // 他の変数行やコメントなど
+                tempFile.println(line);
+            }
+        } 
+        else {
+            // ターゲットブロック外の行
+            tempFile.println(line);
+        }
+    } // while loop
+    originalFile.close();
+
+    // --- 4. ファイル末尾の処理 ---
+    if (inTargetBlock && !optionProcessed) {
+        // ★ 新規作成 (ファイルの末尾が対象ブロックだった場合)
+        Serial.printf("Debug (saveHensuOptions): Option line not found at EOF. Appending new line for '%s'.\n", targetVariableName.c_str());
+        tempFile.println(newOptionLine);
+        optionProcessed = true;
+    }
+
+    tempFile.close();
+
+    // --- 5. テーブルが見つからなかった場合 ---
+    if (!tableFound) {
+        Serial.printf("Error (saveHensuOptions): Target table '%s' was not found.\n", targetTableName.c_str());
+        isError = true;
+        fs.remove(tempFilePath.c_str()); // 不要な一時ファイルを削除
+        return; // ★ 戻り値が void なので return;
+    }
+
+    // --- 6. ファイルを入れ替え ---
+    if (fs.remove(fullFilePath.c_str())) {
+        if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+            Serial.printf("Error (saveHensuOptions): Failed to rename temp file.\n");
+            isError = true;
+        }
+    } else {
+        Serial.printf("Error (saveHensuOptions): Failed to remove original file.\n");
+        isError = true;
+    }
+
+    if (!optionProcessed) {
+         // このロジックは (inTargetBlock && !optionProcessed) でカバーされているため、
+         // ここに来ることはないはず。
+        Serial.printf("Warning (saveHensuOptions): Target variable %s:%s not found (This warning should not appear).\n", targetTableName.c_str(), targetVariableName.c_str());
+    } else if (!isError) {
+        Serial.println("Info (saveHensuOptions): Options saved successfully.");
+    }
+}
 /**
  * @brief 指定されたテーブル・変数のHENSU_OPTIONSを保存する
  * 形式: HENSU_OPTIONS:variableName:options
  * 各オプション要素にカンマが含まれていないかチェックします。
  */
-void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
-    isError = false;
-    Serial.println("\n--- Input MettDataMap for Save (4-arg) ---");
-    // displayLoadedVariables(data); // 非表示
-    Serial.println("--- End of Input MettDataMap ---");
 
-    // --- 1. 既存のデータを読み込んでマージ用マップを作成 ---
-    std::map<String, MettVariableInfo> mergedInfo; // MettDataMap ではなく MettVariableInfo を保持
-    std::vector<String> existingOptionsLines; // ★ HENSU_OPTIONS行を保持するベクター
-    
-    if (fs.exists(fullFilePath.c_str())) {
-        // 1a. データ変数を読み込む
-        std::vector<MettVariableInfo> existingVars;
-        bool loadSuccess, loadEmpty;
-        loadMettFile(fs, fullFilePath, tableName, loadSuccess, loadEmpty, existingVars);
-        if (loadSuccess && !loadEmpty) {
-            for (const auto& var : existingVars) {
-                mergedInfo[var.variableName] = var;
-            }
-        }
-
-        // 1b. ★ HENSU_OPTIONS行を別途読み込む (ストリーミング)
-        File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
-        if (originalFile) {
-            bool inTargetBlock = false;
-            while (originalFile.available()) {
-                String line = originalFile.readStringUntil('\n');
-                String trimmedLine = line;
-                trimmedLine.trim();
-
-                if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
-                    inTargetBlock = false;
-                } else if (trimmedLine.startsWith("TABLE_NAME:")) {
-                    String currentTableName = trimmedLine.substring(String("TABLE_NAME:").length());
-                    currentTableName.trim();
-                    if (currentTableName == tableName) {
-                        inTargetBlock = true;
-                    } else {
-                        inTargetBlock = false;
-                    }
-                } else if (inTargetBlock && trimmedLine.startsWith("HENSU_OPTIONS:")) {
-                    existingOptionsLines.push_back(line); // ★ オプション行を保持
-                }
-            }
-            originalFile.close();
-        }
-    }
-
-    // --- 2. 新しいデータをマージ ---
-    for (const auto& pair : data) {
-        // 既存のID(dataType)や名前を保持しつつ、値(valueString)だけを更新
-        mergedInfo[pair.first].valueString = pair.second;
-        
-        // もし変数が新しければ、名前と「空白のID」を設定
-        if (mergedInfo[pair.first].variableName.isEmpty()) {
-            mergedInfo[pair.first].variableName = pair.first;
-            mergedInfo[pair.first].dataType = ""; // ★ IDを空白に設定
-        }
-    }
-
-    // --- 3. 一時ファイルへのストリーミング書き込み ---
-    String tempFilePath = fullFilePath + ".tmp";
-    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
-    if (!tempFile) {
-        Serial.printf("Error (Save): Failed to open temp file: %s\n", tempFilePath.c_str());
-        isError = true;
-        return;
-    }
-
-    bool tableProcessed = false;
-    bool inTargetBlock = false;
-    const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
-    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
-    const int TABLE_NAME_PREFIX_LEN = 11;
-
-    if (fs.exists(fullFilePath.c_str())) {
-        File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
-        if (!originalFile) {
-            Serial.printf("Error (Save): Failed to open original file: %s\n", fullFilePath.c_str());
-            tempFile.close();
-            fs.remove(tempFilePath.c_str());
-            isError = true;
-            return;
-        }
-
-        while (originalFile.available()) {
-            String line = originalFile.readStringUntil('\n');
-            String trimmedLine = line;
-            trimmedLine.trim();
-
-            if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
-                inTargetBlock = false;
-                tempFile.println(line); 
-            } else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
-                String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
-                currentTableName.trim();
-                
-                tempFile.println(line); // TABLE_NAME行は常に書き込む
-
-                if (currentTableName == tableName) { // ★ ターゲットテーブル発見
-                    inTargetBlock = true;
-                    tableProcessed = true;
-                    
-                    // ★ 1. マージした全データ変数 (VarName:ID:Value) を書き込む
-                    Serial.printf("Debug (Save): Writing merged data variables for table '%s'.\n", tableName.c_str());
-                    for (const auto& pair : mergedInfo) { 
-                        if (pair.first != "table_name") {
-                            tempFile.println(pair.second.variableName + ":" + pair.second.dataType + ":" + pair.second.valueString);
-                        }
-                    }
-
-                    // ★ 2. 保持していた HENSU_OPTIONS: 行を書き込む
-                    Serial.printf("Debug (Save): Writing %d preserved HENSU_OPTIONS lines.\n", (int)existingOptionsLines.size());
-                    for (const auto& optLine : existingOptionsLines) {
-                        tempFile.println(optLine);
-                    }
-                    
-                    // ★ 3. 新規追加された変数の HENSU_OPTIONS: 行も書き込む
-                    for (const auto& pair : mergedInfo) {
-                        bool optionExists = false;
-                        String optionPrefix = "HENSU_OPTIONS:" + pair.first + ":";
-                        for(const auto& optLine : existingOptionsLines) {
-                            if (optLine.startsWith(optionPrefix)) {
-                                optionExists = true;
-                                break;
-                            }
-                        }
-                        // ★ 新規変数（オプション行がまだ存在しない）の場合
-                        if (!optionExists) {
-                             Serial.printf("Debug (Save): Writing new HENSU_OPTIONS line for '%s'.\n", pair.first.c_str());
-                             tempFile.println("HENSU_OPTIONS:" + pair.first + ":");
-                        }
-                    }
-
-                    tempFile.println(); // ブロックの最後に空行
-                } else {
-                    inTargetBlock = false;
-                }
-            } else {
-                // 変数行、HENSU_OPTIONS行、コメント、空行
-                if (!inTargetBlock) {
-                    // ターゲットブロックの外側
-                    tempFile.println(line);
-                }
-                // ★ ターゲットブロックの内側はスキップ
-                // (データ変数とオプション行は上で処理済みのため)
-            }
-        }
-        originalFile.close();
-    } // if fs.exists
-
-    // --- ファイル内に既存テーブルがなかった場合 (新規追加) ---
-    if (!tableProcessed) {
-        Serial.printf("Debug (Save): Appending new table '%s'.\n", tableName.c_str());
-        tempFile.println(TABLE_ID_PREFIX);
-        tempFile.println(String(TABLE_NAME_PREFIX) + tableName);
-        for (const auto& pair : mergedInfo) { 
-            if (pair.first != "table_name") {
-                 tempFile.println(pair.second.variableName + ":" + pair.second.dataType + ":" + pair.second.valueString);
-                 // ★ 新規テーブルの場合、HENSU_OPTIONS: も追加する
-                 tempFile.println("HENSU_OPTIONS:" + pair.second.variableName + ":");
-            }
-        }
-        tempFile.println();
-    }
-
-    tempFile.close();
-
-    // --- ファイルを入れ替え ---
-    if (fs.remove(fullFilePath.c_str())) {
-        if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
-            Serial.printf("Error (Save): Failed to rename temp file.\n");
-            isError = true;
-        }
-    } else if (fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error (Save): Failed to remove original file.\n");
-        isError = true;
-    } else { // 元ファイルがなかった場合
-        if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
-             Serial.printf("Error (Save): Failed to rename temp file for new file.\n");
-             isError = true;
-        }
-    }
-
-    if (!isError) {
-        Serial.printf("Info (Save): File saved successfully. Table '%s' was %s.\n", tableName.c_str(), tableProcessed ? "updated" : "added");
-    }
-}
 
 void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
                                 int pageNumber, int itemsPerPage,
@@ -5120,7 +5091,7 @@ void createMettHensu(fs::FS &fs, const String& fullFilePath, const String& targe
         // ★ 修正: 新しいオプション行の形式
         tempFile.println("HENSU_OPTIONS:" + targetVariableName + ":");
         
-        tempFile.println();
+      
         variableProcessed = true;
     }
 
