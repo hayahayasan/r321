@@ -4551,13 +4551,13 @@ void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& 
     }
 }
 
-bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName, bool* isError) {
-    *isError = false; // デフォルトで成功
+bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName) {
+   
 
     // --- 1. ファイル存在チェック ---
     if (!fs.exists(fullFilePath.c_str())) {
         Serial.printf("Error (Delete Hensu): File does not exist: %s\n", fullFilePath.c_str());
-        *isError = true;
+     
         return false;
     }
 
@@ -4570,7 +4570,7 @@ bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String
         Serial.printf("Error (Delete Hensu): Failed to open files for processing.\n");
         if(originalFile) originalFile.close();
         if(tempFile) tempFile.close();
-        *isError = true;
+     
         return false;
     }
 
@@ -4639,13 +4639,13 @@ bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String
         } else {
             Serial.printf("Error (Delete Hensu): Failed to rename temp file.\n");
             fs.remove(tempFilePath.c_str()); // クリーンアップ
-            *isError = true;
+           
             return false;
         }
     } else {
         Serial.printf("Error (Delete Hensu): Failed to remove original file.\n");
         fs.remove(tempFilePath.c_str()); // クリーンアップ
-        *isError = true;
+      
         return false;
     }
 }

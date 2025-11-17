@@ -51,7 +51,8 @@ String MMName;
 
 std::vector<String> allhensuname;
 std::vector<String> allhensuvalue;
-std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Hensu Dup","Duplicatetotbl","Exit"};
+//テーブル複製時は保持する関数と保持しない関数を個別に設定
+std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Copy Value","Duplicatetotbl","Put a Linker","Lock Edit","Exit"};
 String TTM;
 
 
@@ -738,8 +739,12 @@ void shokaipointer4(int pagenum = 0){
     }
     M5.Lcd.setTextSize(1);
     for (int i = start; i < end; ++i) {
-      
-        M5.Lcd.printf("  %s id:%s val:%s\n", allhensuname[i].c_str(), ids[i].c_str(), GyakuhenkanTxt(allhensuvalue[i].c_str()));
+        if(GyakuhenkanTxt(allhensuvalue[i].c_str()) != ""){
+          M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) );
+        }else{
+          M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTY TEXT!" );
+        }
+        
 
     }
     M5.Lcd.setTextSize(2);
@@ -802,25 +807,48 @@ if(yyy == ""){
     return;
   }
 }
+
+
+int shokaivector(std::vector<String> vec,String kakikomumozi ){
+  auto it = std::find(vec.begin(), vec.end(), kakikomumozi);
+
+    // 2. 結果をチェックします。
+    if (it != vec.end()) {
+        // 見つかった場合:
+        // std::distance で、ベクターの先頭(begin)から
+        // 見つかった場所(it)までの「距離（＝インデックス）」を計算します。
+
+       vec.push_back(kakikomumozi);
+       
+        return std::distance(vec.begin(), it);
+    } else {
+        // 見つからなかった場合 (イテレータが末尾 'end()' を指している):
+        return -1;
+    }
+}
+
+
 void shokaioptionhensu(){
   
   bool nullp;
   bool sus;
-  int optionlength = 10;
+  int optionlength = 12;
   std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
   if(sus){
     Serial.println("HensuOptions Load Error.");
   }else if(nullp || optionlength > opttt.size()){
-    opttt.push_back("datatype;");
-    opttt.push_back("defaultvalue;");
-    opttt.push_back("isvalueNULL;");
-    opttt.push_back("data_lock;");
-    opttt.push_back("tagname;");
-    opttt.push_back("vectorlength;");
-    opttt.push_back("kinshi_moji;");
-    opttt.push_back("made_date;");
-    opttt.push_back("last_date;");
-    opttt.push_back("susdummy4;");
+    shokaivector(opttt,"maxlength;");
+    shokaivector(opttt,"datatype;");
+    shokaivector(opttt,"defaultvalue;");
+    shokaivector(opttt,"isvalueNULL;");
+    shokaivector(opttt,"data_lock;");
+    shokaivector(opttt,"tagname;");
+    shokaivector(opttt,"vectorlength;");
+    shokaivector(opttt,"kinshi_moji;");
+    shokaivector(opttt,"made_date;");
+    shokaivector(opttt,"last_date;");
+    shokaivector(opttt,"sort_length;");
+    shokaivector(opttt,"dupflag_lock;");
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
     if(sus){
       Serial.println("HensuOptions Save Error.");
@@ -958,6 +986,12 @@ void loop() {
   }
   M5.update(); // ボタン状態を更新
   
+
+if(M5.Touch.getCount() > 1){
+  kanketu("Soft Reset Starting...",1000);
+  ESP.restart();
+}
+
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
  if(mainmode == 20){
     textluck();
@@ -971,7 +1005,8 @@ void loop() {
         return;
       }
       bool ss;
-      createMettHensu(SD,DirecX + ggmode,TTM,hensuopt[holdpositpointx3],SuperT,false,0,ss);
+      TTM2 = allhensuname[holdpositpointx3];
+      createMettHensu(SD,DirecX + ggmode,TTM,TTM2,SuperT,false,0,ss);
       if(!ss){
         kanketu("Hensu Edited!",500);
       }else{
@@ -1039,9 +1074,8 @@ void loop() {
       if(positpoint == 0){
         M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
-          holdpositpointx3 = positpoint;
-          holdimanopagex3 = imano_page;
-          String TTM2 = hensuopt[positpoint];
+         
+          TTM2 = allhensuname[holdpositpointx3];
           shokaioptionhensu();
           bool tt;
           int id;
@@ -1071,12 +1105,13 @@ void loop() {
       return;
              
             }
+            
           }
 
           }else{
             kanketu("Load Error!",500);
             M5.Lcd.fillScreen(BLACK);
-             Serial.println("fefe4!");
+             Serial.println("fefe4!" + TTM + ";;" + TTM2);
             imano_page = holdimanopagex2;
       positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
@@ -1085,7 +1120,45 @@ void loop() {
       return;
           }
           
-      }
+      }else if(positpoint == 2){//create
+              bool ddd = areusure();
+              if(!ddd){
+                M5.Lcd.fillScreen(BLACK);
+              imano_page = holdimanopagex2;
+      positpoint = holdpositpointx3;
+      shokaipointer4(holdimanopagex3);
+      mainmode = 17;
+              }else{
+                mainmode = 18;
+                M5.Lcd.fillScreen(BLACK);
+                M5.Lcd.setCursor(0,0);
+                Textex = "Enter Hensu Table Name.";
+                SuperT = "";
+                return;
+              }
+            }else if(positpoint ==1){//delete
+              bool tt = areubunki("Delete Hensu","Cancel");
+              if(!tt){
+                M5.Lcd.fillScreen(BLACK);
+              imano_page = holdimanopagex2;
+      positpoint = holdpositpointx3;
+      shokaipointer4(holdimanopagex3);
+      mainmode = 17;
+              }else{
+                 if(DeleteHensuInMettTable(SD,DirecX + ggmode,TTM,TTM2)){
+                  kanketu("Hensu Deleted!",500);
+                  M5.Lcd.fillScreen(BLACK);
+                 }else{
+                  kanketu("Hensu Failed!",500);
+                  M5.Lcd.fillScreen(BLACK);
+                 }
+              }
+              M5.Lcd.fillScreen(BLACK);
+              imano_page = holdimanopagex2;
+      positpoint = holdpositpointx3;
+      shokaipointer4(holdimanopagex3);
+      mainmode = 17;
+            }
 
 
     }
@@ -1209,9 +1282,10 @@ void loop() {
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.println("loading..");
       mainmode = 19;
-      holdpositpointx2 = positpoint;
-      holdimanopagex2 = imano_page;
+      holdpositpointx3 = positpoint;
+      holdimanopagex3 = imano_page;
       imano_page = 0;
+      TTM2 = allhensuname[holdpositpointx3];
       M5.Lcd.setTextFont(3);
       shokaipointer5(0);
       

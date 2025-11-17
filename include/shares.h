@@ -253,7 +253,7 @@ String joinStringVector(const std::vector<String>& vec, const char* delim = ",")
 void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
 std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool& isNull, bool& isError);
 bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& oldVariableName, const String& newVariableName, bool* isError);
-bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName, bool* isError);
+bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName);
 void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
                                 int pageNumber, int itemsPerPage,
                                 std::vector<String>& variableNames, std::vector<String>& values,
