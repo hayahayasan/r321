@@ -357,7 +357,7 @@ bool lefttrue(){
 
 
 // ポインターの位置を更新する関数
-void updatePointer2(int size) {
+void updatePointer2(int size,int &imanopp ) {
     delay(1);
     M5.Lcd.setTextSize(File_goukeifont);
     // 以前のポインター位置を記憶 (-1は初期状態を示す。これはstaticで一度だけ初期化される)
@@ -401,7 +401,7 @@ void updatePointer2(int size) {
     if(righttrue()){
       btna = false;
       btnc = true;  
-      if(imano_page < maxpage - 1 && maxpage != -1){
+      if(imanopp < maxpage - 1 && maxpage != -1){
         if(positpoint == positpointmax - 1){
           pagemoveflag = 2;
           return;
@@ -428,13 +428,16 @@ void updatePointer2(int size) {
     } else if(lefttrue() && positpoint == 0){
       btna = true;
       btnc = false;
-      Serial.println("HHH" + String(positpoint));
+      Serial.println("HHH" + String(positpoint) + String(maxpage) + String(imanopp));
       
-      if(imano_page >0){
+      if(imanopp >0){
         pagemoveflag = 3;
         return;
-      }else if(imano_page == 0 && maxpage != -1){
+      }else if(imanopp == 0 && maxpage != -1){
         pagemoveflag = 4;
+        return;
+      }else if(imanopp == 0 && maxpage == -1){
+        pagemoveflag = 5;
         return;
       }
     }  else if (lefttrue() && positpoint > -1) {
@@ -451,8 +454,8 @@ void updatePointer2(int size) {
     }
     
     // ページ移動フラグのロジック
-    if (positpoint == positpointmax + 1 && imano_page < maxpage - 1 ) {
-        if((imano_page == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)){
+    if (positpoint == positpointmax + 1 && imanopp < maxpage - 1 ) {
+        if((imanopp == maxpage - 1 && mainmode == 1 && positpoint == maxLinesPerPage3 - 1)){
           return;
         } else {
           pagemoveflag = 1;
@@ -3910,12 +3913,37 @@ String trimString(const String& s) {
 // 別の場所でM5Stackの初期化が行われている場合、この変更で問題ありません。
 #pragma endregion <text input>
 // 毎フレーム呼び出されるメインのテキスト入力処理関数
-void textluck() {
+void textluck(int poichi ) { // ★ 修正: 引数 poichi を追加 (デフォルト値 0)
+    // ★ 修正: この関数が呼び出された「最初の1回」を追跡する静的フラグ
+    static bool needsInitialDraw = true;
+
+    // ★ カーソル点滅用の静的変数
+    static bool cursorVisible = true;
+    static unsigned long lastBlinkTime = 0;
+    
+    // ★ 前回のカーソル位置と状態を保存 (静的変数として)
+    static int lastDrawnCursorScreenX = -1;
+    static int lastDrawnCursorScreenY = -1;
+    static char lastCharUnderCursor = ' '; // カーソルの下にあった文字
+    static bool lastCursorVisibility = true; // 前回の表示状態
+
+
     // M5.begin() など、M5Stackの初期化がここ以外で行われていることを前提とします。
     // I2C通信の初期化もここ以外で行われていることを前提とします。
     // 例: Wire.begin(); Wire.setClock(400000);
     M5.Lcd.setTextSize(3); // フォントサイズを3に設定
     M5.Lcd.setTextColor(WHITE, BLACK); // テキスト色を白、背景色を黒に設定
+
+    // ★ 修正: このフレームでテキスト全体が再描画されたか
+    bool didRedrawText = false; 
+
+    // ★★★ 修正: 
+    // キー入力処理の「前」に、初回実行時のカーソル位置設定と再描画フラグを処理する
+    if (needsInitialDraw) {
+        needsRedraw = true;
+        needsInitialDraw = false; // フラグを消費
+        cursorIndex = poichi; // ★ 修正: poichi から初期カーソル位置を設定
+    }
 
     String inputChar = wirecheck(); // wirecheck()を直接呼び出す
 
@@ -3927,12 +3955,12 @@ void textluck() {
         needsRedraw = true; // 有効な入力があれば再描画が必要
         if(inputChar == "TAB"){
           entryenter = 1;
-          
+          needsInitialDraw = true; // ★ 修正: 終了時に初回描画フラグをリセット
           return;
         }
         if(inputChar == "ESC"){
           entryenter = 2;
-          
+          needsInitialDraw = true; // ★ 修正: 終了時に初回描画フラグをリセット
           return;
         }
         if (inputChar == "ENT") {
@@ -3964,6 +3992,8 @@ void textluck() {
         }
     }
     
+    // ★ 修正: 最初の実行時... のブロックは上（キー入力前）に移動しました
+
     // カーソルインデックスが範囲内にあることを確認
     if (cursorIndex < 0) cursorIndex = 0;
     if (cursorIndex > SuperT.length()) cursorIndex = SuperT.length();
@@ -3976,9 +4006,10 @@ void textluck() {
     adjustScroll(); // adjustScroll()がneedsRedrawをtrueに設定する可能性あり
 
     // カーソルインデックスが変更された場合、またはテキスト内容が変更された場合も再描画が必要
-    if (cursorIndex != oldCursorIndex || (inputChar != "NULL" && inputChar != "error" && inputChar != "nokey" && inputChar != "whattf")) {
+    if (cursorIndex != oldCursorIndex) { // ★ 修正: キー入力チェックは上で既に行われている
         needsRedraw = true;
     }
+
 
     // 再描画が必要な場合のみ画面をクリアし、テキストを描画
     if (needsRedraw) {
@@ -4008,23 +4039,74 @@ void textluck() {
             }
         }
         needsRedraw = false; // 描画が完了したのでフラグをリセット
+        didRedrawText = true; // ★ 修正: 描画したことを記録
     }
 
-    // カーソルを描画 (常に表示)
-    // 現在のカーソルのスクリーン座標を計算
+    // --- カーソル点滅ロジック ---
+    unsigned long currentTime = millis();
+    bool forceCursorDraw = false; // カーソルが動いたか？
+
+    // ★ カーソル点滅タイミングの計算
+    if (currentTime - lastBlinkTime > 500) { // 500msごとに状態反転
+        cursorVisible = !cursorVisible;
+        lastBlinkTime = currentTime;
+    }
+
+    // 現在のカーソルのスクリーン座標
     int currentCursorScreenX = cursorPixelX - offsetX;
     int currentCursorScreenY = cursorPixelY - offsetY;
-    int textInputAreaHeight = M5.Lcd.height() - getFontHeight(); // 通常のテキスト入力領域の高さ
+    int textInputAreaHeight = M5.Lcd.height() - getFontHeight();
 
-    // カーソルが通常のテキスト入力領域の範囲内にある場合のみ描画
-    if (currentCursorScreenX >= 0 && currentCursorScreenX < M5.Lcd.width() &&
-        currentCursorScreenY >= 0 && currentCursorScreenY < textInputAreaHeight) { // 修正: textInputAreaHeightを使用
-        M5.Lcd.drawChar('|', currentCursorScreenX, currentCursorScreenY);
+    // カーソルの下にある実際の文字を取得
+    // ★★★ 修正: カーソルが末尾にある場合のチェックを強化 ★★★
+    char charUnderCursor = ' '; // デフォルト（カーソルが末尾にある場合など）
+    if (cursorIndex < SuperT.length()) { // cursorIndex が length() より小さい場合のみ
+        char c = SuperT.charAt(cursorIndex); // バイトインデックスで文字を取得
+        if (c != '\n') { // 改行文字自体は描画しない
+            charUnderCursor = c;
+        }
     }
-    
-    // 最後に描画したカーソル位置を更新
+    // ★★★ 修正ここまで ★★★
+
+
+    // ★ ちらつき防止: 前回のカーソル位置と今回の位置が異なるかチェック
+    if (lastDrawnCursorScreenX != currentCursorScreenX || lastDrawnCursorScreenY != currentCursorScreenY) {
+        // カーソルが移動した
+
+        // ★★★ 修正: 画面全体が再描画されていない場合のみ、前のカーソル位置を復元
+        if (!didRedrawText) { 
+            if (lastDrawnCursorScreenX >= 0) { // 有効な位置なら
+                 M5.Lcd.drawChar(lastCharUnderCursor, lastDrawnCursorScreenX, lastDrawnCursorScreenY);
+            }
+        }
+        
+        // 点滅状態をリセットし、必ず表示から始める
+        cursorVisible = true;
+        lastBlinkTime = currentTime;
+        forceCursorDraw = true; // 強制的に描画
+    }
+
+    // カーソルが画面範囲内にあるかチェック
+    bool cursorOnScreen = (currentCursorScreenX >= 0 && currentCursorScreenX < M5.Lcd.width() &&
+                           currentCursorScreenY >= 0 && currentCursorScreenY < textInputAreaHeight);
+
+    // ★ 状態が変化したか、強制描画が必要な場合のみカーソル（または文字）を描画
+    if (cursorOnScreen && (cursorVisible != lastCursorVisibility || forceCursorDraw)) {
+        if (cursorVisible) {
+            // ★ カーソル表示
+            M5.Lcd.drawChar('|', currentCursorScreenX, currentCursorScreenY);
+        } else {
+            // ★ カーソル非表示 (元の文字を表示)
+            M5.Lcd.drawChar(charUnderCursor, currentCursorScreenX, currentCursorScreenY);
+        }
+    }
+
+    // 最後に描画した情報を保存
     lastDrawnCursorScreenX = currentCursorScreenX;
     lastDrawnCursorScreenY = currentCursorScreenY;
+    lastCharUnderCursor = charUnderCursor; // ★ カーソルの下の文字も保存
+    lastCursorVisibility = cursorVisible; // ★ 表示状態も保存
+
 
     // --- 最下部のスクロールテキスト描画 ---
     int scrollLineY = M5.Lcd.height() - getFontHeight(); // スクロールテキストのY座標
@@ -4552,73 +4634,72 @@ void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& 
 }
 
 bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName) {
-   
-
-    // --- 1. ファイル存在チェック ---
     if (!fs.exists(fullFilePath.c_str())) {
         Serial.printf("Error (Delete Hensu): File does not exist: %s\n", fullFilePath.c_str());
-     
-        return false;
+        return false; // ファイルがなければ失敗
     }
 
-    // --- 2. 一時ファイル準備 ---
     String tempFilePath = fullFilePath + ".tmp";
-    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    File file = fs.open(fullFilePath.c_str(), FILE_READ);
     File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
 
-    if (!originalFile || !tempFile) {
-        Serial.printf("Error (Delete Hensu): Failed to open files for processing.\n");
-        if(originalFile) originalFile.close();
+    if (!file || !tempFile) {
+        if(file) file.close();
         if(tempFile) tempFile.close();
-     
+        Serial.printf("Error (Delete Hensu): Failed to open files.\n");
         return false;
     }
 
     String finalFileContentForDebug = ""; // デバッグ用
+    String currentTableNameInFile = "";
     bool inTargetTable = false;
-    String currentTableName = "";
-    bool hensuDeleted = false;
-    String targetVarLinePrefix = variableName + ":String:"; // 変数行のプレフィックス (データ型はString固定)
-    String targetOptLinePrefix = "HENSU_OPTIONS:" + variableName + ":"; // オプション行のプレフィックス
+    bool variableRemoved = false; // ★ 削除フラグ
+    String optionPrefix = "HENSU_OPTIONS:" + variableName + ":"; // ★ 削除対象のオプション行
 
-    // --- 3. 逐次処理とコピー ---
-    while (originalFile.available()) {
-        String line = originalFile.readStringUntil('\n');
-        String originalLine = line;
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
         String trimmedLine = line;
         trimmedLine.trim();
 
-        bool skipLine = false; // この行をスキップするかどうか
+        bool shouldSkipLine = false;
 
-        if (trimmedLine.startsWith("TABLE_NAME:")) {
-            currentTableName = trimmedLine.substring(trimmedLine.indexOf(':') + 1);
-            currentTableName.trim();
-            inTargetTable = (currentTableName == tableName);
-        }
-
-        // 対象テーブル内でのみ削除チェックを行う
-        if (inTargetTable) {
-            // 変数行が一致するかチェック
-            if (trimmedLine.startsWith(targetVarLinePrefix)) {
-                skipLine = true;
-                hensuDeleted = true; // 削除対象が見つかった
-                Serial.printf("Debug (Delete Hensu): Skipping variable line for '%s' in table '%s'.\n", variableName.c_str(), tableName.c_str());
+        if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
+            currentTableNameInFile = "";
+            inTargetTable = false;
+        } else if (trimmedLine.startsWith("TABLE_NAME:")) {
+            int colonIndex = trimmedLine.indexOf(':');
+            currentTableNameInFile = (colonIndex != -1) ? trimmedLine.substring(colonIndex + 1) : "";
+            currentTableNameInFile.trim();
+            inTargetTable = (currentTableNameInFile == tableName);
+        } else if (inTargetTable) {
+            // ★ ターゲットテーブル内
+            
+            // ★ 修正: ID/型を無視して変数名のみを比較
+            int firstColon = trimmedLine.indexOf(':');
+            if (firstColon > 0 && !trimmedLine.startsWith("HENSU_OPTIONS:")) {
+                String varName = trimmedLine.substring(0, firstColon);
+                varName.trim(); 
+                if (varName == variableName) { 
+                    shouldSkipLine = true; 
+                    variableRemoved = true; // ★ 削除フラグを立てる
+                    Serial.printf("Debug (Delete Hensu): Skipping variable line for '%s'.\n", variableName.c_str());
+                }
             }
-            // オプション行が一致するかチェック
-            else if (trimmedLine.startsWith(targetOptLinePrefix)) {
-                skipLine = true;
-                 Serial.printf("Debug (Delete Hensu): Skipping options line for '%s' in table '%s'.\n", variableName.c_str(), tableName.c_str());
+            
+            // ★ オプション行の判定
+            if (trimmedLine.startsWith(optionPrefix)) {
+                 shouldSkipLine = true;
+                 variableRemoved = true; // ★ オプション行削除でもフラグを立てる
+                 Serial.printf("Debug (Delete Hensu): Skipping options line: %s\n", trimmedLine.c_str());
             }
         }
-
-        // スキップしない行のみ一時ファイルに書き込む
-        if (!skipLine) {
-            tempFile.print(originalLine); // 元の改行を保持して書き込み
-            finalFileContentForDebug += originalLine;
+        
+        if (!shouldSkipLine) {
+            tempFile.println(line); // ★ 修正: println を使い改行を保持
+            finalFileContentForDebug += line + "\n"; // デバッグ用も改行
         }
     }
-
-    originalFile.close();
+    file.close();
     tempFile.close();
 
     // --- 4. デバッグ出力 ---
@@ -4628,170 +4709,281 @@ bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String
 
     // --- 5. ファイルを入れ替え ---
     if (fs.remove(fullFilePath.c_str())) {
-        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
-            if (hensuDeleted) {
-                Serial.printf("Info (Delete Hensu): Variable '%s' successfully removed from table '%s'.\n", variableName.c_str(), tableName.c_str());
-                return true; // 成功
-            } else {
-                Serial.printf("Warning (Delete Hensu): Variable '%s' not found in table '%s'. No changes made.\n", variableName.c_str(), tableName.c_str());
-                return false; // 変数が見つからなかった
-            }
-        } else {
+        if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
             Serial.printf("Error (Delete Hensu): Failed to rename temp file.\n");
-            fs.remove(tempFilePath.c_str()); // クリーンアップ
-           
             return false;
         }
     } else {
         Serial.printf("Error (Delete Hensu): Failed to remove original file.\n");
-        fs.remove(tempFilePath.c_str()); // クリーンアップ
-      
         return false;
+    }
+
+    // ★ 戻り値のロジックを修正
+    if (variableRemoved) {
+        Serial.printf("Info (Delete Hensu): Variable '%s' (and its options) removed from table '%s'.\n", variableName.c_str(), tableName.c_str());
+        return true; // 成功
+    } else {
+        Serial.printf("Warning (Delete Hensu): Variable '%s' not found in table '%s'. No changes made.\n", variableName.c_str(), tableName.c_str());
+        return false; // 見つからなかった
     }
 }
 
-/**
- * @brief ファイル内の指定されたテーブルの変数名を変更する関数
- * @param fs SDカードファイルシステムオブジェクト
- * @param fullFilePath 対象ファイルのフルパス
- * @param tableName 対象テーブル名
- * @param oldVariableName 変更前の変数名
- * @param newVariableName 変更後の変数名
- * @param isError エラーが発生した場合にtrue
- * @return 変数が見つかり正常に変更された場合はtrue、見つからなかったりエラーの場合はfalse
- */
-bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& oldVariableName, const String& newVariableName, bool& isError) { // bool* を bool& に変更
-    isError = false; // デフォルトで成功
+void showmozinn2(const String& txt) {
 
-    // --- 1. Validation ---
-    if (!fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error (Rename Hensu): File does not exist: %s\n", fullFilePath.c_str());
-        isError = true;
-        return false;
-    }
-    if (oldVariableName == newVariableName || newVariableName.isEmpty()) {
-        Serial.printf("Error (Rename Hensu): New variable name is invalid or same as old name.\n");
-        isError = true;
-        return false;
-    }
-     if (containsInvalidChars(newVariableName)) { // 新しい名前もチェック
-        Serial.printf("Error (Rename Hensu): Invalid new variable name: '%s'\n", newVariableName.c_str());
-        isError = true;
-        return false;
-    }
+    // 現在のフォント設定 / テキストサイズに基づき幅を取得
+    int16_t dispW = M5.Lcd.width();
 
-    // --- 2. Pre-scan for existence and conflict ---
-    bool oldVarFound = false;
-    bool newVarConflict = false;
-    std::vector<MettVariableInfo> currentVars;
-    bool loadSuccess, isEmpty, loadErrorFlag; // loadError -> loadErrorFlag
-    loadMettFile(fs, fullFilePath, tableName, loadSuccess, isEmpty, currentVars); // 引数順序を変更
-    if(!loadSuccess){ // loadError -> !loadSuccess
-        Serial.printf("Error (Rename Hensu): Failed to load table '%s' for pre-scan.\n", tableName.c_str());
-        isError = true; // エラーフラグを設定 (loadMettFile自体はエラーを返さないので)
-        return false;
-    }
-    for(const auto& var : currentVars){
-        if(var.variableName == oldVariableName) oldVarFound = true;
-        if(var.variableName == newVariableName) newVarConflict = true;
-    }
+    // 1文字あたりの大きさ（幅・高さ）を取得
+    // （可変幅フォントでも最大幅として扱う）
+    int16_t fw = M5.Lcd.textWidth("あ");  
+    int16_t fh = M5.Lcd.fontHeight();
 
-    if (!oldVarFound) {
-        Serial.printf("Warning (Rename Hensu): Variable '%s' not found in table '%s'. No changes made.\n", oldVariableName.c_str(), tableName.c_str());
-        return false; // Not an error, but no change
-    }
-    if (newVarConflict) {
-        Serial.printf("Error (Rename Hensu): Variable name '%s' already exists in table '%s'. Aborting.\n", newVariableName.c_str(), tableName.c_str());
-        isError = true;
-        return false;
-    }
-
-    // --- 3. Rebuild file with replacement ---
-    String tempFilePath = fullFilePath + ".tmp";
-    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
-    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
-
-    if (!originalFile || !tempFile) {
-        Serial.printf("Error (Rename Hensu): Failed to open files for processing.\n");
-        if(originalFile) originalFile.close();
-        if(tempFile) tempFile.close();
-        isError = true;
-        return false;
-    }
-
-    String finalFileContentForDebug = ""; // デバッグ用
-    bool inTargetTable = false;
-    String currentTableName = "";
-    String targetVarLinePrefix = oldVariableName + ":String:";
-    String targetOptLinePrefix = "HENSU_OPTIONS:" + oldVariableName + ":";
-    bool hensuRenamed = false;
-
-    while(originalFile.available()){
-        String line = originalFile.readStringUntil('\n');
-        String originalLine = line;
-        String trimmedLine = line;
-        trimmedLine.trim();
-
-        String outputLine = originalLine; // デフォルトはそのまま
-
-        if (trimmedLine.startsWith("TABLE_NAME:")) {
-            currentTableName = trimmedLine.substring(trimmedLine.indexOf(':') + 1);
-            currentTableName.trim();
-            inTargetTable = (currentTableName == tableName);
-        }
-
-        if(inTargetTable) {
-            // 変数行の置換
-            if (trimmedLine.startsWith(targetVarLinePrefix)) {
-                String valuePart = trimmedLine.substring(targetVarLinePrefix.length());
-                outputLine = newVariableName + ":String:" + valuePart + "\n";
-                hensuRenamed = true;
-                Serial.printf("Debug (Rename Hensu): Replacing variable line for '%s'.\n", oldVariableName.c_str());
-            }
-            // オプション行の置換
-            else if (trimmedLine.startsWith(targetOptLinePrefix)) {
-                String optionsPart = trimmedLine.substring(targetOptLinePrefix.length());
-                outputLine = "HENSU_OPTIONS:" + newVariableName + ":" + optionsPart + "\n";
-                 Serial.printf("Debug (Rename Hensu): Replacing options line for '%s'.\n", oldVariableName.c_str());
-            }
-        }
-
-        tempFile.print(outputLine);
-        finalFileContentForDebug += outputLine;
-    }
-
-    originalFile.close();
-    tempFile.close();
-
-    // --- 4. デバッグ出力 ---
-    Serial.println("\n--- Renaming hensu. New content will be: ---");
-    Serial.print(finalFileContentForDebug);
-    Serial.println("------------------------------------------");
-
-
-    // --- 5. ファイルを入れ替え ---
-    if (fs.remove(fullFilePath.c_str())) {
-        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
-            if (hensuRenamed) {
-                Serial.printf("Info (Rename Hensu): Variable '%s' successfully renamed to '%s' in table '%s'.\n", oldVariableName.c_str(), newVariableName.c_str(), tableName.c_str());
-                return true; // 成功
+    // 出力のためにテキストを行（\n）で分割
+    std::vector<String> lines;
+    {
+        String buf = "";
+        for (int i = 0; i < txt.length(); i++) {
+            if (txt[i] == '\n') {
+                lines.push_back(buf);
+                buf = "";
             } else {
-                // Pre-scanでチェック済みだが念のため
-                Serial.printf("Warning (Rename Hensu): Variable '%s' somehow not found during rename process in table '%s'.\n", oldVariableName.c_str(), tableName.c_str());
-                return false;
+                buf += txt[i];
             }
-        } else {
-            Serial.printf("Error (Rename Hensu): Failed to rename temp file.\n");
-            fs.remove(tempFilePath.c_str()); // クリーンアップ
-            isError = true;
+        }
+        lines.push_back(buf); // 最後の行
+    }
+
+    // 個々の行を処理
+    for (auto& line : lines) {
+
+        String remain = line;  
+
+        while (remain.length() > 0) {
+
+            // この行で画面に収まる最大文字数を計算
+            int maxChars = remain.length();  
+            while (maxChars > 0) {
+                String candidate = remain.substring(0, maxChars);
+                int w = M5.Lcd.textWidth(candidate);
+
+                if (w <= dispW) break; // 収まったらOK
+
+                maxChars--; // 減らして再判定
+            }
+
+            // もし 1 文字でも入らなければ強制改行して防止
+            if (maxChars <= 0) {
+                // とりあえず1文字だけ出す
+                String one = remain.substring(0, 1);
+                M5.Lcd.println(one);
+                remain = remain.substring(1);
+                continue;
+            }
+
+            // 収まる部分を出力
+            String out = remain.substring(0, maxChars);
+            M5.Lcd.println(out);
+
+            // 残った部分を次のループで処理
+            remain = remain.substring(maxChars);
+        }
+    }
+}
+
+bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
+                        const String& oldVariableName, const String& newVariableName) {
+
+    // --- 1. 事前チェック ---
+    if (oldVariableName == newVariableName) return true;
+    if (oldVariableName.isEmpty() || newVariableName.isEmpty()) {
+        Serial.printf("Error (RenameHensu): Empty old or new variable name.\n");
+        return false;
+    }
+
+    if (!fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (RenameHensu): File does not exist: %s\n", fullFilePath.c_str());
+        return false;
+    }
+
+    // --- 2. 競合チェック: newVariable が既に存在しないことを確認 ---
+    {
+        bool isZero;
+        std::vector<String> existingNames;
+        if (!getVariableNamesInTable(fs, fullFilePath, targetTableName, isZero, existingNames)) {
+            Serial.printf("Error (RenameHensu): Failed to enumerate variables in table.\n");
             return false;
         }
-    } else {
-        Serial.printf("Error (Rename Hensu): Failed to remove original file.\n");
-        fs.remove(tempFilePath.c_str()); // クリーンアップ
-        isError = true;
+        for (const auto &n : existingNames) {
+            if (n == newVariableName) {
+                Serial.printf("Error (RenameHensu): New name '%s' already exists.\n", newVariableName.c_str());
+                return false;
+            }
+        }
+    }
+
+    // --- 3. 事前走査: oldVariable のデータ行サフィックスとオプション値を取得 ---
+    String dataSuffix = "";     // ":ID:Value..." を含む（先頭の ':' を含む）
+    String optionsValue = "";   // オプションの値部分（HENSU_OPTIONS:<var>:(ここ)）
+    bool foundInTable = false;
+
+    {
+        File f = fs.open(fullFilePath.c_str(), FILE_READ);
+        if (!f) {
+            Serial.printf("Error (RenameHensu): Failed to open file for scanning.\n");
+            return false;
+        }
+
+        const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
+        const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+        const int TABLE_NAME_PREFIX_LEN = 11;
+        String currentTableNameInFile = "";
+        bool inTarget = false;
+        String oldOptionPrefix = "HENSU_OPTIONS:" + oldVariableName + ":";
+
+        while (f.available()) {
+            String line = f.readStringUntil('\n');
+            String trimmed = line;
+            trimmed.trim();
+
+            if (trimmed.startsWith(TABLE_ID_PREFIX)) {
+                inTarget = false;
+                currentTableNameInFile = "";
+                continue;
+            } else if (trimmed.startsWith(TABLE_NAME_PREFIX)) {
+                currentTableNameInFile = trimmed.substring(TABLE_NAME_PREFIX_LEN);
+                currentTableNameInFile.trim();
+                inTarget = (currentTableNameInFile == targetTableName);
+                continue;
+            }
+
+            if (!inTarget) continue;
+
+            // データ行: 先頭が "oldVariableName:" で始まる完全一致形式
+            if (trimmed.startsWith(oldVariableName + ":")) {
+                // rest includes leading ':'
+                dataSuffix = trimmed.substring(oldVariableName.length()); // e.g. ":ID:Value"
+                foundInTable = true;
+                Serial.printf("Debug (RenameHensu - scan): Found data line for '%s' -> suffix='%s'\n", oldVariableName.c_str(), dataSuffix.c_str());
+            }
+
+            // オプション行
+            if (trimmed.startsWith(oldOptionPrefix)) {
+                optionsValue = trimmed.substring(oldOptionPrefix.length());
+                foundInTable = true;
+                Serial.printf("Debug (RenameHensu - scan): Found options for '%s' -> options='%s'\n", oldVariableName.c_str(), optionsValue.c_str());
+            }
+        }
+        f.close();
+    }
+
+    if (!foundInTable) {
+        Serial.printf("Error (RenameHensu): Variable '%s' not found in table '%s'.\n", oldVariableName.c_str(), targetTableName.c_str());
         return false;
     }
+
+    // --- 4. 新しい変数行をテーブル上端に追加する一時ファイル作成 ---
+    String tempFilePath = fullFilePath + ".tmp";
+    if (fs.exists(tempFilePath.c_str())) {
+        fs.remove(tempFilePath.c_str());
+    }
+
+    File orig = fs.open(fullFilePath.c_str(), FILE_READ);
+    File tmp  = fs.open(tempFilePath.c_str(), FILE_WRITE);
+
+    if (!orig || !tmp) {
+        if (orig) orig.close();
+        if (tmp) tmp.close();
+        Serial.printf("Error (RenameHensu): Failed to open files for writing temp.\n");
+        return false;
+    }
+
+    const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
+    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+    const int TABLE_NAME_PREFIX_LEN = 11;
+    String currentTableNameInFile = "";
+    bool inTargetTable = false;
+    bool insertedNewVar = false;
+    String newDataLine = "";
+    String newOptionLine = "";
+
+    // 準備: newDataLine / newOptionLine を作る（dataSuffix may be empty if only options existed）
+    if (!dataSuffix.isEmpty()) {
+        newDataLine = newVariableName + dataSuffix; // 例: "newVar:ID:Value..."
+    }
+    if (!optionsValue.isEmpty()) {
+        newOptionLine = "HENSU_OPTIONS:" + newVariableName + ":" + optionsValue;
+    }
+
+    // 書き込みループ
+    while (orig.available()) {
+        String line = orig.readStringUntil('\n');
+        String trimmed = line;
+        trimmed.trim();
+
+        // テーブルID 行
+        if (trimmed.startsWith(TABLE_ID_PREFIX)) {
+            inTargetTable = false;
+            currentTableNameInFile = "";
+            tmp.println(line);
+            continue;
+        }
+
+        // TABLE_NAME 行
+        if (trimmed.startsWith(TABLE_NAME_PREFIX)) {
+            currentTableNameInFile = trimmed.substring(TABLE_NAME_PREFIX_LEN);
+            currentTableNameInFile.trim();
+            tmp.println(line);
+
+            inTargetTable = (currentTableNameInFile == targetTableName);
+
+            // ここがターゲットテーブルの先頭。まだ挿入していなければ新変数を追加する。
+            if (inTargetTable && !insertedNewVar) {
+                // データ行を追加（存在すれば）
+                if (!newDataLine.isEmpty()) {
+                    tmp.println(newDataLine);
+                    Serial.printf("Debug (RenameHensu - write): Inserted new data line: %s\n", newDataLine.c_str());
+                }
+                // オプション行を追加（存在すれば）
+                if (!newOptionLine.isEmpty()) {
+                    tmp.println(newOptionLine);
+                    Serial.printf("Debug (RenameHensu - write): Inserted new option line: %s\n", newOptionLine.c_str());
+                }
+                insertedNewVar = true;
+            }
+            continue;
+        }
+
+        // それ以外はそのまま出力
+        tmp.println(line);
+    }
+
+    orig.close();
+    tmp.close();
+
+    // --- 5. 一時ファイルを元ファイルに置換 ---
+    if (!fs.remove(fullFilePath.c_str())) {
+        Serial.printf("Error (RenameHensu): Failed to remove original file before rename.\n");
+        fs.remove(tempFilePath.c_str());
+        return false;
+    }
+    if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+        Serial.printf("Error (RenameHensu): Failed to rename temp to original.\n");
+        return false;
+    }
+
+    Serial.printf("Info (RenameHensu): Inserted new variable '%s' into table '%s'. Now deleting old variable '%s'.\n",
+                  newVariableName.c_str(), targetTableName.c_str(), oldVariableName.c_str());
+
+    // --- 6. oldVariable を削除するため DeleteHensuInMettTable を呼ぶ ---
+    bool deleteResult = DeleteHensuInMettTable(fs, fullFilePath, targetTableName, oldVariableName);
+    if (!deleteResult) {
+        Serial.printf("Error (RenameHensu): Failed to delete old variable '%s' after insertion.\n", oldVariableName.c_str());
+        return false;
+    }
+
+    Serial.printf("Info (RenameHensu): Rename completed: '%s' -> '%s' in table '%s'.\n",
+                  oldVariableName.c_str(), newVariableName.c_str(), targetTableName.c_str());
+    return true;
 }
 
  bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
@@ -5469,127 +5661,105 @@ String fefe;
  * @param data The reference to the MettDataMap to save.
  * @param isError Reference to a boolean that will be set to true if an error occurs, false otherwise.
  */
-bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
+ bool renameTableInMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError) {
     isError = false;
 
-    // --- 1. Basic Validation ---
+    // --- 1. 事前チェック ---
     if (!fs.exists(fullFilePath.c_str())) {
-        Serial.printf("Error (Rename): File does not exist: %s\n", fullFilePath.c_str());
+        Serial.printf("Error (RenameTable): File does not exist: %s\n", fullFilePath.c_str());
         isError = true;
         return false;
     }
     if (oldTableName == newTableName) {
-        Serial.println("Warning (Rename): Old and new table names are the same. No changes made.");
+        Serial.println("Warning (RenameTable): Old and new table names are the same. No changes made.");
         return true; 
     }
-    if (newTableName.isEmpty() /* || containsInvalidTableNameChars(newTableName) */) {
-        Serial.printf("Error (Rename): Invalid new table name: '%s'\n", newTableName.c_str());
+    if (newTableName.isEmpty()) {
+        Serial.printf("Error (RenameTable): Invalid new table name: '%s'\n", newTableName.c_str());
         isError = true;
         return false;
     }
 
-    // --- 2. Pre-scan file for conflicts and existence ---
+    // --- 2. 競合チェック (ファイル全体をスキャンして新しい名前が既にあるか確認) ---
     File preScanFile = fs.open(fullFilePath.c_str(), FILE_READ);
     if (!preScanFile) {
-        Serial.printf("Error (Rename): Could not open file for pre-scan: %s\n", fullFilePath.c_str());
         isError = true;
         return false;
     }
-    bool oldTableFound = false;
-    bool newTableConflict = false;
-    String targetLinePrefix = "TABLE_NAME:";
-    while(preScanFile.available()){
+    String searchTarget = "TABLE_NAME:" + newTableName;
+    bool conflict = false;
+    while (preScanFile.available()) {
         String line = preScanFile.readStringUntil('\n');
         line.trim();
-        if (line.startsWith(targetLinePrefix)) {
-            String currentTableName = line.substring(targetLinePrefix.length());
-            if (currentTableName == newTableName) {
-                newTableConflict = true;
-            }
-            if (currentTableName == oldTableName) {
-                oldTableFound = true;
-            }
+        if (line == searchTarget) {
+            conflict = true;
+            break;
         }
     }
     preScanFile.close();
 
-    if (newTableConflict) {
-        Serial.printf("Error (Rename): A table with the name '%s' already exists. Aborting.\n", newTableName.c_str());
+    if (conflict) {
+        Serial.printf("Error (RenameTable): New table name '%s' already exists.\n", newTableName.c_str());
         isError = true;
         return false;
-    }
-    if (!oldTableFound) {
-        Serial.printf("Warning (Rename): Table '%s' not found. No changes made.\n", oldTableName.c_str());
-        return true; 
     }
 
-    // --- 3. Rebuild file line-by-line to temp file with replacement ---
-    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
-    if (!originalFile) {
-        Serial.printf("Error (Rename): Could not re-open original file for processing: %s\n", fullFilePath.c_str());
-        isError = true;
-        return false;
-    }
+    // --- 3. ストリーミング書き換え ---
     String tempFilePath = fullFilePath + ".tmp";
+    // 万が一ゴミが残っていたら消す
+    if (fs.exists(tempFilePath.c_str())) fs.remove(tempFilePath.c_str());
+
+    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
     File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
-    if (!tempFile) {
-        Serial.printf("Error (Rename): Failed to open temp file: %s\n", tempFilePath.c_str());
-        originalFile.close();
+
+    if (!originalFile || !tempFile) {
+        Serial.printf("Error (RenameTable): Failed to open files.\n");
+        if (originalFile) originalFile.close();
+        if (tempFile) tempFile.close();
         isError = true;
         return false;
     }
 
-    String finalFileContentForDebug = "";
-    
+    bool tableRenamed = false;
+    String targetLine = "TABLE_NAME:" + oldTableName;
+
     while (originalFile.available()) {
         String line = originalFile.readStringUntil('\n');
         String trimmedLine = line;
         trimmedLine.trim();
-        
-        String linePrefix = "TABLE_NAME:";
-        if (trimmedLine.startsWith(linePrefix)) {
-            String currentTableName = trimmedLine.substring(linePrefix.length());
-            if (currentTableName == oldTableName) {
-                // This is the exact line to change. Reconstruct it safely.
-                line = linePrefix + newTableName;
-                tempFile.println(line);
-                finalFileContentForDebug += line + "\n";
-            } else {
-                // It's a TABLE_NAME line, but not the one we're looking for.
-                tempFile.println(line);
-                finalFileContentForDebug += line + "\n";
-            }
+
+        if (trimmedLine == targetLine) {
+            // ★ リネーム実行
+            tempFile.println("TABLE_NAME:" + newTableName);
+            tableRenamed = true;
+            Serial.printf("Debug (RenameTable): Renamed table '%s' to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
         } else {
-            // Not a TABLE_NAME line, write it as-is.
+            // そのまま書き込む
             tempFile.println(line);
-            finalFileContentForDebug += line + "\n";
         }
     }
+
     originalFile.close();
     tempFile.close();
-    
-    // --- 4. Print debug info ---
-    Serial.println("\n--- Renaming table. New content will be: ---");
-    Serial.print(finalFileContentForDebug);
-    Serial.println("------------------------------------------");
 
-    // --- 5. Swap files ---
-    if (fs.remove(fullFilePath.c_str())) {
-        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
-            Serial.printf("Info (Rename): Table '%s' successfully renamed to '%s'.\n", oldTableName.c_str(), newTableName.c_str());
-            return true;
-        } else {
-            Serial.printf("Error (Rename): Failed to rename temp file.\n");
-            isError = true;
-            fs.remove(tempFilePath.c_str()); // Clean up temp file
-            return false;
-        }
-    } else {
-        Serial.printf("Error (Rename): Failed to remove original file.\n");
-        isError = true;
-        fs.remove(tempFilePath.c_str()); // Clean up temp file
+    // --- 4. ファイル入れ替え ---
+    if (!tableRenamed) {
+        Serial.printf("Warning (RenameTable): Old table '%s' not found.\n", oldTableName.c_str());
+        fs.remove(tempFilePath.c_str());
         return false;
     }
+
+    if (fs.remove(fullFilePath.c_str())) {
+        if (fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+            Serial.printf("Info (RenameTable): Success.\n");
+            return true;
+        }
+    }
+    
+    Serial.printf("Error (RenameTable): Failed to replace file.\n");
+    isError = true;
+    fs.remove(tempFilePath.c_str()); // クリーンアップ
+    return false;
 }
 
 
@@ -5986,7 +6156,10 @@ bool isValidHensuValue(String& text, bool isHairetsu) {
     text.replace("_", "&2"); // (注: ユーザー指定の ',' ではなく '_' を採用)
     text.replace("#", "&3");
     text.replace("%", "&4");
-    text.replace(";", "&5");
+    text.replace("\\", "&5");
+    text.replace(" ", "&6");
+    text.replace("  ", "&7");
+    text.replace(" ","&8");
 
     // ★ 修正: エンドマーカー "&e" を追加
     text += "&e";
@@ -6015,11 +6188,36 @@ String GyakuhenkanTxt(const String& text) {
     decodedText.replace("&2", "_");
     decodedText.replace("&3", "#");
     decodedText.replace("&4", "%");
-    decodedText.replace("&5", ";");
+    decodedText.replace("&5", "\\");
+    decodedText.replace("&6", " ");
+    decodedText.replace("&7", "　");
+    decodedText.replace("&8", " ");
     decodedText.replace("&n", "\n");
 
     // 2. 最後に '&6' を '&' に戻す (他の置換が完了した後に実行)
     decodedText.replace("&6", "&");
 
     return decodedText;
+}
+
+String HenkanTxt(const String& text) {
+    String encodedText = text;
+
+    // 1. '&' を '&6' に置換 (他の置換より先に実行)
+    encodedText.replace("&", "&6");
+
+    // 2. 改行を '&n' に置換
+    encodedText.replace("\n", "&n");
+    
+    // 3. その他の禁止文字を置換
+    encodedText.replace(":", "&1");
+    encodedText.replace("_", "&2");
+    encodedText.replace("#", "&3");
+    encodedText.replace("%", "&4");
+    encodedText.replace("\\", "&5"); // GyakuhenkanTxt に合わせて '\' を '&5' に
+
+    // 4. エンドマーカー "&e" を追加
+    encodedText += "&e";
+
+    return encodedText;
 }

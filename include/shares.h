@@ -37,8 +37,8 @@ extern  int SCROLL_SPEED_PIXELS;
 extern String Filelist[100];
 extern String directlist[100];
 extern String ForDlist[100];
-void updatePointer2(int size = 3);
-
+void updatePointer2(int size = 3,int &imanopp = imano_page);
+String HenkanTxt(const String& text);
 extern String formatBytes(uint64_t bytes);
 extern bool endsWithTxtOrDbm(String filename);
 extern  String RESERVED_NAMES[];
@@ -233,8 +233,9 @@ extern int entryenter;
 extern bool filebrat;
 extern String Textex;
 extern String maereposit;
-void textluck();
+void textluck(int poichi = 0); 
 extern bool firstScrollLoop;
+void showmozinn2(const String& txt);
 extern String copymotroot;
 extern int sizex;
 extern String tttt;
@@ -252,7 +253,7 @@ std::vector<String> splitString(const String& str, char delim = ',');
 String joinStringVector(const std::vector<String>& vec, const char* delim = ",");
 void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool* isError);
 std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, bool& isNull, bool& isError);
-bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& oldVariableName, const String& newVariableName, bool* isError);
+bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& oldVariableName, const String& newVariableName);
 bool DeleteHensuInMettTable(fs::FS &fs, const String& fullFilePath, const String& tableName, const String& variableName);
 void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& targetTableName,
                                 int pageNumber, int itemsPerPage,

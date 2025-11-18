@@ -180,22 +180,27 @@ Serial.println("feaef" + Filelist[holdpositpoint]);
             M5.update();
           }
           if(ggcounter > 600){
-            ggmode = Filelist[nowposit()];
+            ggmode = Filelist[holdpositpoint];
             mainmode = 13;
+            
       M5.Lcd.setCursor(0,0);
       M5.Lcd.setTextSize(3);
       M5.Lcd.println("Loading...");
       Serial.println("fe" + DirecX + ggmode);
       shokaipointer2(0,DirecX + ggmode);
-      maxpage = maxLinesPerPage;
+      imano_page = 0;
+      
+      
       Serial.println("sus" + String(maxpage));
       return;
           }else{
-            M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+            maxpage = -1;
+            M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n  Back Home" );
         return;
           }
         }else{
-          M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+          maxpage = -1;
+          M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  RenamePDir\n  FileInfo/Edit\n  Back Home" );
         return;
         }
 }
@@ -1171,7 +1176,7 @@ if(sse == "E"){
           kanketu("making file failed",500);
           DirecX = maeredirect(DirecX);
           shokaipointer();
-          mainmode = 2;
+          mainmode = 1;
           return;
         }
     }else{
@@ -1222,7 +1227,7 @@ if(sse == "E"){
         kanketu("delete failed",500);
         DirecX = maeredirect(DirecX);
         shokaipointer();
-        mainmode = 2;
+        mainmode = 1;
         return;
       }
     }
@@ -1422,8 +1427,8 @@ if(sse == "E"){
   else if(mainmode == 2){
     
     String key = wirecheck(); // wirecheck()は常に呼び出される
-    updatePointer(false);
-   if(pagemoveflag == 4 && btna){
+   updatePointer2(3);
+   if(pagemoveflag == 5){
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(File_goukeifont);
         positpoint = holdpositpoint;
@@ -1432,6 +1437,8 @@ if(sse == "E"){
         // SDカードコンテンツの初期表示
         shokaipointer();
         return;
+   }else if(pagemoveflag == 1){
+      pagemoveflag = 0;
    }
     else if(M5.BtnB.wasPressed() && positpoint == 0){//create dir
       bool dd = areusure();
@@ -1902,6 +1909,8 @@ if(sse == "E"){
               mainmode = 2;
               holdpositpoint = positpoint;
               positpointmax = 9;
+              maxpage = -1;
+              imano_page = 0;
               positpointmain1 = positpoint;
              positpoint = 0;
               M5.Lcd.fillScreen(BLACK);
@@ -1909,7 +1918,7 @@ if(sse == "E"){
               M5.Lcd.setCursor(0, 0);
               M5.Lcd.setTextColor(WHITE);
               
-                M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  Rename/DelPDir\n  FileInfo/Edit\n   Back Home\n  File Property" );
+                M5.Lcd.println("  Create Dir\n  Delete File\n  Rename\n  Make File\n  CopyFileorPDir\n  Paste Them\n  Rename/DelPDir\n  FileInfo/Edit\n  Back Home" );
                 shokaipointer(false);
                 return;
             }else{
@@ -1939,7 +1948,7 @@ if(sse == "E"){
         M5.Lcd.setTextColor(WHITE);
        
         suguseni();
-        
+        return;
 
          
 

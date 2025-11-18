@@ -28,12 +28,13 @@
 
 #pragma endregion
 #pragma region <funcdef>
-
+bool isrename = false;
 String TTM2;
 int holdpositpoints;
 int holdpositpointx = 0;
 int holdmaxpagex = 0;
 int holdimanopagex = 0;
+int imano_pagek = 0;
 std::vector<String> hensuopt2;
 int holdpositpointx2 = 0;
 int holdimanopagex2 = 0;
@@ -52,7 +53,7 @@ String MMName;
 std::vector<String> allhensuname;
 std::vector<String> allhensuvalue;
 //テーブル複製時は保持する関数と保持しない関数を個別に設定
-std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Copy Value","Duplicatetotbl","Put a Linker","Lock Edit","Exit"};
+std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Copy Value","Duplicatetotbl","Put a Linker","Lock Edit","Sort","Exit"};
 String TTM;
 
 
@@ -77,7 +78,7 @@ String TTM;
  * @return bool 処理の試行が成功したかどうか (ファイルが見つからない、書き込みエラーなど)
  */
 
- void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
+void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
     isError = false;
     Serial.println("\n--- Input MettDataMap for Save (4-arg) ---");
     // displayLoadedVariables(data); // 非表示
@@ -148,7 +149,7 @@ String TTM;
 
     bool tableProcessed = false;
     bool inTargetBlock = false;
-    bool foundFirstTableId = false; // ★★★ 追加: 最初のID行を見つけたか
+    bool foundFirstContent = false; // ★★★ 変更: 最初の意味のある行を見つけたか
     const char* TABLE_ID_PREFIX = "### METT_TABLE_ID ###";
     const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
     const int TABLE_NAME_PREFIX_LEN = 11;
@@ -168,14 +169,16 @@ String TTM;
             String trimmedLine = line;
             trimmedLine.trim();
 
-            // ★★★ 追加: 最初のID行が見つかるまでヘッダーをスキップ ★★★
-            if (!foundFirstTableId) {
+            // ★★★ 変更: 最初の「意味のある行」 (IDまたはTABLE_NAME) を探す ★★★
+            if (!foundFirstContent) {
                 if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
-                    // 最初のID行を発見
-                    foundFirstTableId = true;
-                    // この行から処理を開始 (この行は書き込む)
+                    foundFirstContent = true;
+                    // この行は処理する必要があるので、下のロジックに流す
+                } else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+                    foundFirstContent = true;
+                    // この行も処理する必要があるので、下のロジックに流す
                 } else {
-                    // 最初のID行より前のテキスト -> スキップ
+                    // IDもTABLE_NAMEでもない行はヘッダーとしてスキップ
                     Serial.printf("Debug (Save): Skipping header text: %s\n", line.c_str());
                     continue; // 次の行へ
                 }
@@ -226,7 +229,7 @@ String TTM;
                         }
                     }
 
-                  
+                    // tempFile.println(); // ★★★ 修正: 余分な空行を削除 ★★★
                 } else {
                     inTargetBlock = false;
                 }
@@ -247,12 +250,12 @@ String TTM;
     if (!tableProcessed) {
         Serial.printf("Debug (Save): Appending new table '%s'.\n", tableName.c_str());
         
-        // ★ 修正: 新規ファイル(またはヘッダーのみのファイル)の場合、foundFirstTableIdはfalse
+        // ★ 修正: 新規ファイル(またはヘッダーのみのファイル)の場合、foundFirstContentはfalse
         // その場合でも、ID行から書き始める
-        if (!foundFirstTableId) {
+        if (!foundFirstContent) {
              tempFile.println(TABLE_ID_PREFIX); // 新規ファイルならID行を書き込む
         } else {
-            // 既存ファイルの末尾なら改行で始める
+             tempFile.println(); // 既存ファイルの末尾なら改行で始める
              tempFile.println(TABLE_ID_PREFIX);
         }
         
@@ -264,7 +267,7 @@ String TTM;
                  tempFile.println("HENSU_OPTIONS:" + pair.second.variableName + ":");
             }
         }
-        tempFile.println();
+        // tempFile.println(); // ★★★ 修正: 余分な空行を削除 ★★★
     }
 
     tempFile.close();
@@ -290,6 +293,7 @@ String TTM;
     }
 }
 
+
 void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& success, bool& isEmpty, std::vector<MettVariableInfo>& variables) {
     variables.clear();
     success = false;
@@ -300,20 +304,7 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
         return;
     }
     
-    // --- デバッグ用にファイル内容を一度表示 ---
-    File fileToPrint = fs.open(fullFilePath.c_str(), FILE_READ);
-    if (!fileToPrint) {
-        Serial.printf("Error (Load): Failed to open file for printing: %s\n", fullFilePath.c_str());
-        return;
-    }
-    Serial.println("\n--- Loading File Content ---");
-    Serial.printf("File: %s\n", fullFilePath.c_str());
-    Serial.println("----------------------------");
-    while(fileToPrint.available()){
-      Serial.write(fileToPrint.read());
-    }
-    Serial.println("\n--- End of File Content ---");
-    fileToPrint.close();
+    // (デバッグ用のファイル内容表示は省略)
 
     // --- 解析用にファイルを再度開く ---
     File file = fs.open(fullFilePath.c_str(), FILE_READ);
@@ -330,26 +321,32 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     String currentTableNameInFile = "";
     bool shouldLoadCurrentTable = false; 
     bool inTableContext = false; 
-    bool foundFirstTableId = false; // ★★★ 追加: 最初のID行を見つけたか
+    bool foundFirstContent = false; // ★★★ 最初の意味のある行を見つけたか
 
     while (file.available()) {
         String line = file.readStringUntil('\n');
         String originalLine = line; 
         line.trim();
 
-        // ★★★ 追加: 最初のID行が見つかるまで他の行を無視する ★★★
-        if (!foundFirstTableId) {
+        // ★★★ 変更: 最初の「意味のある行」 (IDまたはTABLE_NAME) を探す ★★★
+        if (!foundFirstContent) {
             if (line.startsWith("### METT_TABLE_ID ###")) {
                 Serial.println("Debug (Load): Found first TABLE_ID. Starting parse.");
-                foundFirstTableId = true;
-                // この行自体は処理済みとして、次の行からコンテキスト解析を開始
+                foundFirstContent = true;
                 inTableContext = false; 
                 currentTableNameInFile = "";
                 shouldLoadCurrentTable = false;
-                continue; // 次の行へ
+                // ★ 修正: ID行自体は処理不要だが、次の行の解析に進むため 'continue' しない
+                // continue; 
             }
-            // 最初のIDが見つかるまで、TABLE_NAMEや変数行はすべて無視する
-            continue; 
+            else if (line.startsWith("TABLE_NAME:")) {
+                Serial.println("Debug (Load): Found first TABLE_NAME. Starting parse.");
+                foundFirstContent = true;
+                // ★ この TABLE_NAME 行は処理する必要があるので, 'continue' しない
+            } else {
+                // IDもTABLE_NAMEでもない行はヘッダーとしてスキップ
+                continue; 
+            }
         }
         // ★★★ ここまで ★★★
 
@@ -380,7 +377,9 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
             continue;
         }
 
+        // ★★★ 変更: HENSU_OPTIONS: で始まる行はデータ変数ではないので無視する ★★★
         if (line.startsWith("HENSU_OPTIONS:")) {
+            // "HENSU_OPTIONS::" や "HENSU_OPTIONS:" もここで安全にスキップされる
             continue;
         }
 
@@ -406,43 +405,57 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
                 varInfo.tableName = currentTableNameInFile;
                 varInfo.id1 = varInfo.dataType.toInt(); // ID (int)
                 variables.push_back(varInfo);
-                Serial.printf("Debug (Load): Loaded Var -> Name: %s, ID: %s, Value: %s\n", varInfo.variableName.c_str(), varInfo.dataType.c_str(), varInfo.valueString.c_str());
             } else {
                 Serial.printf("Warning (Load): Skipping malformed variable line in target table: %s\n", originalLine.c_str());
             }
         }
     }
 
-    // ★★★ 追加: 最終チェック ★★★
-    if (!foundFirstTableId) {
-        Serial.printf("Warning (Load): File %s does not contain any '### METT_TABLE_ID ###'. No data loaded.\n", fullFilePath.c_str());
+    // ★★★ 変更: 最終チェック ★★★
+    if (!foundFirstContent) {
+        Serial.printf("Warning (Load): File %s does not contain any '### METT_TABLE_ID ###' or 'TABLE_NAME:'. No data loaded.\n", fullFilePath.c_str());
         variables.clear();
         success = true; // ファイル読み込み自体は成功
         isEmpty = true; // データは0件
         file.close();
         return;
     }
-    // ★★★ ここまで ★★★
-
-    Serial.println("\n--- Final Loaded Variables (Vector) ---");
-    if (variables.empty()) {
-        Serial.println("Vector is empty.");
-    } else {
-        int index = 1;
-        for (const auto& var : variables) {
-            String displayString = String(index++) + ". " 
-                                 + "Name: " + var.variableName 
-                                 + ", ID: " + var.dataType
-                                 + ", Value: " + var.valueString
-                                 + ", Table: '" + var.tableName + "'";
-            Serial.println(displayString);
-        }
-    }
-    Serial.println("--- End of Final Loaded Variables ---");
 
     file.close();
     success = true;
     isEmpty = variables.empty();
+}
+
+/**
+ * @brief (必須ヘルパー) .mettファイル内の特定テーブルからすべての変数名を取得します。
+ */
+inline bool getVariableNamesInTable(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& isZero, std::vector<String>& variableNames) {
+    variableNames.clear();
+    isZero = true; // デフォルトは0個とする
+
+    std::vector<MettVariableInfo> fullVariables;
+    bool loadSuccess, isEmpty;
+    loadMettFile(fs, fullFilePath, targetTableName, loadSuccess, isEmpty, fullVariables);
+
+    if (!loadSuccess) {
+        Serial.printf("Error (GetVarNames): loadMettFile failed. File might not exist: %s\n", fullFilePath.c_str());
+        return false; // ファイル読み込み失敗
+    }
+    
+    if (isEmpty) {
+        Serial.printf("Info (GetVarNames): Table '%s' was found but contains 0 variables.\n", targetTableName.c_str());
+        // isZero は true のまま
+        return true; // 処理自体は成功
+    }
+
+    // 変数があった場合
+    isZero = false;
+    for (const auto& var : fullVariables) {
+        variableNames.push_back(var.variableName);
+    }
+    
+    Serial.printf("Info (GetVarNames): Found %d variable names in table '%s'.\n", (int)variableNames.size(), targetTableName.c_str());
+    return true; // 処理成功
 }
 
 
@@ -738,15 +751,19 @@ void shokaipointer4(int pagenum = 0){
       maxLinesPerPage = (ahc / itemsPerP) + 1;
     }
     M5.Lcd.setTextSize(1);
+    String gga = "";
     for (int i = start; i < end; ++i) {
         if(GyakuhenkanTxt(allhensuvalue[i].c_str()) != ""){
-          M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) );
+          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) + "\n";
+         // M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) );
         }else{
-          M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTY TEXT!" );
+          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTXT" + "\n";
+          //M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTY TEXT!" );
         }
         
 
     }
+    showmozinn2(gga);
     M5.Lcd.setTextSize(2);
     M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
     M5.Lcd.printf("Page: %d/%d", pagenum + 1, totalPages2);
@@ -889,10 +906,22 @@ void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
     M5.Lcd.setTextSize(3);
          M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
-
+    if(ahc % itemsPerP == 0){
+      maxpage = ahc / itemsPerP;
+    }else{
+      maxpage = (ahc / itemsPerP) + 1;
+    }
+    Serial.println("HEPP" + String(imano_pagek) + " " +   String(maxpage));
+    if(imano_pagek == maxpage - 1){
+      if(ahc % itemsPerP == 0){
+        positpointmax = itemsPerP ;
+      }else{
+        positpointmax = ahc % itemsPerP ;
+      }
+    }else{
+      positpointmax = itemsPerP;
+    }
     
-    
-    positpointmax = itemsPerP;
   
 
 
@@ -904,11 +933,7 @@ void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
     
     int end = dd + positpointmax  ;
     
-    if(ahc % itemsPerP == 0){
-      maxpage = ahc / itemsPerP;
-    }else{
-      maxpage = (ahc / itemsPerP) + 1;
-    }
+    
     int totalPages2 = maxpage;
     M5.Lcd.setTextSize(3);
     for (int i = start; i < end; ++i) {
@@ -989,6 +1014,7 @@ void loop() {
 
 if(M5.Touch.getCount() > 1){
   kanketu("Soft Reset Starting...",1000);
+  SD.end();
   ESP.restart();
 }
 
@@ -1032,35 +1058,35 @@ if(M5.Touch.getCount() > 1){
     }
  }
  else if(mainmode == 19){
-      updatePointer2(3);
+      updatePointer2(3,imano_pagek);
       
       if(pagemoveflag == 1){
       pagemoveflag = 0;
-      imano_page = 0;
+      imano_pagek = 0;
       positpoint = 0;
       Serial.println("fefe1!");
-      shokaipointer5(imano_page);
+      shokaipointer5(imano_pagek);
       
       return;
     }else if(pagemoveflag == 2){
       pagemoveflag = 0;
-      imano_page = imano_page + 1;
+      imano_pagek = imano_pagek + 1;
       positpoint = 0;
       Serial.println("fefe2!");
-      shokaipointer5(imano_page);
+      shokaipointer5(imano_pagek);
       
       return;
     }else if(pagemoveflag == 3){
       pagemoveflag = 0;
-      imano_page = imano_page - 1;
+      imano_pagek = imano_pagek - 1;
       Serial.println("fefe3!");
       positpoint = positpointmaxg - 1;
-      shokaipointer5(imano_page);
+      shokaipointer5(imano_pagek);
   
       return;
     }else if (pagemoveflag == 4){
       Serial.println("fefe4!");
-            imano_page = holdimanopagex2;
+           //
       positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
       shokaipointer4(holdimanopagex2);
@@ -1098,7 +1124,7 @@ if(M5.Touch.getCount() > 1){
               return;
             }else if(M5.BtnA.wasPressed()){
               M5.Lcd.fillScreen(BLACK);
-              imano_page = holdimanopagex2;
+             // imano_page = holdimanopagex2;
       positpoint = holdpositpointx2;
       shokaipointer4(holdimanopagex2);
       mainmode = 17;
@@ -1112,7 +1138,7 @@ if(M5.Touch.getCount() > 1){
             kanketu("Load Error!",500);
             M5.Lcd.fillScreen(BLACK);
              Serial.println("fefe4!" + TTM + ";;" + TTM2);
-            imano_page = holdimanopagex2;
+            //imano_page = holdimanopagex2;
       positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
       shokaipointer4(holdimanopagex2);
@@ -1130,6 +1156,7 @@ if(M5.Touch.getCount() > 1){
       mainmode = 17;
               }else{
                 mainmode = 18;
+                isrename = false;
                 M5.Lcd.fillScreen(BLACK);
                 M5.Lcd.setCursor(0,0);
                 Textex = "Enter Hensu Table Name.";
@@ -1158,6 +1185,15 @@ if(M5.Touch.getCount() > 1){
       positpoint = holdpositpointx3;
       shokaipointer4(holdimanopagex3);
       mainmode = 17;
+            }else if(positpoint == 3){//Renamwe
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              isrename = true;
+              TTM2 = allhensuname[holdpositpointx3];
+              SuperT = TTM2;
+              Textex = "Rename Hensus...";
+              mainmode = 18;
+              return;
             }
 
 
@@ -1176,12 +1212,18 @@ if(M5.Touch.getCount() > 1){
       M5.Lcd.setCursor(0,0);
       M5.Lcd.println("Creating...");
       bool gg = false;
-      createMettHensu(SD,DirecX + ggmode,TTM,SuperT,"",false,0,gg);
+      if(isrename){
+        Serial.println("RNM]" + TTM2 + SuperT + TTM);
+        gg = renameHensuInTable(SD,DirecX + ggmode,TTM,TTM2,SuperT);
+      }else{
+        createMettHensu(SD,DirecX + ggmode,TTM,SuperT,"",false,0,gg);
       if(!gg){
         kanketu("Hensu Created!",500);
       }else{
         kanketu("Hensu Create Failed!",500);
       }
+      }
+      
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
@@ -1284,7 +1326,7 @@ if(M5.Touch.getCount() > 1){
       mainmode = 19;
       holdpositpointx3 = positpoint;
       holdimanopagex3 = imano_page;
-      imano_page = 0;
+      imano_pagek = 0;
       TTM2 = allhensuname[holdpositpointx3];
       M5.Lcd.setTextFont(3);
       shokaipointer5(0);
