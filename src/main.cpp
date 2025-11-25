@@ -34,7 +34,9 @@ int holdpositpoints;
 int holdpositpointx = 0;
 int holdmaxpagex = 0;
 int holdimanopagex = 0;
+std::vector<String> optt;
 int imano_pagek = 0;
+int ssoptdok = 0;
 std::vector<String> hensuopt2;
 int holdpositpointx2 = 0;
 int holdimanopagex2 = 0;
@@ -1066,6 +1068,8 @@ if(M5.Touch.getCount() > 1){
       String keshikk = keshiki[positpoint];
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.setCursor(0,0);
+      int gg = 0;
+      String findLineStartingWithPrefix(opttt,"datatype;",gg);
 
       
     }
@@ -1251,7 +1255,7 @@ else  if(mainmode == 20){
               M5.Lcd.println("loading\noptions...");
               bool tt = false;
               bool isn = false;
-              std::vector<String> optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+              optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
               if(!tt || !isn){
                 M5.Lcd.fillScreen(BLACK);
                 imano_page = holdimanopagex2;
@@ -1259,7 +1263,8 @@ else  if(mainmode == 20){
                 shokaipointer4(holdimanopagex3);
                 mainmode = 17;
               }else{
-                String ssg = findLineStartingWithPrefix(optt,"datatype;");
+                
+                String ssg = findLineStartingWithPrefix(optt,"datatype;",ssoptdok);
                 if(ssg != "#err"){
                   String JJ = "";
                   if(ssg == "#empmoji"){
