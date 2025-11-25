@@ -293,7 +293,7 @@ bool test_load();
 bool isValidHensuValue(String& text, bool isHairetsu);
 String GyakuhenkanTxt(const String& text);
 String getDateTimeString();
-
+String findLineStartingWithPrefix(const std::vector<String>& lines, const String& prefix, int& foundIndex);
 
 
 

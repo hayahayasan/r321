@@ -40,6 +40,7 @@ int holdpositpointx2 = 0;
 int holdimanopagex2 = 0;
 int holdpositpointx3 = 0;
 int holdimanopagex3 = 0;
+String ascopt[] = {"nameasc","namedesc","dateasc","datedesc","crtdnew","crtdold"};
 String MMName;
 #pragma endregion
 
@@ -849,7 +850,7 @@ void shokaioptionhensu(){
   
   bool nullp;
   bool sus;
-  int optionlength = 12;
+  int optionlength = 14;
   std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
   if(sus){
     Serial.println("HensuOptions Load Error.");
@@ -866,6 +867,9 @@ void shokaioptionhensu(){
     shokaivector(opttt,"last_date;");
     shokaivector(opttt,"sort_length;");
     shokaivector(opttt,"dupflag_lock;");
+    shokaivector(opttt,"white_list;");
+    shokaivector(opttt,"black_list;");
+    shokaivector(opttt,"enable_kaigho;");
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
     if(sus){
       Serial.println("HensuOptions Save Error.");
@@ -1019,7 +1023,54 @@ if(M5.Touch.getCount() > 1){
 }
 
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
- if(mainmode == 20){
+ if(mainmode == 21){
+    updatePointer2(3,imano_pagek);
+      
+      if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      imano_pagek = 0;
+      positpoint = 0;
+      Serial.println("fefe1!");
+      shokaipointer5(imano_pagek);
+      
+      return;
+    }else if(pagemoveflag == 2){
+      pagemoveflag = 0;
+      imano_pagek = imano_pagek + 1;
+      positpoint = 0;
+      Serial.println("fefe2!");
+      shokaipointer5(imano_pagek);
+      
+      return;
+    }else if(pagemoveflag == 3){
+      pagemoveflag = 0;
+      imano_pagek = imano_pagek - 1;
+      Serial.println("fefe3!");
+      positpoint = positpointmaxg - 1;
+      shokaipointer5(imano_pagek);
+  
+      return;
+    }else if (pagemoveflag == 4){
+      Serial.println("fefe4!");
+           //
+      positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+
+      
+      
+      return;
+    }else if(M5.BtnB.wasPressed()){
+      String keshiki[] = {"String","int","double","date","strlist","intlist","dbllist"};
+      String keshikk = keshiki[positpoint];
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+
+      
+    }
+ }
+else  if(mainmode == 20){
     textluck();
     if(entryenter == -1){
       SuperT + SuperT + ",";
@@ -1194,6 +1245,46 @@ if(M5.Touch.getCount() > 1){
               Textex = "Rename Hensus...";
               mainmode = 18;
               return;
+            }else if(positpoint == 5){//Data_Type
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.println("loading\noptions...");
+              bool tt = false;
+              bool isn = false;
+              std::vector<String> optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+              if(!tt || !isn){
+                M5.Lcd.fillScreen(BLACK);
+                imano_page = holdimanopagex2;
+                positpoint = holdpositpointx3;
+                shokaipointer4(holdimanopagex3);
+                mainmode = 17;
+              }else{
+                String ssg = findLineStartingWithPrefix(optt,"datatype;");
+                if(ssg != "#err"){
+                  String JJ = "";
+                  if(ssg == "#empmoji"){
+                    JJ = "String";
+                  }else{
+                    JJ = ssg;
+                  }
+                  
+                  Serial.println("  String\n  int\n  double\n  date\n  HairetsStr\n  Hairetsint\n  Hairetsdouble");
+                  Serial.println("nowvalue:" + ssg);
+                  mainmode = 21;
+                  positpointmax = 7;
+                  positpoint = 0;
+                  maxpage = -1;
+                  return;
+
+                }else{
+                  Serial.println("optionnousederror");
+                  M5.Lcd.fillScreen(BLACK);
+                imano_page = holdimanopagex2;
+                positpoint = holdpositpointx3;
+                shokaipointer4(holdimanopagex3);
+                mainmode = 17;
+                }
+              }
             }
 
 
@@ -1413,11 +1504,11 @@ else if(mainmode == 16){
             return;
           }
           return;
-        }else if(positpoint == 3){
+        }else if(positpoint == 4){
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
           M5.Lcd.setTextSize(1);
-          showmozinn("The Date:\n  Createdat:" + dataToSaveE["table_opt4"] + "\n  Lastat:" + dataToSaveE["table_opt5"] + "\n  NowTime:" + getDateTimeString());
+          showmozinn2("The Date:\n  Createdat:" + dataToSaveE["table_opt4"] + "\n  Lastat:" + dataToSaveE["table_opt5"] + "\n  NowTime:" + getDateTimeString());
           while(true){
             M5.delay(1);
             M5.update();
@@ -1431,6 +1522,22 @@ else if(mainmode == 16){
           
           
             shokaipointer3();
+        }else if(positpoint == 3){
+          M5.Lcd.fillScreen(BLACK);
+          int tt = selectOption(ascopt,6,"select option!","sort options!");
+          dataToSaveE["table_opt6"] = ascopt[tt];
+          M5.Lcd.fillScreen(BLACK);
+          bool loadSuccess = false;
+           saveMettFile(SD, DirecX + ggmode, fefe, dataToSaveE, loadSuccess);
+          if(!optkobun() || loadSuccess){
+            M5.Lcd.fillScreen(BLACK);
+            positpoint = holdpositpointd;
+            imano_page = holdimanopaged;
+            positpointmax = holdpositpointmaxd;
+            mainmode = 1;
+            return;
+          }
+          return;
         }
     }
 }

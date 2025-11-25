@@ -1035,6 +1035,42 @@ String maeredirect(String path){
   }
 }
 
+
+String findLineStartingWithPrefix(const std::vector<String>& lines, const String& prefix, int& foundIndex ) {
+    // プレフィックスが空の場合は、何も検索できないため空文字列を返す
+    if (prefix.isEmpty()) {
+        foundIndex = -1; // 見つからなかった
+        return "";
+    }
+
+    // ベクターを順に走査する
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const String& line = lines[i];
+        
+        // String::startsWith() メソッドを使用して、文字列の先頭が一致するか確認する
+        if (line.startsWith(prefix)) {
+            // ★ プレフィックスが見つかった場合: インデックスを参照先に代入
+            foundIndex = (int)i;
+            
+            // 一致した最初の行が見つかったため、プレフィックス以降の部分を抽出
+            int prefixLength = prefix.length();
+            String remainingString = line.substring(prefixLength);
+
+            // 残りの文字列が空（""）の場合は、#EMPMOJIを返却
+            if (remainingString.isEmpty()) {
+                return "#EMPMOJI";
+            }
+
+            // 残りの文字列をそのまま返却（元の行のtrim()は行わない仕様を維持）
+            return remainingString;
+        }
+    }
+
+    // 全ての行を走査したが、一致するものが見つからなかった
+    foundIndex = -1;
+    return "";
+}
+
 String wirecheck() {
     delay(1); // 1msのディレイ
     byte error, address;
@@ -4761,7 +4797,7 @@ void showmozinn2(const String& txt) {
         while (remain.length() > 0) {
 
             // この行で画面に収まる最大文字数を計算
-            int maxChars = remain.length();  
+            int maxChars = remain.length() - 1;  
             while (maxChars > 0) {
                 String candidate = remain.substring(0, maxChars);
                 int w = M5.Lcd.textWidth(candidate);
@@ -4775,7 +4811,7 @@ void showmozinn2(const String& txt) {
             if (maxChars <= 0) {
                 // とりあえず1文字だけ出す
                 String one = remain.substring(0, 1);
-                M5.Lcd.println(one);
+                //M5.Lcd.println(one);
                 remain = remain.substring(1);
                 continue;
             }
@@ -5938,6 +5974,7 @@ bool optkobun(){
   M5.Lcd.println(String("  Index Number:") + dataToSaveE["table_opt1"] 
             + "\n  tabletype:" + dataToSaveE["table_opt2"] +
              "\n  tag:" + dataToSaveE["table_opt3"] +
+             "\n  sorttype:" + dataToSaveE["table_opt6"] + 
              "\n  date1/2:(check)"+ "\n\n table options!");
           positpoint = 0;
           maxpage = -1;
@@ -6106,6 +6143,9 @@ void createjj(){
           jj = true;
         }
         if(datt("table_opt5",getDateTimeString())){
+          jj = true;
+        }
+        if(datt("table_opt6","nameasc")){
           jj = true;
         }
         Serial.println("DD!" + dataToSaveE["table_opt1"]);
