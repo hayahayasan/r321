@@ -4354,36 +4354,35 @@ std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, con
         // 対象テーブル内で、かつ変数名が一致するHENSU_OPTIONS行を探す
         if (inTargetTable && line.startsWith(targetLinePrefix)) {
             String optionsString = line.substring(targetLinePrefix.length());
-            optionsString.trim(); // ★ 値のトリム
+            optionsString.trim(); // 値のトリム
             
-            if (optionsString.isEmpty()) {
-                isNull = true; // ★ 見つかったが、値が空だった
-                options.clear(); // 念のためクリア
-            } else {
-                isNull = false; // ★ 見つかり、値も空ではなかった
+            // ★ 修正: 文字列が空でない場合のみ分割を実行
+            if (!optionsString.isEmpty()) {
                 options = splitString(optionsString, ','); // ヘルパー関数で分割
             }
+            
+            // ★ 修正: ベクターが空かどうかで isNull を判定
+            isNull = options.empty();
 
             file.close();
             Serial.printf("Info (loadHensuOptions): Options loaded for %s:%s. isNull: %s\n", targetTableName.c_str(), targetVariableName.c_str(), isNull ? "true" : "false");
-            isError = false; // ★ 正常終了
+            isError = false; // 正常終了
             return options; // 処理完了
         }
     }
 
     file.close();
 
-    // ★★★ 自動修復ロジック ★★★
+    // --- 自動修復ロジック ---
     if (isError == false && isNull == true) {
         
-        // ★★★ 追加: 変数名が空の場合は、自動修復しない ★★★
+        // 変数名が空の場合は、自動修復しない
         if (targetVariableName.isEmpty()) {
             Serial.printf("Warning (loadHensuOptions): Target variable name is empty. Skipping auto-create.\n");
             isError = false; // エラーではない
             isNull = true;   // 見つからなかった
             return options;
         }
-        // ★★★ ここまで ★★★
 
         // I/Oエラーはなく、行が見つからなかった場合
         Serial.printf("Warning (loadHensuOptions): Options not found for %s:%s. Creating empty entry...\n", targetTableName.c_str(), targetVariableName.c_str());
@@ -4407,17 +4406,20 @@ std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, con
     // I/Oエラーがあった場合 (isError = true)
     if (isError) {
          Serial.printf("Error (loadHensuOptions): File I/O error occurred.\n");
-         // isError は既に true
     }
 
-    return options; // 見つからなかった場合 (空のベクター, isNull=true, isError=false)
+    return options; // 見つからなかった場合
 }
 
-void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool& isError) {
+ void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool& isError) {
     isError = false;
 
-  
-    // ★★★ ここまで ★★★
+    // ★ 変数名が空の場合はエラー
+    if (targetVariableName.isEmpty()) {
+        Serial.printf("Error (saveHensuOptions): Target variable name cannot be empty.\n");
+        isError = true;
+        return;
+    }
 
     // --- オプション要素の検証 ---
     for(const String& opt : options) {
@@ -4481,6 +4483,11 @@ void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targ
         String trimmedLine = line;
         trimmedLine.trim();
 
+        // ★★★ 修正: 空行は常にスキップ (削除) ★★★
+        if (trimmedLine.isEmpty()) {
+            continue;
+        }
+
         if (trimmedLine.startsWith(TABLE_ID_PREFIX)) {
             // ブロック境界
             if (inTargetBlock && !optionProcessed) {
@@ -4540,7 +4547,7 @@ void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targ
         Serial.printf("Error (saveHensuOptions): Target table '%s' was not found.\n", targetTableName.c_str());
         isError = true;
         fs.remove(tempFilePath.c_str()); // 不要な一時ファイルを削除
-        return; // ★ 戻り値が void なので return;
+        return; 
     }
 
     // --- 6. ファイルを入れ替え ---
@@ -4555,9 +4562,8 @@ void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targ
     }
 
     if (!optionProcessed) {
-         // このロジックは (inTargetBlock && !optionProcessed) でカバーされているため、
-         // ここに来ることはないはず。
-        Serial.printf("Warning (saveHensuOptions): Target variable %s:%s not found (This warning should not appear).\n", targetTableName.c_str(), targetVariableName.c_str());
+        // ここに来ることは論理的に少ないが、念のため
+        Serial.printf("Warning (saveHensuOptions): Target variable %s:%s not found (Should have been appended).\n", targetTableName.c_str(), targetVariableName.c_str());
     } else if (!isError) {
         Serial.println("Info (saveHensuOptions): Options saved successfully.");
     }

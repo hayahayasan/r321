@@ -829,22 +829,21 @@ if(yyy == ""){
 }
 
 
-int shokaivector(std::vector<String> vec,String kakikomumozi ){
-  auto it = std::find(vec.begin(), vec.end(), kakikomumozi);
-
-    // 2. 結果をチェックします。
-    if (it != vec.end()) {
-        // 見つかった場合:
-        // std::distance で、ベクターの先頭(begin)から
-        // 見つかった場所(it)までの「距離（＝インデックス）」を計算します。
-
-       vec.push_back(kakikomumozi);
-       
-        return std::distance(vec.begin(), it);
-    } else {
-        // 見つからなかった場合 (イテレータが末尾 'end()' を指している):
-        return -1;
+int shokaivector(std::vector<String>& vec, const String& kakikomumozi) {
+    // 1. ベクター内を検索 (前方一致)
+    for (size_t i = 0; i < vec.size(); ++i) {
+        // vec[i] が kakikomumozi から始まっているかチェック
+        if (vec[i].startsWith(kakikomumozi)) {
+            // 見つかった場合: 既存のインデックスを返す（追加はしない）
+            return (int)i;
+        }
     }
+
+    // 2. 見つからなかった場合: 末尾に追加する
+    vec.push_back(kakikomumozi);
+    
+    // 追加した要素（末尾）のインデックスを返す
+    return (int)vec.size() - 1;
 }
 
 
@@ -852,11 +851,14 @@ void shokaioptionhensu(){
   
   bool nullp;
   bool sus;
-  int optionlength = 14;
+  int optionlength = 15;
+  
   std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
+  Serial.println("Opt:" + String(opttt.size()));
   if(sus){
     Serial.println("HensuOptions Load Error.");
-  }else if(nullp || optionlength > opttt.size()){
+  }else if(optionlength > opttt.size()){
+    Serial.println("shokaioption");
     shokaivector(opttt,"maxlength;");
     shokaivector(opttt,"datatype;");
     shokaivector(opttt,"defaultvalue;");
@@ -872,7 +874,9 @@ void shokaioptionhensu(){
     shokaivector(opttt,"white_list;");
     shokaivector(opttt,"black_list;");
     shokaivector(opttt,"enable_kaigho;");
+    Serial.println("Opt:" + String(opttt.size()));
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
+    
     if(sus){
       Serial.println("HensuOptions Save Error.");
     }else{
@@ -1025,43 +1029,26 @@ if(M5.Touch.getCount() > 1){
 }
 
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
- if(mainmode == 21){
+ if(mainmode == 21){//変数Opt
     updatePointer2(3,imano_pagek);
       
       if(pagemoveflag == 1){
       pagemoveflag = 0;
       imano_pagek = 0;
       positpoint = 0;
-      Serial.println("fefe1!");
-      shokaipointer5(imano_pagek);
+      
       
       return;
     }else if(pagemoveflag == 2){
       pagemoveflag = 0;
       imano_pagek = imano_pagek + 1;
       positpoint = 0;
-      Serial.println("fefe2!");
-      shokaipointer5(imano_pagek);
+      
       
       return;
-    }else if(pagemoveflag == 3){
-      pagemoveflag = 0;
-      imano_pagek = imano_pagek - 1;
-      Serial.println("fefe3!");
-      positpoint = positpointmaxg - 1;
-      shokaipointer5(imano_pagek);
+    }else if(pagemoveflag == 5){
+      
   
-      return;
-    }else if (pagemoveflag == 4){
-      Serial.println("fefe4!");
-           //
-      positpoint = holdpositpointx2;
-      M5.Lcd.fillScreen(BLACK);
-      shokaipointer4(holdimanopagex2);
-      mainmode = 17;
-
-      
-      
       return;
     }else if(M5.BtnB.wasPressed()){
       String keshiki[] = {"String","int","double","date","strlist","intlist","dbllist"};
@@ -1069,7 +1056,46 @@ if(M5.Touch.getCount() > 1){
       M5.Lcd.fillScreen(BLACK);
       M5.Lcd.setCursor(0,0);
       int gg = 0;
-      String findLineStartingWithPrefix(opttt,"datatype;",gg);
+      bool tt = false;
+              bool isn = false;
+      
+      std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+      if(!tt){
+        kanketu("HensuOptions Load Error!",500);
+        positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+      }
+      
+      String ssg = findLineStartingWithPrefix(optta, "datatype;", gg);
+      if(gg != -1){
+        Serial.println("Found datatype:" + ssg);
+        ssg = ssg.substring(ssg.indexOf(";") + 1);
+        optta[gg] = "datatype;" + keshikk;
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.println("Saving...");
+        saveHensuOptions(SD,DirecX + ggmode,TTM,TTM2,optta,tt);
+        if(tt){
+          kanketu("HensuSaving Error!",500);
+          positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+        }else{
+          kanketu("HensuOption Saved!",500);
+          positpoint = holdpositpointx2;
+          
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+        }
+
+      }
 
       
     }
@@ -1256,25 +1282,39 @@ else  if(mainmode == 20){
               bool tt = false;
               bool isn = false;
               optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
-              if(!tt || !isn){
+              if(tt){
                 M5.Lcd.fillScreen(BLACK);
                 imano_page = holdimanopagex2;
                 positpoint = holdpositpointx3;
                 shokaipointer4(holdimanopagex3);
                 mainmode = 17;
               }else{
-                
+                TTM2 = allhensuname[holdpositpointx3];
+                if(isn){
+                  Serial.println("NULLED and SAVED");
+                    shokaioptionhensu();
+                    optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+                if(tt){
+                  M5.Lcd.fillScreen(BLACK);
+                imano_page = holdimanopagex2;
+                positpoint = holdpositpointx3;
+                shokaipointer4(holdimanopagex3);
+                mainmode = 17;
+                }
+                }
+                M5.Lcd.fillScreen(BLACK);
                 String ssg = findLineStartingWithPrefix(optt,"datatype;",ssoptdok);
-                if(ssg != "#err"){
+                if(ssoptdok != -1){
                   String JJ = "";
-                  if(ssg == "#empmoji"){
+                  if(ssg == "#EMPMOJI"){
                     JJ = "String";
                   }else{
                     JJ = ssg;
                   }
-                  
-                  Serial.println("  String\n  int\n  double\n  date\n  HairetsStr\n  Hairetsint\n  Hairetsdouble");
-                  Serial.println("nowvalue:" + ssg);
+                  M5.Lcd.fillScreen(BLACK);
+                  M5.Lcd.setCursor(0,0);
+                  M5.Lcd.println("  String\n  int\n  double\n  date\n  HairetsStr\n  Hairetsint\n  Hairetsdouble");
+                  M5.Lcd.println("nowvalue:" + ssg);
                   mainmode = 21;
                   positpointmax = 7;
                   positpoint = 0;
