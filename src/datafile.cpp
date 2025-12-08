@@ -1071,75 +1071,7 @@ String findLineStartingWithPrefix(const std::vector<String>& lines, const String
     return "";
 }
 
-String wirecheck() {
-    delay(1); // 1msのディレイ
-    byte error, address;
-    int ndevices = 0;
-    // Wire.begin()とWire.setClock()はsetup()で一度だけ行うべきですが、
-    // ここでは毎フレーム呼ばれることを前提としているため、
-    // 厳密にはここではなくsetup()で行うのが適切です。
-    // しかし、ユーザーの指示によりsetup()が削除されているため、
-    // 互換性を保つためにこの関数内に残します。
-    // 実際の運用では、M5.begin()の後に一度だけ呼び出すようにしてください。
-    // Wire.begin();
-    // Wire.setClock(400000); 
 
-    address = 95; // CardKB1.1のI2Cアドレス
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission(); // デバイスの存在を確認
-
-    if (error == 0) { // デバイスが正常に検知された場合
-        //Serial.println("I2Cデバイス検知開始"); // デバッグ用
-        if (address == 95) {
-            //Serial.println("CardKB1.1検知完了"); // デバッグ用
-            ndevices++;
-            int milcounter = 0;
-            // データが利用可能になるまで待機、またはタイムアウト
-            while (!Wire.available()) {
-                Wire.requestFrom(95, 1); // 1バイトのリクエスト
-                milcounter++;
-                delay(1);
-                if (milcounter > 10) break; // 100msでタイムアウト
-            }
-
-            if (Wire.available()) { // データが利用可能かチェック
-                char key = Wire.read(); // データを読み取る
-                if (key != 0) { // 非ゼロデータはキープレスを示す可能性
-                    switch ((int)key) {
-                        case 13: return "ENT";   // Enterキー
-                        case 8:  return "BACK";  // Backspaceキー
-                        case 27: return "ESC";   // ESCキー
-                        case 32: return "SPACE"; // スペースキー
-                        case 9:  return "TAB";   // Tabキー
-                        case 181: return "UP";    // 上矢印キー
-                        case 183: return "RIGHT"; // 右矢印キー
-                        case 182: return "DOWN";  // 下矢印キー
-                        case 180: return "LEFT";  // 左矢印キー
-                        default:
-                            //Serial.println("その他の文字キー: " + String(key)); // デバッグ用
-                            return String(key); // その他の文字キー
-                    }
-                } else {
-                    //Serial.println("osaretenai"); // デバッグ用
-                    return "NULL"; // キーが押されていない (キーコードが0)
-                }
-            }
-        }
-    } else if (error == 4) {
-        // Serial.println("I2Cデバイスが見つかりません"); // デバッグ用
-        return "error"; // デバイスが見つからないエラー
-    } else {
-        // Serial.println("えらー" + String(error)); // デバッグ用
-        return "error"; // その他のI2Cエラー
-    }
-
-    if (ndevices == 0) {
-        // Serial.println("なんも接続されていません"); // デバッグ用
-        return "nokey"; // デバイスが何も接続されていない
-    }
-
-    return "whattf"; // 何らかの予期せぬ状態
-}
 
 String migidkae(String karac){
   int lastSlashIndex = karac.lastIndexOf('/');

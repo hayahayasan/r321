@@ -159,6 +159,79 @@ unsigned long lastBlinkToggleTime = 0;
 bool showAngleBrackets = true; 
 
 
+String textsus(String defotrxt,String texnum,bool returnss,int rule){
+  SuperT = defotrxt;
+  Textex = texnum;
+  while(true){
+    delay(1);
+    textluck();
+    if(entryenter == -1){
+      SuperT + SuperT + ",";
+      entryenter = 0;
+    }else if(entryenter == 1){
+      entryenter = 0;
+      if(rule == 0){//int値だけ(ただし0~10000)
+
+        if(!isValidInteger0To100000(SuperT)){
+          Textex = "Invalid Integer(0~100000)! Try Again";
+          
+          
+      }
+
+      returnss = false;
+      return SuperT;
+      
+
+
+      }
+
+
+
+
+    }else if(entryenter == 2){
+      entryenter = 0;
+      returnss = true;
+      return;
+    }
+  }
+}
+
+ bool isValidInteger0To100000(const String& input) {
+    // 0. 改行文字が含まれていないかをチェック (ユーザーの明示的な要求)
+    if (input.indexOf('\n') != -1 || input.indexOf('\r') != -1) {
+        Serial.printf("Validation Error: Input contains newline character.\n");
+        return false;
+    }
+    
+    // 1. 文字列が空でないことをチェック
+    if (input.length() == 0) {
+        Serial.printf("Validation Error: Input is empty.\n");
+        return false;
+    }
+
+    // 2. すべての文字が数字であることをチェック (toInt()の信頼性を高めるため。符号 '-' や '+' も拒否)
+    for (size_t i = 0; i < input.length(); ++i) {
+        if (!isDigit(input.charAt(i))) {
+            Serial.printf("Validation Error: Input contains non-digit character: '%s'\n", input.c_str());
+            return false;
+        }
+    }
+
+    // 3. 整数に変換
+    // String::toInt()はintを返す。100000はintに収まるため安全。
+    // Stringが大きすぎる数値だった場合、toInt()の結果がオーバーフローを起こす可能性があるが、
+    // 100000までという制限と、isDigitによる純粋な数値チェックで、実質的にチェックされる。
+    long num = input.toInt(); 
+    
+    // 4. 範囲チェック: 0 <= num <= 100000
+    if (num >= 0 && num <= 100000) {
+        // Serial.printf("Validation Success: %ld is within range [0, 100000].\n", num);
+        return true;
+    } else {
+        Serial.printf("Validation Error: Number %ld is outside range [0, 100000].\n", num);
+        return false;
+    }
+}
 
 void suguseni(){
 

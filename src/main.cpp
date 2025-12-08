@@ -44,6 +44,7 @@ int holdpositpointx3 = 0;
 int holdimanopagex3 = 0;
 String ascopt[] = {"nameasc","namedesc","dateasc","datedesc","crtdnew","crtdold"};
 String MMName;
+
 #pragma endregion
 
 //配列のNULL代入も作る
@@ -56,9 +57,9 @@ String MMName;
 std::vector<String> allhensuname;
 std::vector<String> allhensuvalue;
 //テーブル複製時は保持する関数と保持しない関数を個別に設定
-std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Copy Value","Duplicatetotbl","Put a Linker","Lock Edit","Sort","Exit"};
+std::vector<String> hensuopt = {"Edit","Delete","Create","Rename","Options","Data Type","R/W ID","DFLTValue","FillNULL","Duplicate","Check Date","Set/DelLink","pasteAlltable","Copy Value","Duplicatetotbl","Put a Linker","Addhensu2alltbl","Sort","Exit"};
 String TTM;
-
+//変数データのコピペは入力画面時にBtnBを押す
 
 
 
@@ -1027,10 +1028,9 @@ if(M5.Touch.getCount() > 1){
   SD.end();
   ESP.restart();
 }
-
  delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
- if(mainmode == 21){//変数Opt
-    updatePointer2(3,imano_pagek);
+if(mainmode == 22){
+     updatePointer2(3,imano_pagek);
       
       if(pagemoveflag == 1){
       pagemoveflag = 0;
@@ -1039,16 +1039,79 @@ if(M5.Touch.getCount() > 1){
       
       
       return;
-    }else if(pagemoveflag == 2){
+    
+    }else if(pagemoveflag == 5){
+      
+      positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+    }else if(M5.BtnB.wasPressed()){
+      if(positpoint == 0){
+            bool tt;
+          int id;
+          String sus;
+          bool tt2;
+          std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
+          if(tt){
+
+            kanketu("No Load!",400);
+            positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+          }
+          if(tt2){
+            shokaioptionhensu();
+            optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
+          }
+          String Leng2 = findLineStartingWithPrefix(optta, "maxlength;", id);
+          if(id == -1){
+            Serial.println("No maxlength found!");
+            kanketu("No Load!",400);
+            positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+          }
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.println("Nowvalue:" + Leng2 + "\nBtn B to Edit(A Back)");
+          bool rett = false;
+          String gg = textsus(Leng2,"Please Enter Num 1-100000",rett,0);
+          if(rett){
+            positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+      return;
+          }
+          bool tt = false;
+              bool isn = false;
+              optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+      }
+    }
+}
+
+ else if(mainmode == 21){//変数Opt
+    updatePointer2(3,imano_pagek);
+      
+      if(pagemoveflag == 1){
       pagemoveflag = 0;
-      imano_pagek = imano_pagek + 1;
+
       positpoint = 0;
       
       
       return;
     }else if(pagemoveflag == 5){
       
-  
+      positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
       return;
     }else if(M5.BtnB.wasPressed()){
       String keshiki[] = {"String","int","double","date","strlist","intlist","dbllist"};
@@ -1060,7 +1123,7 @@ if(M5.Touch.getCount() > 1){
               bool isn = false;
       
       std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
-      if(!tt){
+      if(tt){
         kanketu("HensuOptions Load Error!",500);
         positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
@@ -1095,6 +1158,8 @@ if(M5.Touch.getCount() > 1){
       return;
         }
 
+      }else{
+        Serial.println("no datatype!");
       }
 
       
@@ -1314,7 +1379,7 @@ else  if(mainmode == 20){
                   M5.Lcd.fillScreen(BLACK);
                   M5.Lcd.setCursor(0,0);
                   M5.Lcd.println("  String\n  int\n  double\n  date\n  HairetsStr\n  Hairetsint\n  Hairetsdouble");
-                  M5.Lcd.println("nowvalue:" + ssg);
+                  M5.Lcd.println("nowvalue:" + JJ);
                   mainmode = 21;
                   positpointmax = 7;
                   positpoint = 0;
@@ -1330,6 +1395,37 @@ else  if(mainmode == 20){
                 mainmode = 17;
                 }
               }
+            }else if(positpoint == 4){//Options
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.println("loading\noptions...");
+              bool tt = false;
+              bool isn = false;
+              optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+              if(tt){
+                M5.Lcd.fillScreen(BLACK);
+                imano_page = holdimanopagex2;
+                positpoint = holdpositpointx3;
+                shokaipointer4(holdimanopagex3);
+                mainmode = 17;
+                return;
+              }
+              if(isn){
+                  Serial.println("NULLED and SAVED");
+                    shokaioptionhensu();
+              }
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.println("  Max LengthMozi\n  DefaultV\n  DataLock\n  Tags\n  LengList\n  Enable kaigho");
+              positpoint = 0;
+              maxpage = -1;
+              positpointmax = 6;
+              mainmode = 22;
+              return;
+
+
+
+
             }
 
 
