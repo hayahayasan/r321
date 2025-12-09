@@ -1199,6 +1199,78 @@ String checkAndRename(String filePath) {
     return "";
 }
 
+String wirecheck() {
+    delay(1); // 1msのディレイ
+    byte error, address;
+    int ndevices = 0;
+    // Wire.begin()とWire.setClock()はsetup()で一度だけ行うべきですが、
+    // ここでは毎フレーム呼ばれることを前提としているため、
+    // 厳密にはここではなくsetup()で行うのが適切です。
+    // しかし、ユーザーの指示によりsetup()が削除されているため、
+    // 互換性を保つためにこの関数内に残します。
+    // 実際の運用では、M5.begin()の後に一度だけ呼び出すようにしてください。
+    // Wire.begin();
+    // Wire.setClock(400000); 
+
+    address = 95; // CardKB1.1のI2Cアドレス
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission(); // デバイスの存在を確認
+
+    if (error == 0) { // デバイスが正常に検知された場合
+        //Serial.println("I2Cデバイス検知開始"); // デバッグ用
+        if (address == 95) {
+            //Serial.println("CardKB1.1検知完了"); // デバッグ用
+            ndevices++;
+            int milcounter = 0;
+            // データが利用可能になるまで待機、またはタイムアウト
+            while (!Wire.available()) {
+                Wire.requestFrom(95, 1); // 1バイトのリクエスト
+                milcounter++;
+                delay(1);
+                if (milcounter > 10) break; // 100msでタイムアウト
+            }
+
+            if (Wire.available()) { // データが利用可能かチェック
+                char key = Wire.read(); // データを読み取る
+                
+                if (key != 0) { // 非ゼロデータはキープレスを示す可能性
+                    Serial.println("押されたキーコード: " + String((int)key)); // デバッグ用
+                    switch ((int)key) {
+
+                        case 13: return "ENT";   // Enterキー
+                        case 8:  return "BACK";  // Backspaceキー
+                        case 27: return "ESC";   // ESCキー
+                        case 32: return "SPACE"; // スペースキー
+                        case 9:  return "TAB";   // Tabキー
+                        case 181: return "UP";    // 上矢印キー
+                        case 183: return "RIGHT"; // 右矢印キー
+                        case 182: return "DOWN";  // 下矢印キー
+                        case 180: return "LEFT";  // 左矢印キー
+                        default:
+                            //Serial.println("その他の文字キー: " + String(key)); // デバッグ用
+                            return String(key); // その他の文字キー
+                    }
+                } else {
+                    //Serial.println("osaretenai"); // デバッグ用
+                    return "NULL"; // キーが押されていない (キーコードが0)
+                }
+            }
+        }
+    } else if (error == 4) {
+        // Serial.println("I2Cデバイスが見つかりません"); // デバッグ用
+        return "error"; // デバイスが見つからないエラー
+    } else {
+        // Serial.println("えらー" + String(error)); // デバッグ用
+        return "error"; // その他のI2Cエラー
+    }
+
+    if (ndevices == 0) {
+        // Serial.println("なんも接続されていません"); // デバッグ用
+        return "nokey"; // デバイスが何も接続されていない
+    }
+
+    return "whattf"; // 何らかの予期せぬ状態
+}
 // Function to copy a file with a progress display and a cancel option
 // Returns 0 for success, 1 for cancellation, 2 for failure.
 int copyFile(const char* sourcePath, const char* destinationPath, long totalSize) {
@@ -4360,11 +4432,7 @@ std::vector<String> loadHensuOptions(fs::FS &fs, const String& fullFilePath, con
             isError = true;
             return;
         }
-         if (containsInvalidChars(opt)) { // ':' や '-' などもチェック
-            Serial.printf("Error (saveHensuOptions): Option element '%s' for %s:%s contains invalid characters.\n", opt.c_str(), targetTableName.c_str(), targetVariableName.c_str());
-            isError = true;
-            return;
-        }
+         
     }
     
     // --- 1. オプションベクターを単一のStringに変換 (ヘルパー関数使用) ---
@@ -5064,10 +5132,417 @@ bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& ta
     }
 }
 
-bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName) {
+void defval(int rule,bool returns){
+      bool tt;
+          int id;
+          String sus;
+          bool tt2;
+          std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
+          if(tt){
+
+            kanketu("No Load!",400);
+            
+      return;
+          }
+          if(tt2){
+            shokaioptionhensu();
+            optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
+          }
+          String agaa = "";
+          if(rule == 0){
+            agaa = "maxlength;";
+          }else if(rule == 1){
+            agaa = "defaultvalue;";
+          }else if(rule ==2){
+            agaa = "data_lock;";
+          }
+          String Leng2 = findLineStartingWithPrefix(optta, agaa, id);
+          if(id == -1){
+            Serial.println("No " +agaa + " found!");
+            kanketu("No Load!",400);
+            
+      return;
+          }
+          M5.Lcd.fillScreen(BLACK);
+          if(Leng2 == "#EMPMOJI"){
+            if(rule == 0){
+                Leng2 = "0";
+            }else if (rule == 1){
+                Leng2 = "";
+            }else if(rule == 2){
+                Leng2 = "False";
+            }
+            
+          }
+         
+            Leng2 = GyakuhenkanTxt(Leng2);
+          
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.println("Nowvalue:" + Leng2 + "\nBtn B to Edit(A Back)");
+          bool  tta = false;
+          while(!tta){
+            delay(1);
+            M5.update();
+            if(M5.BtnB.wasPressed()){
+              tta = true;
+            }
+            else if(M5.BtnA.wasPressed()){
+              SuperT = "";
+              entryenter = 0;
+              
+              returns = true;
+              return;
+            }
+          }
+          
+          Serial.println("rrrr" + String(rule));
+         
+          if(rule == 0){
+            Serial.println("Maxlength Edit");
+            String gg = textsus(Leng2,"Please Enter Num 1-100000",0);
+          if(returnss){
+            
+            return;
+          }
+          tt = false;
+              bool isn = false;
+              
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.println("Saving...");
+              if (containsInvalidChars(gg)) { // ':' や '-' などもチェック
+                    Serial.println("Error (saveHensuOptions): Option element '%s' for %s:%s contains invalid characters.\n");
+                    return;
+              }
+              gg = GyakuhenkanTxt(gg);
+              optta[id] = "maxlength;" + HenkanTxt(gg);
+              
+        
+              saveHensuOptions(SD,DirecX + ggmode,TTM,TTM2,optta,tt);
+              if(tt){
+                kanketu("HensuSaving Error!",500);
+                
+   
+              }else{
+                 kanketu("HensuOption Saved!",500);
+              }
+             
+              
+      return;
+          } else if(rule == 1){
+            Serial.println("Defaultvalue Edit");
+            String gg = textsus(Leng2,"Please Enter Value(No kaigho)",1);
+          if(returnss){
+            Serial.println("Return without save");
+      return;
+          }
+          
+          
+          tt = false;
+              bool isn = false;
+              optta[id] = "defaultvalue;" + gg;
+              M5.Lcd.fillScreen(BLACK);
+              M5.Lcd.setCursor(0,0);
+              M5.Lcd.println("Saving...");
+              saveHensuOptions(SD,DirecX + ggmode,TTM,TTM2,optta,tt);
+              if(tt){
+                kanketu("HensuSaving Error!",500);
+                
+   
+              }else{
+                 kanketu("HensuOption Saved!",500);
+              }
+             
+              
+      return;
+
+
+
+          }else if(rule == 2){
+            bool tt = areubunki("True","False");
+            if(tt){
+                
+            }
+          }
+          
+}
+
+void shokaipointer3(){
+  bool tt = false;
+  allTableNames = allTableNames2;
+  for(int i = 0; i < 100; i++){
+      AllName[i] = "";
+    }
+    int ii = 0;
+    M5.Lcd.fillScreen(BLACK);
+    int totalItems = allTableNames.size();
+    int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
+    int start = imano_page * itemsPerPage;
+    int end = start + holdpositpointmax;
+    for (int i = start; i < end; ++i) {
+   //   Serial.println("ALLT*" + allTableNames[i]);
+        
+        AllName[ii] = allTableNames[i];
+        Serial.println("FFN:" + ii + AllName[ii]);
+        ii++;
+    }
+  fefe = AllName[holdpositpoint];
+  Serial.println("the name is" + fefe);
+}
+
+void shokaipointer2(int pageNum, String filePath  ) {
+  M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Loading...");
+    
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.setTextSize(3);
+    frameright = 0;
+    positpoint = 0;
+    M5.Lcd.setTextSize(3);
+    frameleft = 0;
+    // Get all table names from a single file
+    bool tt = false;
+    allTableNames = getAllTableNamesInFile(SD, filePath,tt);
+    Serial.println("Tables found: " + String(allTableNames.size()));
+    allTableNames2 = allTableNames;
+    if (allTableNames.empty()) {
+        M5.Lcd.fillScreen(BLACK);
+        Serial.println("No tables found.");
+        maxLinesPerPage = -1;
+      M5.Lcd.setCursor(0, 0);
+      holdpositpointt = 1;
+      M5.Lcd.setTextFont(3);
+      M5.Lcd.println("No Tables!\n Press B");
+        return;
+    }
+
+    int totalItems = allTableNames.size();
+    int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
+    
+      
+    
+      if (pageNum < 0 || pageNum >= totalPages) {
+         M5.Lcd.fillScreen(BLACK);
+        Serial.println("Invalid page.");
+        M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.printf("Page: %d/%d", 1, totalPages);
+        return;
+    }
+
+    // Calculate positpointmax based on the new logic
+    int remainingItems = totalItems % itemsPerPage;
+    if (pageNum == totalPages - 1) {
+        if (remainingItems == 0) {
+            positpointmax = itemsPerPage ;
+            positpointmaxg = itemsPerPage;
+        } else {
+            positpointmax = remainingItems ;
+            positpointmaxg = itemsPerPage;
+        }
+    } else {
+        positpointmax = itemsPerPage ;
+    }
+   // Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
+    // Use positpointmax for the loop
+    int start = pageNum * itemsPerPage;
+    
+    int end = start + positpointmax  ;
+    
+    if(totalItems % itemsPerPage == 0){
+      maxLinesPerPage = totalItems / itemsPerPage;
+    }else{
+      maxLinesPerPage = (totalItems / itemsPerPage) + 1;
+    }
+    
+    Serial.println("start" + String(start) + "end" + String(end) + "patge" + String(imano_page));
+    M5.Lcd.setCursor(0, 0);
+    for(int i = 0; i < 100; i++){
+      AllName[i] = "";
+    }
+    int ii = 0;
+    M5.Lcd.fillScreen(BLACK);
+    for (int i = start; i < end; ++i) {
+        M5.Lcd.println("  " + allTableNames[i]);
+        AllName[ii] = allTableNames[i];
+        Serial.println("    nams:" + AllName[ii]);
+        ii++;
+    }
+    fefe = AllName[holdpositpoints];
+    Serial.println("posits;" + String(holdpositpoints) + "jj" + fefe);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
+    M5.Lcd.printf("Page: %d/%d", pageNum + 1, totalPages);
+    }
+    
+
+void shokaipointer4(int pagenum ){
+  bool tt = false;
+
+  int itemsPerP = 25;
+        
+        int ahc = 0;
+        std::vector<String> ids;
+  ExtractTablePageMett(SD,DirecX + ggmode,TTM,pagenum,itemsPerP,allhensuname,allhensuvalue,ids,false,tt,ahc);
+  if(tt){
+        M5.Lcd.fillScreen(BLACK);
+        Serial.println("Load Error.");
+        maxLinesPerPage = -1;
+        kanketu("Load Error!",500);
+        mainmode = 13;
+        imano_page = 0;
+      shokaipointer2(holdimanopage,DirecX + ggmode);
+      maxpage = maxLinesPerPage;
+      return;
+  } 
+
+    M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+      M5.Lcd.println("Loading...");
+    
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.setTextSize(3);
+    frameright = 0;
+    positpoint = 0;
+    M5.Lcd.setTextSize(3);
+    frameleft = 0;
+     M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+  if (allhensuname.empty()) {
+        M5.Lcd.fillScreen(BLACK);
+        Serial.println("No tables found.");
+        maxLinesPerPage = -1;
+      M5.Lcd.setCursor(0, 0);
+      M5.Lcd.setTextFont(3);
+      M5.Lcd.println("No Hensus!\n Press B");
+        return;
+    }
+
+    int totalPages2 = 0;
+    int remainingItems = ahc % itemsPerP;
+    if(remainingItems == 0){
+      totalPages2 = ahc / itemsPerP;
+    }else { 
+      totalPages2 = (ahc / itemsPerP) + 1;
+    }
+    positpointmax = allhensuname.size();
+  
+
+
+      
+  Serial.println("GG:" + String(pagenum) + "AHC:" + String(ahc) + "IPP:" + String(positpointmax));
+   // Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
+    // Use positpointmax for the loop
+    int start = 0;
+    
+    int end = positpointmax  ;
+    
+    if(ahc % itemsPerP == 0){
+      maxLinesPerPage = ahc / itemsPerP;
+    }else{
+      maxLinesPerPage = (ahc / itemsPerP) + 1;
+    }
+    M5.Lcd.setTextSize(1);
+    String gga = "";
+    for (int i = start; i < end; ++i) {
+        if(GyakuhenkanTxt(allhensuvalue[i].c_str()) != ""){
+          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) + "\n";
+         // M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) );
+        }else{
+          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTXT" + "\n";
+          //M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTY TEXT!" );
+        }
+        
+
+    }
+    showmozinn2(gga);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
+    M5.Lcd.printf("Page: %d/%d", pagenum + 1, totalPages2);
+
+
+}    
+
+void checkemptyhensu(String Hensu,String atai,String Kaerichi){
+  bool nullp;
+  bool sus;
+  std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
+    if(sus){
+    Serial.println("HensuOptions Load Error.");
+    return;
+  }
+  if(std::find(opttt.begin(), opttt.end(), Hensu) == opttt.end()){
+    opttt.push_back(Hensu + ":" + atai);
+    saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
+    if(sus){
+      Serial.println("HensuOptions Save Error.");
+      return;
+    }else{
+      Serial.println("HensuOptions Save Succeed.");
+      return;
+    }
+  }else{
+    Serial.println("HensuOptions Exists.");
+    String yyy = ""; // 結果を格納する変数
+
+
+if(yyy == ""){
+  for (String& line : opttt) {
+    
+    // 2. Stringの indexOf() メソッドで部分一致をチェックします。
+    //    -1 以外が返ってきたら、文字列が見つかったことを意味します。
+    if (line.indexOf(Hensu + ":") != -1) {
+      
+      if(line.substring(line.indexOf(":") + 1) ==""){
+        line = Hensu + ":" + atai;
+        saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
+        if(sus){
+          Serial.println("HensuOptions initial Save Error.");
+          Kaerichi = atai;
+          return;
+        }else{
+          Serial.println("HensuOptions initial Save Succeed.");
+          Kaerichi = atai;
+          return;
+        }
+      }else{
+        Kaerichi = line.substring(line.indexOf(":") + 1);
+        return;
+      }
+    }
+  }
+}
+
+    return;
+  }
+}
+
+
+int shokaivector(std::vector<String>& vec, const String& kakikomumozi) {
+    // 1. ベクター内を検索 (前方一致)
+    for (size_t i = 0; i < vec.size(); ++i) {
+        // vec[i] が kakikomumozi から始まっているかチェック
+        if (vec[i].startsWith(kakikomumozi)) {
+            // 見つかった場合: 既存のインデックスを返す（追加はしない）
+            return (int)i;
+        }
+    }
+
+    // 2. 見つからなかった場合: 末尾に追加する
+    vec.push_back(kakikomumozi);
+    
+    // 追加した要素（末尾）のインデックスを返す
+    return (int)vec.size() - 1;
+}
+
+ bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName, bool iskaigho) {
     
     // 1. 禁止文字のチェック
-    const char* forbiddenChars = ":.\\/ \t\r\n*?\"<>|-;"; // \ と半角・全角空白、その他ファイル名禁止文字
+    // ★ 修正: \n をリストから削除しました (個別にチェックするため)
+    const char* forbiddenChars = ":.\\/ \t\r*?\"<>|-;"; // \ と半角・全角空白、その他ファイル名禁止文字
     
     // 基本的な禁止文字
     for (int i = 0; i < strlen(forbiddenChars); ++i) {
@@ -5081,6 +5556,15 @@ bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const 
         Serial.printf("Error (ValidateName): 変数名 '%s' に全角スペースが含まれています。\n", newVariableName.c_str());
         return false;
     }
+
+    // ★★★ 追加: 改行チェック (iskaighoがtrueの時だけ検知) ★★★
+    if (iskaigho) {
+        if (newVariableName.indexOf('\n') != -1) {
+            Serial.printf("Error (ValidateName): 変数名 '%s' に禁止文字 '\\n' (改行) が含まれています。\n", newVariableName.c_str());
+            return false;
+        }
+    }
+    // ★★★ ここまで ★★★
 
     // 2. 文字長のチェック
     if (newVariableName.length() > 1000) {
@@ -5099,10 +5583,6 @@ bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const 
     std::vector<String> existingNames;
     if (!getVariableNamesInTable(fs, fullFilePath, targetTableName, isZero, existingNames)) {
         // テーブル読み込み自体に失敗した場合 (テーブルが存在しないなど)
-        // (getVariableNamesInTableがfalseを返すのは、loadMettFile失敗時のみ)
-        // (isValidAndUniqueVariableNameは「もしテーブルが存在したら」という前提で動くべき)
-        // (ここでは、テーブルが存在しない場合は重複しようがないのでtrueを返す、という仕様も考えられるが、)
-        // (安全のため、読み込めなかったらfalseとする)
         Serial.printf("Error (ValidateName): 重複チェックのためテーブル '%s' を読み込めませんでした。\n", targetTableName.c_str());
         return false;
     }

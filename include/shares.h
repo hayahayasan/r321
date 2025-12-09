@@ -263,7 +263,7 @@ void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& 
 void saveHensuOptions(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& targetVariableName, const std::vector<String>& options, bool& isError);
 bool duplicateMettFile(fs::FS &fs, const String& fullFilePath, const String& oldTableName, const String& newTableName, bool& isError);
 bool deleteTableInFile(fs::FS &fs, const String& fullFilePath, const String& tableName, bool* isError);
-bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName);
+bool isValidAndUniqueVariableName(fs::FS &fs, const String& fullFilePath, const String& targetTableName, const String& newVariableName, bool iskaigho = false);
 void createMettHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, 
                            const String& targetVariableName, const String& value, 
                            bool isWrite, int id, bool& isError);
@@ -294,11 +294,27 @@ bool isValidHensuValue(String& text, bool isHairetsu);
 String GyakuhenkanTxt(const String& text);
 String getDateTimeString();
 String findLineStartingWithPrefix(const std::vector<String>& lines, const String& prefix, int& foundIndex);
-extern String optopt[];
-String textsus(String defotrxt);
- bool isValidInteger0To100000(const String& input);
- String textsus(String defotrxt,String texnum,bool returnss,int rule);
 
+ bool isValidInteger0To100000(String& input);
+ String textsus(String defotrxt,String texnum,int rule);
+void defval(int rule,bool returns);
+extern int holdpositpointx2;
+extern bool returnss;
+void shokaipointer3();
+void shokaipointer2(int pageNum, String filePath  ) ;
+void shokaipointer4(int pagenum = 0);
+void checkemptyhensu(String Hensu,String atai,String Kaerichi = "");
+int shokaivector(std::vector<String>& vec, const String& kakikomumozi);
+extern int holdimanopagex2;
+extern String TTM;
+extern String TTM2;
+extern int holdpositpointx3;
+extern int holdimanopagex3;
+extern std::vector<String> allhensuvalue;
+extern int imano_pagek;
+extern int holdpositpoints;
+extern std::vector<String> allhensuname;
+void shokaioptionhensu();
 
 
 

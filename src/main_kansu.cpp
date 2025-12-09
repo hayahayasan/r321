@@ -31,7 +31,7 @@ int SCROLL_SPEED_PIXELS = 3;
 int frameright;
 int holdpositpointt;
 String tttt = "hello";
-
+bool returnss;
 
 String RESERVED_NAMES[] = {
     "CON", "PRN", "AUX", "NUL",
@@ -159,9 +159,12 @@ unsigned long lastBlinkToggleTime = 0;
 bool showAngleBrackets = true; 
 
 
-String textsus(String defotrxt,String texnum,bool returnss,int rule){
+String textsus(String defotrxt,String texnum,int rule){
   SuperT = defotrxt;
   Textex = texnum;
+  returnss = false;
+  entryenter = 0;
+  Serial.println("textsss");
   while(true){
     delay(1);
     textluck();
@@ -176,27 +179,41 @@ String textsus(String defotrxt,String texnum,bool returnss,int rule){
           Textex = "Invalid Integer(0~100000)! Try Again";
           
           
-      }
-
-      returnss = false;
+      }else{
+        returnss = false;
       return SuperT;
-      
-
-
       }
-
-
-
-
+      }else if(rule ==1){
+        if(!isValidHensuValue(SuperT,false)){
+          Textex = "Invalid Hensu Value(no kaigho)! Try Again";
+          
+          
+      }else{
+        returnss = false;
+      return SuperT;
+      }
+      }else if(rule ==2){
+        if(!isValidHensuValue(SuperT,true)){
+          Textex = "Invalid Hensu Value(yes kaigho)! Try Again";
+          
+          
+      }else{
+        returnss = false;
+      return SuperT;
+      }
+      }
     }else if(entryenter == 2){
       entryenter = 0;
+      Serial.println("canceLLLLLLLL");
       returnss = true;
-      return;
+      return "";
     }
   }
 }
 
- bool isValidInteger0To100000(const String& input) {
+
+
+ bool isValidInteger0To100000(String& input) {
     // 0. 改行文字が含まれていないかをチェック (ユーザーの明示的な要求)
     if (input.indexOf('\n') != -1 || input.indexOf('\r') != -1) {
         Serial.printf("Validation Error: Input contains newline character.\n");
@@ -209,6 +226,14 @@ String textsus(String defotrxt,String texnum,bool returnss,int rule){
         return false;
     }
 
+    // ★★★ 追加: 先頭の不要な '0' を削除 (正規化) ★★★
+    // 長さが1より大きく、かつ先頭が '0' である間、先頭を削除し続ける
+    // これにより "0005" -> "5", "0" -> "0", "00" -> "0" となる
+    while (input.length() > 1 && input.charAt(0) == '0') {
+        input.remove(0, 1);
+    }
+    // ★★★ ここまで ★★★
+
     // 2. すべての文字が数字であることをチェック (toInt()の信頼性を高めるため。符号 '-' や '+' も拒否)
     for (size_t i = 0; i < input.length(); ++i) {
         if (!isDigit(input.charAt(i))) {
@@ -219,8 +244,6 @@ String textsus(String defotrxt,String texnum,bool returnss,int rule){
 
     // 3. 整数に変換
     // String::toInt()はintを返す。100000はintに収まるため安全。
-    // Stringが大きすぎる数値だった場合、toInt()の結果がオーバーフローを起こす可能性があるが、
-    // 100000までという制限と、isDigitによる純粋な数値チェックで、実質的にチェックされる。
     long num = input.toInt(); 
     
     // 4. 範囲チェック: 0 <= num <= 100000

@@ -576,276 +576,7 @@ bool loadmett(){
     }
 }
 
-void shokaipointer3(){
-  bool tt = false;
-  allTableNames = allTableNames2;
-  for(int i = 0; i < 100; i++){
-      AllName[i] = "";
-    }
-    int ii = 0;
-    M5.Lcd.fillScreen(BLACK);
-    int totalItems = allTableNames.size();
-    int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
-    int start = imano_page * itemsPerPage;
-    int end = start + holdpositpointmax;
-    for (int i = start; i < end; ++i) {
-   //   Serial.println("ALLT*" + allTableNames[i]);
-        
-        AllName[ii] = allTableNames[i];
-        Serial.println("FFN:" + ii + AllName[ii]);
-        ii++;
-    }
-  fefe = AllName[holdpositpoint];
-  Serial.println("the name is" + fefe);
-}
 
-void shokaipointer2(int pageNum, String filePath  ) {
-  M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.setCursor(0,0);
-      M5.Lcd.println("Loading...");
-    
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(3);
-    frameright = 0;
-    positpoint = 0;
-    M5.Lcd.setTextSize(3);
-    frameleft = 0;
-    // Get all table names from a single file
-    bool tt = false;
-    allTableNames = getAllTableNamesInFile(SD, filePath,tt);
-    Serial.println("Tables found: " + String(allTableNames.size()));
-    allTableNames2 = allTableNames;
-    if (allTableNames.empty()) {
-        M5.Lcd.fillScreen(BLACK);
-        Serial.println("No tables found.");
-        maxLinesPerPage = -1;
-      M5.Lcd.setCursor(0, 0);
-      holdpositpointt = 1;
-      M5.Lcd.setTextFont(3);
-      M5.Lcd.println("No Tables!\n Press B");
-        return;
-    }
-
-    int totalItems = allTableNames.size();
-    int totalPages = (totalItems + itemsPerPage - 1) / itemsPerPage;
-    
-      
-    
-      if (pageNum < 0 || pageNum >= totalPages) {
-         M5.Lcd.fillScreen(BLACK);
-        Serial.println("Invalid page.");
-        M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.printf("Page: %d/%d", 1, totalPages);
-        return;
-    }
-
-    // Calculate positpointmax based on the new logic
-    int remainingItems = totalItems % itemsPerPage;
-    if (pageNum == totalPages - 1) {
-        if (remainingItems == 0) {
-            positpointmax = itemsPerPage ;
-            positpointmaxg = itemsPerPage;
-        } else {
-            positpointmax = remainingItems ;
-            positpointmaxg = itemsPerPage;
-        }
-    } else {
-        positpointmax = itemsPerPage ;
-    }
-   // Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
-    // Use positpointmax for the loop
-    int start = pageNum * itemsPerPage;
-    
-    int end = start + positpointmax  ;
-    
-    if(totalItems % itemsPerPage == 0){
-      maxLinesPerPage = totalItems / itemsPerPage;
-    }else{
-      maxLinesPerPage = (totalItems / itemsPerPage) + 1;
-    }
-    
-    Serial.println("start" + String(start) + "end" + String(end) + "patge" + String(imano_page));
-    M5.Lcd.setCursor(0, 0);
-    for(int i = 0; i < 100; i++){
-      AllName[i] = "";
-    }
-    int ii = 0;
-    M5.Lcd.fillScreen(BLACK);
-    for (int i = start; i < end; ++i) {
-        M5.Lcd.println("  " + allTableNames[i]);
-        AllName[ii] = allTableNames[i];
-        Serial.println("    nams:" + AllName[ii]);
-        ii++;
-    }
-    fefe = AllName[holdpositpoints];
-    Serial.println("posits;" + String(holdpositpoints) + "jj" + fefe);
-    M5.Lcd.setTextSize(2);
-    M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
-    M5.Lcd.printf("Page: %d/%d", pageNum + 1, totalPages);
-    }
-    
-
-void shokaipointer4(int pagenum = 0){
-  bool tt = false;
-
-  int itemsPerP = 25;
-        
-        int ahc = 0;
-        std::vector<String> ids;
-  ExtractTablePageMett(SD,DirecX + ggmode,TTM,pagenum,itemsPerP,allhensuname,allhensuvalue,ids,false,tt,ahc);
-  if(tt){
-        M5.Lcd.fillScreen(BLACK);
-        Serial.println("Load Error.");
-        maxLinesPerPage = -1;
-        kanketu("Load Error!",500);
-        mainmode = 13;
-        imano_page = 0;
-      shokaipointer2(holdimanopage,DirecX + ggmode);
-      maxpage = maxLinesPerPage;
-      return;
-  } 
-
-    M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.setCursor(0,0);
-      M5.Lcd.println("Loading...");
-    
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(3);
-    frameright = 0;
-    positpoint = 0;
-    M5.Lcd.setTextSize(3);
-    frameleft = 0;
-     M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setCursor(0, 0);
-  if (allhensuname.empty()) {
-        M5.Lcd.fillScreen(BLACK);
-        Serial.println("No tables found.");
-        maxLinesPerPage = -1;
-      M5.Lcd.setCursor(0, 0);
-      M5.Lcd.setTextFont(3);
-      M5.Lcd.println("No Hensus!\n Press B");
-        return;
-    }
-
-    int totalPages2 = 0;
-    int remainingItems = ahc % itemsPerP;
-    if(remainingItems == 0){
-      totalPages2 = ahc / itemsPerP;
-    }else { 
-      totalPages2 = (ahc / itemsPerP) + 1;
-    }
-    positpointmax = allhensuname.size();
-  
-
-
-      
-  Serial.println("GG:" + String(pagenum) + "AHC:" + String(ahc) + "IPP:" + String(positpointmax));
-   // Serial.printf("Debug: positpointmax = %d\n", positpointmax); // Debugging line
-    // Use positpointmax for the loop
-    int start = 0;
-    
-    int end = positpointmax  ;
-    
-    if(ahc % itemsPerP == 0){
-      maxLinesPerPage = ahc / itemsPerP;
-    }else{
-      maxLinesPerPage = (ahc / itemsPerP) + 1;
-    }
-    M5.Lcd.setTextSize(1);
-    String gga = "";
-    for (int i = start; i < end; ++i) {
-        if(GyakuhenkanTxt(allhensuvalue[i].c_str()) != ""){
-          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) + "\n";
-         // M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) );
-        }else{
-          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTXT" + "\n";
-          //M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTY TEXT!" );
-        }
-        
-
-    }
-    showmozinn2(gga);
-    M5.Lcd.setTextSize(2);
-    M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
-    M5.Lcd.printf("Page: %d/%d", pagenum + 1, totalPages2);
-
-
-}    
-
-void checkemptyhensu(String Hensu,String atai,String Kaerichi = ""){
-  bool nullp;
-  bool sus;
-  std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
-    if(sus){
-    Serial.println("HensuOptions Load Error.");
-    return;
-  }
-  if(std::find(opttt.begin(), opttt.end(), Hensu) == opttt.end()){
-    opttt.push_back(Hensu + ":" + atai);
-    saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
-    if(sus){
-      Serial.println("HensuOptions Save Error.");
-      return;
-    }else{
-      Serial.println("HensuOptions Save Succeed.");
-      return;
-    }
-  }else{
-    Serial.println("HensuOptions Exists.");
-    String yyy = ""; // 結果を格納する変数
-
-
-if(yyy == ""){
-  for (String& line : opttt) {
-    
-    // 2. Stringの indexOf() メソッドで部分一致をチェックします。
-    //    -1 以外が返ってきたら、文字列が見つかったことを意味します。
-    if (line.indexOf(Hensu + ":") != -1) {
-      
-      if(line.substring(line.indexOf(":") + 1) ==""){
-        line = Hensu + ":" + atai;
-        saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
-        if(sus){
-          Serial.println("HensuOptions initial Save Error.");
-          Kaerichi = atai;
-          return;
-        }else{
-          Serial.println("HensuOptions initial Save Succeed.");
-          Kaerichi = atai;
-          return;
-        }
-      }else{
-        Kaerichi = line.substring(line.indexOf(":") + 1);
-        return;
-      }
-    }
-  }
-}
-
-    return;
-  }
-}
-
-
-int shokaivector(std::vector<String>& vec, const String& kakikomumozi) {
-    // 1. ベクター内を検索 (前方一致)
-    for (size_t i = 0; i < vec.size(); ++i) {
-        // vec[i] が kakikomumozi から始まっているかチェック
-        if (vec[i].startsWith(kakikomumozi)) {
-            // 見つかった場合: 既存のインデックスを返す（追加はしない）
-            return (int)i;
-        }
-    }
-
-    // 2. 見つからなかった場合: 末尾に追加する
-    vec.push_back(kakikomumozi);
-    
-    // 追加した要素（末尾）のインデックスを返す
-    return (int)vec.size() - 1;
-}
 
 
 void shokaioptionhensu(){
@@ -1014,6 +745,10 @@ void setup() {
 //テーブルコピペ機能（名称を変更したテーブルを複数作成する）
 bool tututu;
 //変数機能：作成，削除，複製，リネーム，変数値設定，変数値のNULL，変数値デフォルト値の設定，変数値タイプ（数値またはリストまたはDate），変数値のリセット，オプション，全テーブルへの列追加，全テーブルから列削除
+
+// Forward declaration
+String getDateTimeString();
+
 void loop() {
 
 
@@ -1034,9 +769,6 @@ if(mainmode == 22){
       
       if(pagemoveflag == 1){
       pagemoveflag = 0;
-      imano_pagek = 0;
-      positpoint = 0;
-      
       
       return;
     
@@ -1048,52 +780,61 @@ if(mainmode == 22){
       mainmode = 17;
       return;
     }else if(M5.BtnB.wasPressed()){
+      bool retr = false;  
       if(positpoint == 0){
-            bool tt;
-          int id;
-          String sus;
-          bool tt2;
-          std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
-          if(tt){
-
-            kanketu("No Load!",400);
+        
+        defval(0,retr);
+          if(retr ){
+            M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.println("loading..");
+      mainmode = 19;
+      imano_page = 0;
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(imano_page);
+          }else{
             positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
       shokaipointer4(holdimanopagex2);
       mainmode = 17;
+            return;
+          }
+      }else if(positpoint == 1){
+         defval(1,retr);
+         if(retr ){
+            M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.println("loading..");
+      mainmode = 19;
+      imano_page = 0;
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(imano_page);
       return;
-          }
-          if(tt2){
-            shokaioptionhensu();
-            optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
-          }
-          String Leng2 = findLineStartingWithPrefix(optta, "maxlength;", id);
-          if(id == -1){
-            Serial.println("No maxlength found!");
-            kanketu("No Load!",400);
+          }else{
             positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
       shokaipointer4(holdimanopagex2);
       mainmode = 17;
-      return;
+            return;
           }
-          M5.Lcd.fillScreen(BLACK);
-          M5.Lcd.setCursor(0,0);
-          M5.Lcd.println("Nowvalue:" + Leng2 + "\nBtn B to Edit(A Back)");
-          bool rett = false;
-          String gg = textsus(Leng2,"Please Enter Num 1-100000",rett,0);
-          if(rett){
+        
+      }else if(positpoint == 2){
+        defval(2,retr);
+        if(retr ){
+            M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.println("loading..");
+      mainmode = 19;
+      imano_page = 0;
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(imano_page);
+      return;
+          }else{
             positpoint = holdpositpointx2;
       M5.Lcd.fillScreen(BLACK);
       shokaipointer4(holdimanopagex2);
       mainmode = 17;
-      return;
+            return;
           }
-          bool tt = false;
-              bool isn = false;
-              optt = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
       }
-    }
+  }
 }
 
  else if(mainmode == 21){//変数Opt
@@ -1176,6 +917,7 @@ else  if(mainmode == 20){
         Textex = "Invalid Value!";
         return;
       }
+      SuperT = HenkanTxt(SuperT);
       bool ss;
       TTM2 = allhensuname[holdpositpointx3];
       createMettHensu(SD,DirecX + ggmode,TTM,TTM2,SuperT,false,0,ss);
@@ -1201,6 +943,7 @@ else  if(mainmode == 20){
       imano_page = 0;
       M5.Lcd.setTextFont(3);
       shokaipointer5(imano_page);
+      return;
     }
  }
  else if(mainmode == 19){
@@ -1416,7 +1159,8 @@ else  if(mainmode == 20){
               }
               M5.Lcd.fillScreen(BLACK);
               M5.Lcd.setCursor(0,0);
-              M5.Lcd.println("  Max LengthMozi\n  DefaultV\n  DataLock\n  Tags\n  LengList\n  Enable kaigho");
+              TTM2 = allhensuname[holdpositpointx3];
+              M5.Lcd.println("  Max LengthMozi\n  DefaultVal\n  DataLock\n  DupflagLock\n  Tags\n  LengList\n  Enable kaigho");
               positpoint = 0;
               maxpage = -1;
               positpointmax = 6;
