@@ -5132,6 +5132,30 @@ bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& ta
     }
 }
 
+bool GetOptDirect(String tablezenhan){
+    bool tt;
+          int id;
+          String sus;
+          bool tt2;
+          std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
+          if(tt){
+            return false;
+          }
+          if(!tt2){
+            shokaioptionhensu();
+            optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,tt2,tt);
+            if(tt){
+                return false;
+            }
+          }
+          String Leng2 = findLineStartingWithPrefix(optta, tablezenhan, id);
+          if(id == -1){
+            return false;
+          }
+          tablezenhan = GyakuhenkanTxt(Leng2);
+          return true;
+}
+
 void defval(int rule,bool returns){
       bool tt;
           int id;
@@ -5155,8 +5179,15 @@ void defval(int rule,bool returns){
             agaa = "defaultvalue;";
           }else if(rule ==2){
             agaa = "data_lock;";
+          }else if(rule == 3){
+            agaa = "tagname;";
+          }else if(rule == 4){
+            agaa = "read_only;";
+          }else if(rule == 5){
+            agaa = "vectorlength;";
           }
           String Leng2 = findLineStartingWithPrefix(optta, agaa, id);
+          Serial.println("got;" + Leng2);
           if(id == -1){
             Serial.println("No " +agaa + " found!");
             kanketu("No Load!",400);
@@ -5167,9 +5198,9 @@ void defval(int rule,bool returns){
           if(Leng2 == "#EMPMOJI"){
             if(rule == 0){
                 Leng2 = "0";
-            }else if (rule == 1){
+            }else if (rule == 1 || rule == 3){
                 Leng2 = "";
-            }else if(rule == 2){
+            }else if(rule == 2 || rule == 4){
                 Leng2 = "False";
             }
             
@@ -5214,7 +5245,7 @@ void defval(int rule,bool returns){
                     Serial.println("Error (saveHensuOptions): Option element '%s' for %s:%s contains invalid characters.\n");
                     return;
               }
-              gg = GyakuhenkanTxt(gg);
+              gg = HenkanTxt(gg);
               optta[id] = "maxlength;" + HenkanTxt(gg);
               
         
@@ -5229,18 +5260,31 @@ void defval(int rule,bool returns){
              
               
       return;
-          } else if(rule == 1){
+          } else if(rule == 1 || rule == 3){
             Serial.println("Defaultvalue Edit");
-            String gg = textsus(Leng2,"Please Enter Value(No kaigho)",1);
+            String gg = "";
+            if(rule == 1 || rule == 3){
+                gg = textsus(Leng2,"Please Enter Value(No kaigho)",1);
+            }
+            
           if(returnss){
             Serial.println("Return without save");
       return;
           }
-          
+          if (containsInvalidChars(gg)) { // ':' や '-' などもチェック
+                    Serial.println("Error (saveHensuOptions): Option element '%s' for %s:%s contains invalid characters.\n");
+                    return;
+              }
+        gg = HenkanTxt(gg);
           
           tt = false;
               bool isn = false;
-              optta[id] = "defaultvalue;" + gg;
+              if(rule == 1){
+                optta[id] = "defaultvalue;" + gg;
+              }else if(rule == 3){
+                optta[id] = "tagname;" + gg;
+              }
+              
               M5.Lcd.fillScreen(BLACK);
               M5.Lcd.setCursor(0,0);
               M5.Lcd.println("Saving...");
@@ -5258,11 +5302,40 @@ void defval(int rule,bool returns){
 
 
 
-          }else if(rule == 2){
+          }else if(rule == 2 || rule == 4){
+            
+
             bool tt = areubunki("True","False");
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Saving...");
+            String gg = "";
             if(tt){
-                
+                gg = "True";
+            }else{
+                gg = "False";
             }
+              
+              gg = HenkanTxt(gg);
+              if(rule ==2){
+                optta[id] = "data_lock;" + HenkanTxt(gg);
+              }else if(rule == 4){
+                optta[id] = "read_only;" + HenkanTxt(gg);
+              }
+              
+              
+        
+              saveHensuOptions(SD,DirecX + ggmode,TTM,TTM2,optta,tt);
+              if(tt){
+                kanketu("HensuSaving Error!",500);
+                
+   
+              }else{
+                 kanketu("HensuOption Saved!",500);
+              }
+             
+              
+      return;
           }
           
 }
@@ -6636,24 +6709,29 @@ bool isValidHensuValue(String& text, bool isHairetsu) {
 String GyakuhenkanTxt(const String& text) {
     String decodedText = text;
 
-    // ★ 修正: 末尾のエンドマーカー "&e" があれば削除
+    // ★ 1. 末尾のエンドマーカー "&e" があれば完全に削除
+    // 例: 'True&e' -> 'True'
     if (decodedText.endsWith("&e")) {
         decodedText = decodedText.substring(0, decodedText.length() - 2);
     }
 
-    // 1. '&n' や '&1' などの特殊コードを文字に戻す
+    // ★ 2. '&n' や '&1' などの特殊コードを文字に戻す ( '&6' を除く)
+    // ここで '&6' の置換は行わない。
     decodedText.replace("&1", ":");
     decodedText.replace("&2", "_");
     decodedText.replace("&3", "#");
     decodedText.replace("&4", "%");
     decodedText.replace("&5", "\\");
-    decodedText.replace("&6", " ");
-    decodedText.replace("&7", "　");
-    decodedText.replace("&8", " ");
+    // decodedText.replace("&6", " "); // ★ 再度削除: &6は&の代わりに使用
+    decodedText.replace("&7", "　"); // 全角スペース
+    decodedText.replace("&8", " "); // 狭いノーブレークスペース
     decodedText.replace("&n", "\n");
 
-    // 2. 最後に '&6' を '&' に戻す (他の置換が完了した後に実行)
+    // ★ 3. 最後に '&6' を '&' に戻す
+    // 他の全ての特殊コードの変換が完了した後に実行することで、'&1'などが'&'に誤変換されるのを防ぐ。
     decodedText.replace("&6", "&");
+
+    // 補足: 現在、スペース(' ')に変換するエスケープコードが存在しません。
 
     return decodedText;
 }

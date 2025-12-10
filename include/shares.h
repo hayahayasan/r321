@@ -294,7 +294,7 @@ bool isValidHensuValue(String& text, bool isHairetsu);
 String GyakuhenkanTxt(const String& text);
 String getDateTimeString();
 String findLineStartingWithPrefix(const std::vector<String>& lines, const String& prefix, int& foundIndex);
-
+bool GetOptDirect(String tablezenhan);
  bool isValidInteger0To100000(String& input);
  String textsus(String defotrxt,String texnum,int rule);
 void defval(int rule,bool returns);

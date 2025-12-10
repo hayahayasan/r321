@@ -583,7 +583,7 @@ void shokaioptionhensu(){
   
   bool nullp;
   bool sus;
-  int optionlength = 15;
+  int optionlength = 16;
   
   std::vector<String> opttt = loadHensuOptions(SD, DirecX + ggmode, TTM,TTM2,nullp,sus);
   Serial.println("Opt:" + String(opttt.size()));
@@ -606,6 +606,7 @@ void shokaioptionhensu(){
     shokaivector(opttt,"white_list;");
     shokaivector(opttt,"black_list;");
     shokaivector(opttt,"enable_kaigho;");
+    shokaivector(opttt,"read_only;");
     Serial.println("Opt:" + String(opttt.size()));
     saveHensuOptions(SD, DirecX + ggmode, TTM,TTM2,opttt,sus);
     
@@ -691,7 +692,23 @@ void shokaipointer5(int pagenum = 0,int itemsPerP = 8){
 }   
 
 
-
+void looe(bool retr){
+  if(retr ){
+            M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.println("loading..");
+      mainmode = 19;
+      imano_page = 0;
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(imano_page);
+      return;
+          }else{
+            positpoint = holdpositpointx2;
+      M5.Lcd.fillScreen(BLACK);
+      shokaipointer4(holdimanopagex2);
+      mainmode = 17;
+            return;
+          }
+}
 
 
 
@@ -784,55 +801,41 @@ if(mainmode == 22){
       if(positpoint == 0){
         
         defval(0,retr);
-          if(retr ){
-            M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.println("loading..");
-      mainmode = 19;
-      imano_page = 0;
-      M5.Lcd.setTextFont(3);
-      shokaipointer5(imano_page);
-          }else{
-            positpoint = holdpositpointx2;
-      M5.Lcd.fillScreen(BLACK);
-      shokaipointer4(holdimanopagex2);
-      mainmode = 17;
-            return;
-          }
+        looe(retr);
+          
       }else if(positpoint == 1){
          defval(1,retr);
-         if(retr ){
-            M5.Lcd.fillScreen(BLACK);
-      M5.Lcd.println("loading..");
-      mainmode = 19;
-      imano_page = 0;
-      M5.Lcd.setTextFont(3);
-      shokaipointer5(imano_page);
-      return;
-          }else{
-            positpoint = holdpositpointx2;
-      M5.Lcd.fillScreen(BLACK);
-      shokaipointer4(holdimanopagex2);
-      mainmode = 17;
-            return;
-          }
+          looe(retr);
         
       }else if(positpoint == 2){
         defval(2,retr);
-        if(retr ){
-            M5.Lcd.fillScreen(BLACK);
+         looe(retr);
+      }else if(positpoint == 4){
+        defval(3,retr);
+         looe(retr);
+      }else if(positpoint == 3){
+        defval(4,retr);
+        looe(retr);        
+      }else if(positpoint == 5){
+        String uui = "datatype;";
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.println("loading options...");
+        bool ge = GetOptDirect(uui);
+        Serial.println("gege" + uui);
+        if(ge && (uui == "String" || uui == "int" || uui == "double")){
+          kanketu("This hensu is not kind of list!",400);
+          M5.Lcd.fillScreen(BLACK);
       M5.Lcd.println("loading..");
       mainmode = 19;
       imano_page = 0;
       M5.Lcd.setTextFont(3);
       shokaipointer5(imano_page);
       return;
-          }else{
-            positpoint = holdpositpointx2;
-      M5.Lcd.fillScreen(BLACK);
-      shokaipointer4(holdimanopagex2);
-      mainmode = 17;
-            return;
-          }
+        }else{
+          defval(5,retr);
+          looe(retr);
+        }
       }
   }
 }
@@ -986,7 +989,7 @@ else  if(mainmode == 20){
       return;
     }else if(M5.BtnB.wasPressed()){
       
-      if(positpoint == 0){
+      if(positpoint == 0){//Edit
         M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
          
@@ -1013,10 +1016,11 @@ else  if(mainmode == 20){
               return;
             }else if(M5.BtnA.wasPressed()){
               M5.Lcd.fillScreen(BLACK);
-             // imano_page = holdimanopagex2;
-      positpoint = holdpositpointx2;
-      shokaipointer4(holdimanopagex2);
-      mainmode = 17;
+      M5.Lcd.println("loading..");
+      mainmode = 19;
+      imano_page = 0;
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(imano_page);
       return;
              
             }
@@ -1160,10 +1164,10 @@ else  if(mainmode == 20){
               M5.Lcd.fillScreen(BLACK);
               M5.Lcd.setCursor(0,0);
               TTM2 = allhensuname[holdpositpointx3];
-              M5.Lcd.println("  Max LengthMozi\n  DefaultVal\n  DataLock\n  DupflagLock\n  Tags\n  LengList\n  Enable kaigho");
+              M5.Lcd.println("  Max LengthMozi\n  DefaultVal\n  DataLock\n  ReadOnly\n  Tags\n  LengList\n  Enable kaigho");
               positpoint = 0;
               maxpage = -1;
-              positpointmax = 6;
+              positpointmax = 7;
               mainmode = 22;
               return;
 
