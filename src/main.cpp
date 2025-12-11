@@ -821,7 +821,7 @@ if(mainmode == 22){
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setCursor(0,0);
         M5.Lcd.println("loading options...");
-        bool ge = GetOptDirect(uui);
+        bool ge = GetOptDirect("datatype;", uui);
         Serial.println("gege" + uui);
         if(ge && (uui == "String" || uui == "int" || uui == "double")){
           kanketu("This hensu is not kind of list!",400);
@@ -836,10 +836,12 @@ if(mainmode == 22){
           defval(5,retr);
           looe(retr);
         }
+      }else if(positpoint == 6){
+        defval(6,retr);
+        looe(retr); 
       }
-  }
 }
-
+}
  else if(mainmode == 21){//変数Opt
     updatePointer2(3,imano_pagek);
       
@@ -916,14 +918,52 @@ else  if(mainmode == 20){
       entryenter = 0;
     }else if(entryenter == 1){
       entryenter = 0;
-      if(!isValidHensuValue(SuperT,false)){//配列指定してないとき
+
+      String uui = "!";
+        
+        bool ge = GetOptDirect("datatype;", uui);
+        bool kaigho = false;
+      if(ge){
+        Serial.println("Datatype:kaigho " + uui + "]");
+        if(uui == "strlist" || uui == "intlist" || uui == "dbllist"){
+          
+          kaigho = true;
+        }
+        else if(uui == "String" || uui== "int" || uui == "double" || uui == "date"){
+          kaigho = false;
+
+        }
+        
+      }
+      ge = GetOptDirect("maxlength;", uui);
+      int maxlen = 10000;
+      if(ge){
+        if(uui == "" || uui == "0"){
+          maxlen = 100000;
+        }else if(uui.toInt() > 0){
+          maxlen = uui.toInt();
+        }
+        
+      }
+      Serial.println("fem" + String(kaigho));
+      if(!isValidHensuValue(SuperT,kaigho)){//配列指定してないとき
         Textex = "Invalid Value!";
         return;
       }
-      SuperT = HenkanTxt(SuperT);
+      
+     
       bool ss;
       TTM2 = allhensuname[holdpositpointx3];
-      createMettHensu(SD,DirecX + ggmode,TTM,TTM2,SuperT,false,0,ss);
+      
+        if(SuperT.length() > maxlen){
+          Textex = "Value Too Long!";
+          return;
+        }else{
+           SuperT = HenkanTxt(SuperT);
+          createMettHensu(SD,DirecX + ggmode,TTM,TTM2,SuperT,false,0,ss);
+        }
+      
+      
       if(!ss){
         kanketu("Hensu Edited!",500);
       }else{
@@ -989,7 +1029,7 @@ else  if(mainmode == 20){
       return;
     }else if(M5.BtnB.wasPressed()){
       
-      if(positpoint == 0){//Edit
+      if(imano_page == 0 && positpoint == 0){//Edit
         M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0,0);
          
@@ -1039,7 +1079,7 @@ else  if(mainmode == 20){
       return;
           }
           
-      }else if(positpoint == 2){//create
+      }else if(imano_page == 0 && positpoint == 2){//create
               bool ddd = areusure();
               if(!ddd){
                 M5.Lcd.fillScreen(BLACK);
@@ -1695,7 +1735,7 @@ else if(mainmode == 14){
       shokaipointer4();
   
         
-        shokaioptionhensu();
+        
         mainmode = 17;
         return;
       }

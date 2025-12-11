@@ -5132,7 +5132,7 @@ bool renameHensuInTable(fs::FS &fs, const String& fullFilePath, const String& ta
     }
 }
 
-bool GetOptDirect(String tablezenhan){
+bool GetOptDirect(String tablezenhan,String& returnstext){
     bool tt;
           int id;
           String sus;
@@ -5152,7 +5152,7 @@ bool GetOptDirect(String tablezenhan){
           if(id == -1){
             return false;
           }
-          tablezenhan = GyakuhenkanTxt(Leng2);
+          returnstext = GyakuhenkanTxt(Leng2);
           return true;
 }
 
@@ -5185,6 +5185,8 @@ void defval(int rule,bool returns){
             agaa = "read_only;";
           }else if(rule == 5){
             agaa = "vectorlength;";
+          }else if(rule == 6){
+            agaa = "enable_kaigho;";
           }
           String Leng2 = findLineStartingWithPrefix(optta, agaa, id);
           Serial.println("got;" + Leng2);
@@ -5196,11 +5198,11 @@ void defval(int rule,bool returns){
           }
           M5.Lcd.fillScreen(BLACK);
           if(Leng2 == "#EMPMOJI"){
-            if(rule == 0){
+            if(rule == 0 || rule == 5){
                 Leng2 = "0";
             }else if (rule == 1 || rule == 3){
                 Leng2 = "";
-            }else if(rule == 2 || rule == 4){
+            }else if(rule == 2 || rule == 4 || rule ==6){
                 Leng2 = "False";
             }
             
@@ -5228,7 +5230,7 @@ void defval(int rule,bool returns){
           
           Serial.println("rrrr" + String(rule));
          
-          if(rule == 0){
+          if(rule == 0 || rule == 5){
             Serial.println("Maxlength Edit");
             String gg = textsus(Leng2,"Please Enter Num 1-100000",0);
           if(returnss){
@@ -5246,7 +5248,12 @@ void defval(int rule,bool returns){
                     return;
               }
               gg = HenkanTxt(gg);
-              optta[id] = "maxlength;" + HenkanTxt(gg);
+              if(rule == 0){
+                optta[id] = "maxlength;" + HenkanTxt(gg);
+              }else if(rule == 5){
+                    optta[id] = "vectorlength;" + HenkanTxt(gg);
+              }
+              
               
         
               saveHensuOptions(SD,DirecX + ggmode,TTM,TTM2,optta,tt);
@@ -5302,7 +5309,7 @@ void defval(int rule,bool returns){
 
 
 
-          }else if(rule == 2 || rule == 4){
+          }else if(rule == 2 || rule == 4 || rule == 6){
             
 
             bool tt = areubunki("True","False");
@@ -5321,6 +5328,8 @@ void defval(int rule,bool returns){
                 optta[id] = "data_lock;" + HenkanTxt(gg);
               }else if(rule == 4){
                 optta[id] = "read_only;" + HenkanTxt(gg);
+              }else if(rule == 6){
+                optta[id] = "enable_kaigho;" + HenkanTxt(gg);
               }
               
               
@@ -5520,6 +5529,28 @@ void shokaipointer4(int pagenum ){
     }
     M5.Lcd.setTextSize(1);
     String gga = "";
+    String ggaas = "";
+    bool yy = tableopt_load("table_opt6",ggaas);
+    int sortflag = 0;
+    if(yy){
+        Serial.println("tabo:" + ggaas);
+        if(ggaas == "nameasc"){
+
+        }else if(ggaas = "namedesc"){
+            sortflag = 1;
+        }else{
+            sortflag = 0;
+        }
+    }
+
+
+    if(sortflag == 0){
+        
+    }else if(sortflag == 1){
+        std::reverse(ids.begin(), ids.end());
+        std::reverse(allhensuname.begin(), allhensuname.end());
+        std::reverse(allhensuvalue.begin(), allhensuvalue.end());
+    }
     for (int i = start; i < end; ++i) {
         if(GyakuhenkanTxt(allhensuvalue[i].c_str()) != ""){
           gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) + "\n";
@@ -5528,9 +5559,10 @@ void shokaipointer4(int pagenum ){
           gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTXT" + "\n";
           //M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTY TEXT!" );
         }
+        }
         
 
-    }
+    
     showmozinn2(gga);
     M5.Lcd.setTextSize(2);
     M5.Lcd.setCursor(0, M5.Lcd.height() - 20);
@@ -6456,6 +6488,7 @@ bool optkobun(){
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(1);
+  M5.Lcd.setTextColor(WHITE);
   std::vector<MettVariableInfo> loadedVariablesE;
     if(!test_load()){
     Serial.println("ロードエラー");
@@ -6656,10 +6689,7 @@ void createjj(){
 
 bool isValidHensuValue(String& text, bool isHairetsu) {
     // 1. 文字長のチェック
-    if (text.length() > 10000) {
-        Serial.printf("Error (ValidateValue): テキストが長すぎます (Max 10000文字)。\n");
-        return false;
-    }
+
 
     // 2. 改行のチェック
     if (!isHairetsu) {
@@ -6674,26 +6704,7 @@ bool isValidHensuValue(String& text, bool isHairetsu) {
     
     // 3. エンコード処理
     
-    // 3a. まず '&' を '&6' に置換 (他の置換より先に実行)
-    text.replace("&", "&6");
-
-    // 3b. isHairetsu=true の場合のみ改行を '&n' に置換
-    if (isHairetsu) {
-        text.replace("\n", "&n");
-    }
     
-    // 3c. その他の禁止文字を置換
-    text.replace(":", "&1");
-    text.replace("_", "&2"); // (注: ユーザー指定の ',' ではなく '_' を採用)
-    text.replace("#", "&3");
-    text.replace("%", "&4");
-    text.replace("\\", "&5");
-    text.replace(" ", "&6");
-    text.replace("  ", "&7");
-    text.replace(" ","&8");
-
-    // ★ 修正: エンドマーカー "&e" を追加
-    text += "&e";
 
     return true; // 検証・エンコード成功
 }
@@ -6708,12 +6719,10 @@ bool isValidHensuValue(String& text, bool isHairetsu) {
  */
 String GyakuhenkanTxt(const String& text) {
     String decodedText = text;
-
+   // Serial.println("Texx:" + text);
     // ★ 1. 末尾のエンドマーカー "&e" があれば完全に削除
     // 例: 'True&e' -> 'True'
-    if (decodedText.endsWith("&e")) {
-        decodedText = decodedText.substring(0, decodedText.length() - 2);
-    }
+   decodedText.replace("&e", "");
 
     // ★ 2. '&n' や '&1' などの特殊コードを文字に戻す ( '&6' を除く)
     // ここで '&6' の置換は行わない。
@@ -6736,10 +6745,33 @@ String GyakuhenkanTxt(const String& text) {
     return decodedText;
 }
 
+
+bool tableopt_load(String texx,String& returnAtai){
+        std::vector<MettVariableInfo> loadedVariablesE;
+       bool loadSuccess = false;
+      bool fileIsEmpty = false;
+    loadMettFile(SD, DirecX + ggmode, fefe, loadSuccess, fileIsEmpty, loadedVariablesE);
+    if(!loadSuccess){
+      Serial.println("load_error!!!");
+        return false;
+    }
+  dataToSaveE = copyVectorToMap(loadedVariablesE);
+    if(getMettVariableValue(dataToSaveE,texx) == ""){
+         Serial.println("load_hensu_nashi!!!");
+        return false;
+    }else{
+        Serial.println("AM2:" + dataToSaveE["table_opt1"] + " " + dataToSaveE["table_opt6"]);
+        returnAtai = dataToSaveE[texx];
+        return true;
+    }
+
+
+
+}
 String HenkanTxt(const String& text) {
     String encodedText = text;
-
-    // 1. '&' を '&6' に置換 (他の置換より先に実行)
+    encodedText.replace("&e", "");
+    
     encodedText.replace("&", "&6");
 
     // 2. 改行を '&n' に置換
