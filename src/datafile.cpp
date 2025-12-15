@@ -1578,6 +1578,56 @@ bool areubunki(String texta,String textb){
   
 }
 
+bool quickWriteOptions(String opttext1,String opttext2){
+    int gg = 0;
+      bool tt = false;
+      bool isn = false;
+    std::vector<String> optta = loadHensuOptions(SD,DirecX + ggmode,TTM,TTM2,isn,tt);
+    if(isn || tt){
+        return false;
+    }
+    String ssg = findLineStartingWithPrefix(optta, opttext1, gg);
+    if(gg == -1){
+        return false;
+    }
+    optta[gg] = opttext1 + opttext2;
+    saveHensuOptions(SD,DirecX + ggmode,TTM,TTM2,optta,tt);
+    if(tt){
+        return false;
+    }
+    return true;
+}
+
+int areubunki2(String texta,String textb,String textc){
+  M5.Lcd.clear();
+  M5.Lcd.setCursor(0, 0);
+  
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.println("Are you sure?"); // 確認メッセージを表示
+  M5.Lcd.println("C:" + texta);
+   M5.Lcd.println("B:" + textc);
+  M5.Lcd.println("A:" + textb);
+  while(true){
+    M5.update();
+    delay(1);
+    if(M5.BtnA.wasPressed()){
+      M5.Lcd.clear();
+      M5.Lcd.setCursor(0, 0);
+      return -1;
+    }else if(M5.BtnC.wasPressed()){
+      M5.Lcd.clear();
+      M5.Lcd.setCursor(0, 0);
+      return 1;
+    }else if(M5.BtnB.wasPressed()){
+      M5.Lcd.clear();
+      M5.Lcd.setCursor(0, 0);
+      return 0;
+    }
+  }
+  
+}
+
+
 void nummempty(){
   M5.Lcd.clear();
   M5.Lcd.setCursor(0, 0);
@@ -4659,6 +4709,7 @@ void ExtractTablePageMett(fs::FS &fs, const String& fullFilePath, const String& 
     for (int i = startIndex; i < endIndex; ++i) {
         const MettVariableInfo& var = fullVariables[i];
         variableNames.push_back(var.variableName);
+        Serial.println("printedvalue:" + var.valueString);
         values.push_back(var.valueString);
         ids.push_back(var.dataType); // ★★★ ID(String)をベクターに追加 ★★★
     }
@@ -4803,7 +4854,7 @@ void showmozinn2(const String& txt) {
         while (remain.length() > 0) {
 
             // この行で画面に収まる最大文字数を計算
-            int maxChars = remain.length() - 1;  
+            int maxChars = remain.length();  
             while (maxChars > 0) {
                 String candidate = remain.substring(0, maxChars);
                 int w = M5.Lcd.textWidth(candidate);
@@ -5460,6 +5511,12 @@ void shokaipointer2(int pageNum, String filePath  ) {
     }
     
 
+String Deletekaigho(String inputt){
+    inputt.replace("\n","\\n ");
+    inputt.replace("\r","\\r ");
+    return inputt;
+}
+
 void shokaipointer4(int pagenum ){
   bool tt = false;
 
@@ -5552,8 +5609,9 @@ void shokaipointer4(int pagenum ){
         std::reverse(allhensuvalue.begin(), allhensuvalue.end());
     }
     for (int i = start; i < end; ++i) {
+        
         if(GyakuhenkanTxt(allhensuvalue[i].c_str()) != ""){
-          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) + "\n";
+          gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" + Deletekaigho(allhensuvalue[i].c_str()) + "\n";
          // M5.Lcd.println("  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val:" +  GyakuhenkanTxt(allhensuvalue[i].c_str()) );
         }else{
           gga = gga + "  "  + allhensuname[i] + " id:" + ids[i].c_str() + " val::EMPTXT" + "\n";
@@ -6721,6 +6779,10 @@ String GyakuhenkanTxt(const String& text) {
     String decodedText = text;
    // Serial.println("Texx:" + text);
     // ★ 1. 末尾のエンドマーカー "&e" があれば完全に削除
+
+    if (!decodedText.endsWith("&e")) {
+        return decodedText; // エンドマーカーがない場合、そのまま返す(savemettfile互換性のため)
+    }
     // 例: 'True&e' -> 'True'
    decodedText.replace("&e", "");
 

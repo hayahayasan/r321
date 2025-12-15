@@ -118,6 +118,7 @@ bool containsInvalidTableNameChars(const String& name);
 bool datt(String opthensuname,String setname);
 const int SD_CS_PIN = 4;
 extern MettDataMap dataToSaveE;
+int areubunki2(String texta,String textb,String textc);
 void displayMapContents(const String& context, const MettDataMap& dataMap);
 void logExistingFileContents(fs::FS &fs, const String& fullFilePath);
 extern const int CURSOR_BLINK_INTERVAL; // カーソル点滅のフレーム間隔
@@ -316,6 +317,7 @@ extern int imano_pagek;
 extern int holdpositpoints;
 extern std::vector<String> allhensuname;
 void shokaioptionhensu();
+bool quickWriteOptions(String opttext1,String opttext2);
 
 
 

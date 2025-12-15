@@ -1012,7 +1012,7 @@ else  if(mainmode == 20){
       pagemoveflag = 0;
       imano_pagek = imano_pagek - 1;
       Serial.println("fefe3!");
-      positpoint = positpointmaxg - 1;
+      positpoint = 7;
       shokaipointer5(imano_pagek);
   
       return;
@@ -1040,14 +1040,30 @@ else  if(mainmode == 20){
           String sus;
           bool yy = loadMettHensu(SD,DirecX + ggmode,TTM,TTM2,sus,tt,id);
           sus = GyakuhenkanTxt(sus);
+
+        String uui = "!";
+        
+        bool ge = GetOptDirect("data_lock;", uui);
+        Serial.println("editl:" + uui);
+        if(ge && uui == "True"){
+            ge = true;
+        }else{
+          ge = false;
+        }
+
           if(yy){
             M5.Lcd.setTextSize(1);
-            M5.Lcd.println("(Press C to Edit,A to quit) your Value is...");
+            if(ge){
+              M5.Lcd.println("(You Can't Edit,A to quit) your Value is...");
+            }else{
+              M5.Lcd.println("(Press C to Edit,A to quit) your Value is...");
+            }
+            
           showmozinn(sus);
           while(true){
             M5.update();
             delay(1);
-            if(M5.BtnC.wasPressed()){
+            if(M5.BtnC.wasPressed() && !ge){
               mainmode = 20;
               M5.Lcd.fillScreen(BLACK);
               SuperT = sus;
@@ -1096,7 +1112,26 @@ else  if(mainmode == 20){
                 SuperT = "";
                 return;
               }
-            }else if(positpoint ==1){//delete
+            }else if(imano_page == 0 && positpoint ==1){//delete
+              String uui = "";
+              M5.Lcd.fillScreen(BLACK);
+                M5.Lcd.setCursor(0,0);
+                M5.Lcd.println("loading...");
+               bool ge = GetOptDirect("data_lock;", uui);
+        if(ge && uui == "True"){
+            ge = true;
+        }else{
+          ge = false;
+        }
+            if(ge){
+              M5.Lcd.fillScreen(BLACK);
+              TTM2 = allhensuname[holdpositpointx3];
+              imano_page = holdimanopagex2;
+      positpoint = holdpositpointx3;
+      shokaipointer4(holdimanopagex3);
+      mainmode = 17;
+              return;
+            }
               bool tt = areubunki("Delete Hensu","Cancel");
               if(!tt){
                 M5.Lcd.fillScreen(BLACK);
@@ -1118,7 +1153,30 @@ else  if(mainmode == 20){
       positpoint = holdpositpointx3;
       shokaipointer4(holdimanopagex3);
       mainmode = 17;
-            }else if(positpoint == 3){//Renamwe
+            }else if(imano_page == 0 && positpoint == 3){//Renamwe
+              String uui = "";
+              TTM2 = allhensuname[holdpositpointx3];
+              M5.Lcd.fillScreen(BLACK);
+                M5.Lcd.setCursor(0,0);
+                M5.Lcd.println("loading...");
+               bool ge = GetOptDirect("data_lock;", uui);
+        if(ge && uui == "True"){
+            ge = true;
+        }else{
+          ge = false;
+        }
+            if(ge){
+              M5.Lcd.fillScreen(BLACK);
+              imano_page = holdimanopagex2;
+      positpoint = holdpositpointx3;
+      shokaipointer4(holdimanopagex3);
+      mainmode = 17;
+              return;
+            }
+
+
+
+
               M5.Lcd.fillScreen(BLACK);
               M5.Lcd.setCursor(0,0);
               isrename = true;
@@ -1127,7 +1185,7 @@ else  if(mainmode == 20){
               Textex = "Rename Hensus...";
               mainmode = 18;
               return;
-            }else if(positpoint == 5){//Data_Type
+            }else if(imano_page == 0 &&positpoint == 5){//Data_Type
               M5.Lcd.fillScreen(BLACK);
               M5.Lcd.setCursor(0,0);
               M5.Lcd.println("loading\noptions...");
@@ -1182,7 +1240,7 @@ else  if(mainmode == 20){
                 mainmode = 17;
                 }
               }
-            }else if(positpoint == 4){//Options
+            }else if(imano_page == 0 && positpoint == 4){//Options
               M5.Lcd.fillScreen(BLACK);
               M5.Lcd.setCursor(0,0);
               M5.Lcd.println("loading\noptions...");
@@ -1214,6 +1272,136 @@ else  if(mainmode == 20){
 
 
 
+            }else if(imano_page == 0 && positpoint == 7){//Default
+              M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+        String uui = "!";
+        
+        bool ge = GetOptDirect("defaultvalue;", uui);
+        if(ge && uui != ""){
+            ge = true;
+        }else{
+          ge = false;
+        }
+
+        if(ge){
+          kanketu("No default value!",500);
+          int ss = areubunki2("Set EmpTxt","back","Set DefaultNULL");
+          if(ss == -1){
+         
+            mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+          }else if(ss == 0){
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Setting...");
+            if(quickWriteOptions("defaultvalue;","True")){
+              kanketu("seiko!",500);
+            }else{
+              kanketu("sippai!",500);
+            }
+             mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+
+          }else if(ss == 1){
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Setting...");
+            SuperT = HenkanTxt("");
+          createMettHensu(SD,DirecX + ggmode,TTM,TTM2,SuperT,false,0,ge);
+            if(ge){
+              kanketu("seiko!",500);
+            }else{
+              kanketu("sippai!",500);
+            }
+             mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+          }
+        }else{
+          int ss = areubunki2("Go back default","back","Set NULL");
+          if(ss == 0){
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Setting...");
+            if(quickWriteOptions("defaultvalue;","True")){
+              kanketu("seiko!",500);
+            }else{
+              kanketu("sippai!",500);
+            }
+             mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+          }else if(ss == -1){
+            mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+          }else if(ss == 1){
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Setting...");
+            String uui = "!";
+        
+        bool ge = GetOptDirect("defaultvalue;", uui);
+        if(!ge){
+          kanketu("sippai!",500);
+          mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+        }
+
+
+
+
+            if(quickWriteOptions("defaultvalue;",HenkanTxt(uui))){
+              kanketu("seiko!",500);
+            }else{
+              kanketu("sippai!",500);
+            }
+             mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+          }
+        }
+
+        
             }
 
 
