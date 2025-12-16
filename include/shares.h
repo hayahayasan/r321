@@ -33,7 +33,7 @@ extern int current_positpoint_on_entry;
 extern bool righttrue();
 extern bool lefttrue();
 extern int scrollPos;
-extern  int SCROLL_SPEED_PIXELS;
+extern String LANS;
 extern String Filelist[100];
 extern String directlist[100];
 extern String ForDlist[100];
@@ -318,7 +318,20 @@ extern int holdpositpoints;
 extern std::vector<String> allhensuname;
 void shokaioptionhensu();
 bool quickWriteOptions(String opttext1,String opttext2);
-
+void shokaipointer5(int pagenum = 0,int itemsPerP = 8);
+void setoptnul();
+extern int holdmaxpagex3;
+void clearBottomArea();
+void scrollTextBottom(const String& text);
+extern bool Tflag;
+extern String statustext;
+void duplicateMettHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, 
+                        const String& sourceVariableName, const String& destVariableName, 
+                        bool isWrite, int id, bool& isError);
+bool loadmett();
+void suguseni();
+extern String mozikk[7];
+bool writeStringToFileForced(const String& filePath, const String &SSText, int mozikode);
 
 
 

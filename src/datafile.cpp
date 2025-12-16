@@ -25,6 +25,7 @@ const char* TABLE_ID = "--- METT BLOCK ---";
 SPIClass SDSPI; 
 bool nosd;
 const int SD_MISO_PIN = 35;
+int holdmaxpagex3;
 const int SD_MOSI_PIN = 37;
 const int SD_SCK_PIN = 36; // SCKピン番号は39
 bool serious_errorsd;
@@ -5519,7 +5520,10 @@ String Deletekaigho(String inputt){
 
 void shokaipointer4(int pagenum ){
   bool tt = false;
-
+    if(Tflag){
+        Tflag = false;
+        maxpage = holdmaxpagex3;
+    }
   int itemsPerP = 25;
         
         int ahc = 0;
@@ -5761,6 +5765,69 @@ int shokaivector(std::vector<String>& vec, const String& kakikomumozi) {
 
     // すべてのチェックを通過
     return true;
+}
+
+void setoptnul(){
+    String uui = "";
+    M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("Loading...");
+            bool dd = GetOptDirect("isvalueNULL;",uui);
+            if(!dd){
+              kanketu("sippai!",500);
+              mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+            }
+            
+            if(uui == "" || uui == "#EMPMOJI"){
+              uui = "False";
+            }
+            M5.Lcd.println("now setNULL:" + uui + "\n C to Toggle,\nA to back");
+            while(true){
+              delay(1);
+              M5.update();
+              if(M5.BtnC.wasPressed()){ 
+                if(uui == "True"){
+                  uui = "False";
+                }else if(uui == "False"){
+                  uui = "True";
+                }
+                M5.Lcd.fillScreen(BLACK);
+                M5.Lcd.setCursor(0,0);
+                M5.Lcd.println("Saving...");
+                if(quickWriteOptions("isvalueNULL;",uui)){
+              kanketu("seiko!",500);
+            }else{
+              kanketu("sippai!",500);
+            }
+            break;
+
+              }else if(M5.BtnA.wasPressed()){
+                mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
+              }
+            }
+            
+             mainmode = 19;
+      positpoint = 0;
+      imano_page = 0;
+      imano_pagek = 0;
+      TTM2 = allhensuname[holdpositpointx3];
+      M5.Lcd.setTextFont(3);
+      shokaipointer5(0);
+      return;
 }
 
 
@@ -6245,6 +6312,249 @@ void updatePointerAndDisplay(int ril) {
     }
 }
 
+
+/**
+ * @brief 特定の変数をあるテーブルから別のテーブルへコピーし、新しいテーブルに追加する。
+ * * targetVariableNameはコピー元とコピー先で同じ変数名として扱われる。
+ * コピー先テーブル(targetTableName2)に同じ変数名が既に存在する場合はエラーとする。
+ * * @param fs SDカードファイルシステム
+ * @param fullFilePath ファイルのフルパス
+ * @param targetTableName1 コピー元テーブル名
+ * @param targetTableName2 コピー先テーブル名
+ * @param targetVariableName コピーする変数名
+ * @param value (未使用だが引数維持) コピー元の値を使用するため、この引数は無視されます。
+ * @param isWrite (未使用だが引数維持)
+ * @param id (未使用だが引数維持)
+ * @param isError エラーフラグ (trueの場合、処理失敗)
+ */
+void duplicateMettHensu(fs::FS &fs, const String& fullFilePath, const String& targetTableName, 
+                        const String& sourceVariableName, const String& destVariableName, 
+                        bool isWrite, int id, bool& isError) {
+    isError = false;
+    
+    // 内部変数の定義: 引数名変更に伴い、内部でのリネームは不要
+    const String sourceVarName = sourceVariableName;
+    const String destVarName = destVariableName;
+    // targetTableName1, targetTableName2 の統合
+    // const String targetTableName = targetTableName; // すでに引数名が targetTableName
+
+    Serial.printf("\n--- Start duplicateMettHensu (Table: %s, SourceVar: %s, DestVar: %s) ---\n", 
+                  targetTableName.c_str(), sourceVarName.c_str(), destVarName.c_str());
+
+    // 1. コピー先テーブルでの重複チェック (同じテーブル名 targetTableName を使用)
+    String dummyValue;
+    bool dummyIdIsNull;
+    int dummyIdReturn;
+
+    // 同じテーブル(targetTableName)に destVarName が既に存在する場合はエラー
+    if (loadMettHensu(fs, fullFilePath, targetTableName, destVarName, 
+                      dummyValue, dummyIdIsNull, dummyIdReturn)) {
+        Serial.printf("Error (duplicateMettHensu): Variable '%s' already exists in target table '%s'. Aborting.\n", 
+                      destVarName.c_str(), targetTableName.c_str());
+        isError = true;
+        return;
+    }
+    
+    // 2. コピー元テーブルから変数行を取得 (sourceVarName を使用)
+    String variableDataLine = ""; // 例: sourceVarName:ID:Value
+    String optionDataLine = "";   // 例: HENSU_OPTIONS:sourceVarName:OptionContent
+    bool sourceFound = false;
+
+    File originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!originalFile) {
+        Serial.printf("Error (duplicateMettHensu): Failed to open original file for reading: %s\n", fullFilePath.c_str());
+        isError = true;
+        return;
+    }
+
+    bool inSourceBlock = false;
+    const char* TABLE_NAME_PREFIX = "TABLE_NAME:";
+    const int TABLE_NAME_PREFIX_LEN = 11;
+    String optionLinePrefix = "HENSU_OPTIONS:" + sourceVarName + ":"; 
+
+    while (originalFile.available()) {
+        String line = originalFile.readStringUntil('\n');
+        String trimmedLine = line;
+        trimmedLine.trim();
+
+        if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
+             inSourceBlock = false;
+        } else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+            String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
+            currentTableName.trim();
+            // コピー元のテーブル名が targetTableName であることを確認
+            if (currentTableName == targetTableName) { 
+                inSourceBlock = true;
+            } else {
+                inSourceBlock = false;
+            }
+        } 
+        
+        if (inSourceBlock) {
+            int firstColon = trimmedLine.indexOf(':');
+            if (firstColon > 0) {
+                String varName = trimmedLine.substring(0, firstColon);
+                
+                if (varName == sourceVarName) {
+                    variableDataLine = trimmedLine;
+                    sourceFound = true;
+                } 
+                else if (trimmedLine.startsWith(optionLinePrefix)) {
+                    optionDataLine = trimmedLine;
+                    if (sourceFound && !optionDataLine.isEmpty()) break; 
+                }
+            }
+        }
+        
+        if (sourceFound && !optionDataLine.isEmpty()) break;
+    }
+    originalFile.close();
+
+    if (!sourceFound) {
+        Serial.printf("Error (duplicateMettHensu): Source variable '%s' not found in table '%s'. Aborting.\n", 
+                      sourceVarName.c_str(), targetTableName.c_str());
+        isError = true;
+        return;
+    }
+
+    // --- 2.5. コピー先用にデータ行を変更 ---
+    String modifiedVariableDataLine = variableDataLine;
+    String modifiedOptionDataLine = "";
+    
+    // 1. 変数データ行の変更: SourceName:ID:Value -> DestName:ID:Value
+    int firstColon = modifiedVariableDataLine.indexOf(':');
+    if (firstColon > 0) {
+        modifiedVariableDataLine = destVarName + modifiedVariableDataLine.substring(firstColon);
+    }
+    
+    // 2. オプション行の変更: HENSU_OPTIONS:SourceName:CONTENT -> HENSU_OPTIONS:DestName:CONTENT
+    if (!optionDataLine.isEmpty()) {
+        // オプションの内容（2つ目のコロン以降）を維持するロジックに変更
+        
+        // "HENSU_OPTIONS" の次のコロンを探す
+        int firstColon = optionDataLine.indexOf(':'); 
+        
+        // sourceVarName の次のコロンを探す (コンテンツの開始位置)
+        int secondColon = -1;
+        if (firstColon != -1) {
+            // 最初のコロンの直後から検索を開始
+            secondColon = optionDataLine.indexOf(':', firstColon + 1);
+        }
+        
+        if (secondColon != -1) {
+            // CONTENT 部分を取得（2つ目のコロンも含める）
+            // 例: ":OptionValue1,OptionValue2,..."
+            String optionContent = optionDataLine.substring(secondColon); 
+            
+            // 新しい変数名で再構築
+            // 例: "HENSU_OPTIONS:destVarName:OptionValue1,OptionValue2,..."
+            modifiedOptionDataLine = "HENSU_OPTIONS:" + destVarName + optionContent;
+        } else {
+            // セカンドコロンが見つからない場合、コンテンツは空とみなし、プレフィックスのみ生成
+            modifiedOptionDataLine = "HENSU_OPTIONS:" + destVarName + ":";
+        }
+    }
+
+    
+    // 3. ストリーミング書き換え実行 (コピー元変数行の直後に複製行を挿入)
+    String tempFilePath = fullFilePath + ".dup.tmp";
+    File tempFile = fs.open(tempFilePath.c_str(), FILE_WRITE);
+    if (!tempFile) {
+        Serial.printf("Error (duplicateMettHensu): Failed to open temp file: %s\n", tempFilePath.c_str());
+        isError = true;
+        return;
+    }
+    
+    originalFile = fs.open(fullFilePath.c_str(), FILE_READ);
+    if (!originalFile) {
+        tempFile.close();
+        fs.remove(tempFilePath.c_str());
+        isError = true;
+        return;
+    }
+
+    bool inTargetBlock = false;
+    // 変数行の直後挿入のためのフラグ
+    bool sourceVarFoundAndInserted = false; 
+
+    while (originalFile.available()) {
+        String line = originalFile.readStringUntil('\n');
+        String trimmedLine = line;
+        trimmedLine.trim();
+
+        // 1. テーブルブロックの開始/終了判定
+        if (trimmedLine.startsWith("### METT_TABLE_ID ###")) {
+            inTargetBlock = false;
+            tempFile.println(line); 
+        } 
+        else if (trimmedLine.startsWith(TABLE_NAME_PREFIX)) {
+            tempFile.println(line); 
+
+            String currentTableName = trimmedLine.substring(TABLE_NAME_PREFIX_LEN);
+            currentTableName.trim();
+            
+            // 挿入対象テーブルの判定 (targetTableName を使用)
+            if (currentTableName == targetTableName) { 
+                inTargetBlock = true;
+            } else {
+                inTargetBlock = false;
+            }
+        } 
+        else {
+             // 2. ターゲットブロック内の処理
+            if (inTargetBlock && !sourceVarFoundAndInserted) {
+                
+                // sourceVarName の行 (変数データ行) を探す
+                int firstColon = trimmedLine.indexOf(':');
+                if (firstColon > 0) {
+                    String varName = trimmedLine.substring(0, firstColon);
+
+                    // コピー元の変数データ行を見つけた場合 (まだ挿入されていない場合)
+                    if (varName == sourceVarName) {
+                        
+                        // a. 元の行を書き込む
+                        tempFile.println(line); 
+
+                        // b. 複製行 (新しい変数名) を元の行の直後に挿入する
+                        Serial.printf("Debug (duplicateMettHensu): Inserting '%s' after source var '%s'.\n", destVarName.c_str(), sourceVarName.c_str());
+                        tempFile.println(modifiedVariableDataLine);
+                        if (!modifiedOptionDataLine.isEmpty()) {
+                            tempFile.println(modifiedOptionDataLine);
+                        }
+                        sourceVarFoundAndInserted = true; // 挿入完了
+                        continue; // 処理を続行 (次の行へ)
+                    }
+                }
+            }
+            
+            // 3. その他の行はそのままコピー (ターゲットブロック外の行、オプション行など)
+            tempFile.println(line);
+        }
+    } 
+    originalFile.close();
+    tempFile.close();
+    
+    // 4. ファイルを入れ替え
+    if (fs.remove(fullFilePath.c_str())) {
+        if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+            Serial.printf("Error (duplicateMettHensu): Failed to rename temp file.\n");
+            isError = true;
+        }
+    } else if (fs.exists(fullFilePath.c_str())) {
+        Serial.printf("Error (duplicateMettHensu): Failed to remove original file.\n");
+        isError = true;
+    } else { // 元ファイルがなかった場合
+        if (!fs.rename(tempFilePath.c_str(), fullFilePath.c_str())) {
+             Serial.printf("Error (duplicateMettHensu): Failed to rename temp file for new file.\n");
+             isError = true;
+        }
+    }
+
+    if (!isError) {
+        Serial.printf("Info (duplicateMettHensu): Variable '%s' successfully duplicated in table '%s' as '%s'.\n", 
+                      sourceVarName.c_str(), targetTableName.c_str(), destVarName.c_str());
+    }
+}
 
 
 
