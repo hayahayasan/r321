@@ -107,10 +107,6 @@ const char* E_PASS = "STUDENT_PASSWORD";
 // 取得した情報を保持するベクター
 std::vector<String> networkData;
 
-/**
- * ルーター(ゲートウェイ)のMACアドレスを取得する関数
- * ARPテーブルをスキャンして取得します。
- */
 String getGatewayMAC() {
     ip4_addr_t gateway_ip;
     inet_aton(WiFi.gatewayIP().toString().c_str(), &gateway_ip);
