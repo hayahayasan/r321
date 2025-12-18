@@ -25,6 +25,8 @@ const String METT_TABLE_NAME_KEY = "table_name";
 const int METT_CHUNK_SIZE = 1024;
 const int MAX_STRING_LENGTH = 65535; 
 const int CURSOR_BLINK_INTERVAL = 10; // カーソル点滅のフレーム間隔
+String TexNet = "  S0:LAN\n  S1:WiFiConct\n  S2:NetStatus\n  S3:WebSock Set\n  S4:Disconnect";
+int IntNet = 5;
 String sitagar[10] = {"Net Status","Wifi","FLASHBrowser","SDBrowser","Configs","Options","SD Eject/Format","User Management","Log","Help/About"};
 int SCROLL_INTERVAL_FRAMES = 1;
 int SCROLL_SPEED_PIXELS = 3;
@@ -162,6 +164,96 @@ bool showAngleBrackets = true;
 #pragma endregion <hensu4aa>
 
 
+
+
+void mainkansu_intmain(){
+  delay(1);
+  if(mainmode == 31){
+    updatePointer2(3);
+    M5.update();
+      
+      if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      
+      return;
+    
+    }else if(pagemoveflag == 5){
+      
+      M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0, 0);
+
+            positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+       
+        
+            return;
+     
+    }else if(M5.BtnB.wasPressed()){
+
+
+    }
+  }
+  else if(mainmode == 30){
+    updatePointer2(3);
+    M5.update();
+      
+      if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      
+      return;
+    
+    }else if(pagemoveflag == 5){
+      
+      M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0, 0);
+            sita = "hello";
+            textexx();
+            positpoint = 0;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 0;
+      return;
+    }else if(M5.BtnB.wasPressed()){
+      if(positpoint == 0){
+        M5.Lcd.setCursor(0, 0);
+            positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 31;
+          M5.Lcd.fillScreen(BLACK);
+          MettDataMap mmmc;
+          M5.Lcd.println("SD Waking!");
+          SD.begin(GPIO_NUM_4, SPI, 20000000);
+          
+          
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+          if(!createEE(mmmc)){
+            kanketu("!load error!",400);
+            M5.Lcd.setCursor(0, 0);
+            sita = "hello";
+            textexx();
+            positpoint = 0;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 0;
+      return;
+          }
+          M5.Lcd.println("  SSID:" + mmmc["table_SSID"] + "\n  Username:" + mmmc["table_Usrname"] + "\n  Password:" + mmmc["table_Pass"] + "\n  Login\n  ConnectTest\n");
+          positpointmax = 5;
+          return;
+      }
+
+    }
+  }
+
+}
 
 
 
@@ -1683,7 +1775,11 @@ if(sse == "E"){
        M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
        M5.Lcd.setCursor(0, 0);
         mainmode = 30;
-        M5.Lcd.println(LANS);
+        M5.Lcd.println(TexNet);
+        positpoint = 0;
+        maxpage = -1;
+        positpointmax = IntNet;
+        return;
       }
       // ボタンBが押された場合、sitaを"button1"に設定し、textexx()を呼び出す
       // これはメニューモードでのみ行われる

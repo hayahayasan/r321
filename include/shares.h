@@ -34,7 +34,12 @@ extern bool righttrue();
 extern bool lefttrue();
 extern int scrollPos;
 extern String LANS;
+typedef std::map<String, String> MettDataMap;
 extern String Filelist[100];
+void mainkansu_intmain();
+bool createEE(MettDataMap& MDM);
+extern String TexNet;
+extern int IntNet;
 extern String directlist[100];
 extern String ForDlist[100];
 void updatePointer2(int size = 3,int &imanopp = imano_page);
@@ -81,7 +86,7 @@ extern bool serious_error_flash ;
 void releaseSDBusForOtherUse();
 String getParentDirectory(String path);
 bool browseFlashDirectoryPaginated(int pagetax, String Directtory) ;
-typedef std::map<String, String> MettDataMap;
+
 struct MettVariableInfo {
     String variableName;
     String dataType;

@@ -6005,7 +6005,7 @@ void createMettHensu(fs::FS &fs, const String& fullFilePath, const String& targe
     bool loadSuccess, isEmpty;
     loadMettFile(fs, fullFilePath, targetTableName, loadSuccess, isEmpty, variables);
 
-    if (!loadSuccess) {
+    if (loadSuccess) {
         Serial.printf("Error (LoadHensu): loadMettFile failed for table '%s'.\n", targetTableName.c_str());
         return false; // ファイル読み込み自体に失敗
     }
@@ -7052,6 +7052,55 @@ void createjj(){
           }
         }
         return;
+}
+
+bool createEE(MettDataMap& MDM){
+    
+  std::vector<MettVariableInfo> loadedVariablesE;
+       bool loadSuccess = false;
+      bool fileIsEmpty =false;
+
+//step1:ファイルを作成する
+bool tt = initializeSDCardAndCreateFile("/save/save2.mett");
+if(!tt){
+    Serial.println("チェック失敗ファイル");
+    return false;
+}
+
+
+    loadMettFile(SD, "/save/save2.mett" ,"TestOpt2", loadSuccess, fileIsEmpty, loadedVariablesE);
+    if(!loadSuccess){
+      Serial.println("load_error!!!");
+      return false;
+    }
+  dataToSaveE = copyVectorToMap(loadedVariablesE);
+        bool jj = false;
+
+        if(datt("table_SSID","")){
+          jj = true;
+        }
+        if(datt("table_Usrname","")){
+          jj = true;
+        }
+        if(datt("table_Pass","")){
+          jj = true;
+        }
+
+       
+        if(jj){
+       
+          saveMettFile(SD, "/save/save2.mett" ,"TestOpt2", dataToSaveE, loadSuccess);
+          if(!loadSuccess){
+            //kanketu("Option Saved!",200);
+            return true;
+          }else{
+           kanketu("Option Save Failed!",200);
+           return false;
+          }
+        }else{
+            return true;
+        }
+        
 }
 
 

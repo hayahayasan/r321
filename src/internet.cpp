@@ -23,6 +23,9 @@
 #include <ETH.h>        // Ethernetライブラリを追加
 #include <ESPmDNS.h>    // mDNSライブラリを追加
 #include "shares.h"
+#include <WiFi.h>
+#include <esp_wpa2.h>
+#include <lwip/etharp.h>
 
 // スクロール表示用のグローバル変数
 // M5Stackの画面解像度: 320x240
@@ -93,5 +96,137 @@ void scrollTextBottom(const String& text) {
         // スクロールオフセットを考慮して描画
         // Y座標は scrollLineY (M5.Lcd.height() - getFontHeight()) を使用し、文字が最下部に配置されるようにする
         M5.Lcd.drawString(Textex, scrollOffset, scrollLineY);
+    }
+}
+
+
+const char* E_SSID = "SCHOOL_WIFI_NAME";
+const char* E_ID   = "STUDENT_ID";
+const char* E_PASS = "STUDENT_PASSWORD";
+
+// 取得した情報を保持するベクター
+std::vector<String> networkData;
+
+/**
+ * ルーター(ゲートウェイ)のMACアドレスを取得する関数
+ * ARPテーブルをスキャンして取得します。
+ */
+String getGatewayMAC() {
+    ip4_addr_t gateway_ip;
+    inet_aton(WiFi.gatewayIP().toString().c_str(), &gateway_ip);
+    
+    eth_addr* eth_ret = nullptr;
+    const ip4_addr_t* ip_ret = nullptr;
+    
+    // 一度ゲートウェイに通信を発生させてARPテーブルを更新
+    WiFiClient client;
+    client.connect(WiFi.gatewayIP(), 80);
+    delay(100);
+
+    if (etharp_find_addr(IP_ADDR_ANY, &gateway_ip, &eth_ret, &ip_ret) >= 0) {
+        char macStr[18];
+        snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 eth_ret->addr[0], eth_ret->addr[1], eth_ret->addr[2],
+                 eth_ret->addr[3], eth_ret->addr[4], eth_ret->addr[5]);
+        return String(macStr);
+    }
+    return "00:00:00:00:00:00";
+}
+
+/**
+ * 暗号化方式の数値を文字列に変換するヘルパー
+ */
+String getAuthModeName(wifi_auth_mode_t auth_mode) {
+    switch (auth_mode) {
+        case WIFI_AUTH_OPEN: return "Open";
+        case WIFI_AUTH_WEP: return "WEP";
+        case WIFI_AUTH_WPA_PSK: return "WPA_PSK";
+        case WIFI_AUTH_WPA2_PSK: return "WPA2_PSK";
+        case WIFI_AUTH_WPA_WPA2_PSK: return "WPA_WPA2_PSK";
+        case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2_ENTERPRISE";
+        default: return "Unknown";
+    }
+}
+
+/**
+ * ネットワーク情報の収集とベクターへの格納
+ */
+void collectDetailedNetworkInfo() {
+    networkData.clear();
+
+    // 1. ローカルIPv4アドレス
+    networkData.push_back("Local IP: " + WiFi.localIP().toString());
+
+    // 2. サブネットマスク
+    networkData.push_back("Subnet Mask: " + WiFi.subnetMask().toString());
+
+    // 3. ルーターのIPv4アドレス (デフォルトゲートウェイ)
+    networkData.push_back("Router IP: " + WiFi.gatewayIP().toString());
+
+    // 4. M5本体のMACアドレス
+    networkData.push_back("M5 MAC: " + WiFi.macAddress());
+
+    // 5. ルーターのMACアドレス (BSSIDではなくゲートウェイ自体のMAC)
+    networkData.push_back("Router MAC: " + getGatewayMAC());
+
+    // 6. 接続先APのBSSID (親機のハードウェアMAC)
+    networkData.push_back("AP BSSID: " + WiFi.BSSIDstr());
+
+    // 7. SSID
+    networkData.push_back("SSID: " + WiFi.SSID());
+
+    // 8. 信号強度 (RSSI)
+    networkData.push_back("Signal Strength (RSSI): " + String(WiFi.RSSI()) + " dBm");
+
+    // 9. 使用チャンネル
+    networkData.push_back("WiFi Channel: " + String(WiFi.channel()));
+
+    // 10. プライマリDNSサーバー
+    networkData.push_back("Primary DNS: " + WiFi.dnsIP(0).toString());
+
+    // 11. セキュリティ（暗号化）方式
+    // wifi_ap_record_t構造体を使用してより詳細な情報を取得
+    wifi_ap_record_t info;
+    if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
+        networkData.push_back("Auth Mode: " + getAuthModeName(info.authmode));
+    }
+
+    // シリアルへの一括出力（デバッグ用）
+    Serial.println("\n--- Collected Network Information ---");
+    for (const auto& data : networkData) {
+        Serial.println(data);
+    }
+    Serial.println("-------------------------------------\n");
+}
+
+/**
+ * WiFi接続を実行する関数 (WPA2 Enterprise対応)
+ */
+bool connectToEnterpriseWiFi() {
+    Serial.println("Starting WiFi connection...");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_STA);
+
+    // WPA2 Enterprise (PEAP) 設定
+    esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)E_ID, strlen(E_ID));
+    esp_wifi_sta_wpa2_ent_set_username((uint8_t *)E_ID, strlen(E_ID));
+    esp_wifi_sta_wpa2_ent_set_password((uint8_t *)E_PASS, strlen(E_PASS));
+    esp_wifi_sta_wpa2_ent_enable();
+
+    WiFi.begin(E_SSID);
+
+    int timeout = 0;
+    while (WiFi.status() != WL_CONNECTED && timeout < 40) { // 最大約20秒待機
+        delay(500);
+        Serial.print(".");
+        timeout++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi Connected!");
+        return true;
+    } else {
+        Serial.println("\nWiFi Connection Failed.");
+        return false;
     }
 }
