@@ -15,6 +15,7 @@
 #include <SPI.h> 
 #include <sstream>
 #include <algorithm>
+
 // SdFatライブラリを使用
 
 // SdFatオブジェクトを定義。M5Stack環境では、通常SPIバスが自動的に設定されます。

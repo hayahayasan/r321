@@ -195,7 +195,27 @@ void mainkansu_intmain(){
      
     }else if(M5.BtnB.wasPressed()){
 
-
+      if(positpoint == 0){
+    /*   if(textnetsette("table_SSID")){
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 31;
+          M5.Lcd.fillScreen(BLACK);
+        }else{
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+       
+        
+            return;
+        }*/ 
+      }
     }
   }
   else if(mainmode == 30){

@@ -144,6 +144,7 @@ extern String  sitagar[10];
 extern bool beginizeSD;
 extern bool showAngleBrackets; 
 extern unsigned long lastBlinkToggleTime;
+bool isValidFormat(const String& str);
 
 // ----------------------------------------------------------------------
 // 1. フォーマット形式を指定するための定数

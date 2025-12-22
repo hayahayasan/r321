@@ -20,6 +20,9 @@
 #include <SPIFFS.h>
 #include <SPI.h> 
 #include "shares.h"
+
+
+
 int NUM_RESERVED_NAMES;
 const char* TABLE_ID = "--- METT BLOCK ---";
 SPIClass SDSPI; 
@@ -1201,77 +1204,89 @@ String checkAndRename(String filePath) {
 }
 
 String wirecheck() {
-    delay(1); // 1msのディレイ
-    byte error, address;
-    int ndevices = 0;
-    // Wire.begin()とWire.setClock()はsetup()で一度だけ行うべきですが、
-    // ここでは毎フレーム呼ばれることを前提としているため、
-    // 厳密にはここではなくsetup()で行うのが適切です。
-    // しかし、ユーザーの指示によりsetup()が削除されているため、
-    // 互換性を保つためにこの関数内に残します。
-    // 実際の運用では、M5.begin()の後に一度だけ呼び出すようにしてください。
-    // Wire.begin();
-    // Wire.setClock(400000); 
+    int incomingByte = -1;
+    byte error;
+    const byte cardKBAddr = 0x5F; // 95 in decimal
 
-    address = 95; // CardKB1.1のI2Cアドレス
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission(); // デバイスの存在を確認
+    // --- 1. I2C (CardKB) Check ---
+    Wire.beginTransmission(cardKBAddr);
+    error = Wire.endTransmission();
 
-    if (error == 0) { // デバイスが正常に検知された場合
-        //Serial.println("I2Cデバイス検知開始"); // デバッグ用
-        if (address == 95) {
-            //Serial.println("CardKB1.1検知完了"); // デバッグ用
-            ndevices++;
-            int milcounter = 0;
-            // データが利用可能になるまで待機、またはタイムアウト
-            while (!Wire.available()) {
-                Wire.requestFrom(95, 1); // 1バイトのリクエスト
-                milcounter++;
-                delay(1);
-                if (milcounter > 10) break; // 100msでタイムアウト
-            }
-
-            if (Wire.available()) { // データが利用可能かチェック
-                char key = Wire.read(); // データを読み取る
-                
-                if (key != 0) { // 非ゼロデータはキープレスを示す可能性
-                    Serial.println("押されたキーコード: " + String((int)key)); // デバッグ用
-                    switch ((int)key) {
-
-                        case 13: return "ENT";   // Enterキー
-                        case 8:  return "BACK";  // Backspaceキー
-                        case 27: return "ESC";   // ESCキー
-                        case 32: return "SPACE"; // スペースキー
-                        case 9:  return "TAB";   // Tabキー
-                        case 181: return "UP";    // 上矢印キー
-                        case 183: return "RIGHT"; // 右矢印キー
-                        case 182: return "DOWN";  // 下矢印キー
-                        case 180: return "LEFT";  // 左矢印キー
-                        default:
-                            //Serial.println("その他の文字キー: " + String(key)); // デバッグ用
-                            return String(key); // その他の文字キー
-                    }
-                } else {
-                    //Serial.println("osaretenai"); // デバッグ用
-                    return "NULL"; // キーが押されていない (キーコードが0)
-                }
+    if (error == 0) {
+        Wire.requestFrom((uint8_t)cardKBAddr, (uint8_t)1);
+        if (Wire.available()) {
+            byte key = Wire.read();
+            if (key != 0) {
+                incomingByte = (int)key;
             }
         }
-    } else if (error == 4) {
-        // Serial.println("I2Cデバイスが見つかりません"); // デバッグ用
-        return "error"; // デバイスが見つからないエラー
-    } else {
-        // Serial.println("えらー" + String(error)); // デバッグ用
-        return "error"; // その他のI2Cエラー
     }
 
-    if (ndevices == 0) {
-        // Serial.println("なんも接続されていません"); // デバッグ用
-        return "nokey"; // デバイスが何も接続されていない
+    // --- 2. USB Serial Check (If no I2C input) ---
+    if (incomingByte == -1 && Serial.available() > 0) {
+        incomingByte = Serial.read();
+        
+        // Command parsing (e.g., "U1\n")
+        if (String("UDLRSTE").indexOf((char)incomingByte) != -1) {
+            String rest = Serial.readStringUntil('\n');
+            if (rest.startsWith("1")) {
+                char cmd = (char)incomingByte;
+                if (cmd == 'U') return "UP";
+                if (cmd == 'D') return "DOWN";
+                if (cmd == 'L') return "LEFT";
+                if (cmd == 'R') return "RIGHT";
+                if (cmd == 'S') return "SPACE";
+                if (cmd == 'T') return "TAB";
+                if (cmd == 'E') return "ESC";
+            }
+        }
     }
 
-    return "whattf"; // 何らかの予期せぬ状態
+    // --- 3. UART (Port A) Check (If no I2C or USB input) ---
+    if (incomingByte == -1 && Serial2.available() > 0) {
+        incomingByte = Serial2.read();
+
+        // Command parsing for UART as well
+        if (String("UDLRSTE").indexOf((char)incomingByte) != -1) {
+            String rest = Serial2.readStringUntil('\n');
+            if (rest.startsWith("1")) {
+                char cmd = (char)incomingByte;
+                if (cmd == 'U') return "UP";
+                if (cmd == 'D') return "DOWN";
+                if (cmd == 'L') return "LEFT";
+                if (cmd == 'R') return "RIGHT";
+                if (cmd == 'S') return "SPACE";
+                if (cmd == 'T') return "TAB";
+                if (cmd == 'E') return "ESC";
+            }
+        }
+    }
+
+    // --- Common Processing for all sources ---
+    if (incomingByte != -1) {
+        switch (incomingByte) {
+            case 13: case 10: return "ENT";
+            case 8: case 127: return "BACK";
+            case 27:  return "ESC";
+            case 32:  return "SPACE";
+            case 9:   return "TAB";
+            // Special codes (e.g., from CardKB or specific controllers)
+            case 181: return "UP";
+            case 182: return "DOWN";
+            case 180: return "LEFT";
+            case 183: return "RIGHT";
+        }
+
+        char c = (char)incomingByte;
+        // Standard character filtering
+        if (isAlphaNumeric(c) || String("_:;@&/\\.").indexOf(c) != -1) {
+            return String(c);
+        }
+    }
+
+    return (error != 0 && error != 4) ? "error" : "NULL";
 }
+
 // Function to copy a file with a progress display and a cancel option
 // Returns 0 for success, 1 for cancellation, 2 for failure.
 int copyFile(const char* sourcePath, const char* destinationPath, long totalSize) {
@@ -7052,6 +7067,23 @@ void createjj(){
           }
         }
         return;
+}
+
+
+bool isValidFormat(const String& str) {
+    // 1. Length check (1000 characters limit)
+    if (str.length() > 1000) {
+        return false;
+    }
+
+    // 2. Prohibited characters check
+    // indexOf returns -1 if the character is NOT found
+    if (str.indexOf('\n') != -1) return false; // Contains newline
+    if (str.indexOf(':') != -1)  return false; // Contains colon
+    if (str.indexOf(';') != -1)  return false; // Contains semicolon
+
+    // All conditions passed
+    return true;
 }
 
 bool createEE(MettDataMap& MDM){
