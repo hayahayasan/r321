@@ -1,6 +1,6 @@
 #ifndef SHARED_H
 #define SHARED_H
-
+#include <WiFi.h>
 // 他のファイルで定義された変数を参照するための宣言
 extern int shared_variable;
 
@@ -37,7 +37,7 @@ extern String LANS;
 typedef std::map<String, String> MettDataMap;
 extern String Filelist[100];
 void mainkansu_intmain();
-bool createEE(MettDataMap& MDM);
+bool createEE(MettDataMap& MDM,int type = 0);
 extern String TexNet;
 extern int IntNet;
 extern String directlist[100];
@@ -86,7 +86,10 @@ extern bool serious_error_flash ;
 void releaseSDBusForOtherUse();
 String getParentDirectory(String path);
 bool browseFlashDirectoryPaginated(int pagetax, String Directtory) ;
-
+bool textnetsette(String tablemozi);
+String TexNet1(MettDataMap mmmc);
+extern MettDataMap mmmc;
+extern int IntNet1;
 struct MettVariableInfo {
     String variableName;
     String dataType;
@@ -338,6 +341,20 @@ bool loadmett();
 void suguseni();
 extern String mozikk[7];
 bool writeStringToFileForced(const String& filePath, const String &SSText, int mozikode);
+void initVirtualKeyboard() ;
+void drawVirtualKeyboard() ;
+String getGatewayMAC() ;
+extern bool g_isWorldInternet ;
+String getCipherName(wifi_cipher_type_t cipher) ;
+void collectWSTT();
+void showStatus(String msg, uint16_t color) ;
+bool connectToEnterpriseWiFi(String ssid, String id, String pass);
+extern String UU;
+String getWiFiStatusName(wl_status_t status) ;
+extern std::vector<String> WSTT; 
+void resetto31();
+void disconnectWiFi();
+
 
 
 

@@ -96,6 +96,7 @@ void updatePointer(bool notext) {
 
     if(M5.BtnA.wasPressed()){
       btna  = true;
+      
     }else{
       btna = false;
     }
@@ -1231,13 +1232,15 @@ String wirecheck() {
             String rest = Serial.readStringUntil('\n');
             if (rest.startsWith("1")) {
                 char cmd = (char)incomingByte;
-                if (cmd == 'U') return "UP";
-                if (cmd == 'D') return "DOWN";
-                if (cmd == 'L') return "LEFT";
-                if (cmd == 'R') return "RIGHT";
-                if (cmd == 'S') return "SPACE";
-                if (cmd == 'T') return "TAB";
-                if (cmd == 'E') return "ESC";
+                if (cmd == 'up') return "UP";
+                if (cmd == 'down') return "DOWN";
+                if (cmd == 'left') return "LEFT";
+                if (cmd == 'right') return "RIGHT";
+                if (cmd == 'sp') return "SPACE";
+                if (cmd == 'tab') return "TAB";
+                if (cmd == 'esc') return "ESC";
+                if (cmd == 'ent') return "ENT";
+                if (cmd == 'back') return "BACK";
             }
         }
     }
@@ -4019,239 +4022,619 @@ String trimString(const String& s) {
 // 別の場所でM5Stackの初期化が行われている場合、この変更で問題ありません。
 #pragma endregion <text input>
 // 毎フレーム呼び出されるメインのテキスト入力処理関数
-void textluck(int poichi ) { // ★ 修正: 引数 poichi を追加 (デフォルト値 0)
-    // ★ 修正: この関数が呼び出された「最初の1回」を追跡する静的フラグ
-    static bool needsInitialDraw = true;
+struct KeyButton {
+    int x, y, w, h;
+    String label;   // 表示ラベル
+    String code;    // 入力コード
+    KeyButton(int _x = 0, int _y = 0, int _w = 0, int _h = 0, String _l = "", String _c = "") 
+        : x(_x), y(_y), w(_w), h(_h), label(_l), code(_c) {}
+};
 
-    // ★ カーソル点滅用の静的変数
+#define MAX_V_KEYS 80
+KeyButton vKeys[MAX_V_KEYS];
+int vKeyCount = 0;
+bool vKeyboardInitialized = false;
+bool isVirtualKeyboardMode = false; // モード切替フラグ
+
+
+void initVirtualKeyboard() {
+    if (vKeyboardInitialized) return;
+    vKeyCount = 0;
+    int screenW = 320; 
+    int startY = 0;
+    int padding = 1;
+    
+    // ボタンの高さを少し低くして、最下段の矢印キーがスクロールバーと重ならないように調整
+    int btnHeight = 34; 
+    
+    // 1-3行目: a-z, A-Z (52文字) -> 18, 17, 17文字に分割
+    String rows[] = {
+        "abcdefghijklmnopqr",
+        "stuvwxyzABCDEFGHI",
+        "JKLMNOPQRSTUVWXYZ",
+        "0123456789-." // 4行目
+    };
+
+    for (int r = 0; r < 4; r++) {
+        String rowStr = rows[r];
+        int count = rowStr.length();
+        int btnW = (screenW - (padding * (count + 1))) / count;
+        int currentX = padding;
+        for (int i = 0; i < count; i++) {
+            String charStr = String(rowStr.charAt(i));
+            vKeys[vKeyCount++] = KeyButton(currentX, startY, btnW, btnHeight, charStr, charStr);
+            currentX += btnW + padding;
+        }
+        startY += btnHeight + padding;
+    }
+
+    // 5行目: 特殊キー
+    struct SpecialKey { String label; String code; float weight; };
+    SpecialKey sKeys[] = {
+        {"SPC", "SPACE", 2.0}, {"ENT", "ENT", 2.0}, {"BS", "BACK", 1.8},
+        {",", ",", 1.0}, {"_", "_", 1.0}, {":", ":", 1.0}, {";", ";", 1.0},
+        {"TAB", "TAB", 1.5}, {"ESC", "ESC", 1.5}, {"@", "@", 1.0}
+    };
+    int sKeyCount = 10;
+    float totalWeight = 13.8; 
+    float unitW = (float)(screenW - (padding * (sKeyCount + 1))) / totalWeight;
+    int currentX = padding;
+    for(int i=0; i<sKeyCount; i++) {
+        int w = (int)(unitW * sKeys[i].weight);
+        vKeys[vKeyCount++] = KeyButton(currentX, startY, w, btnHeight, sKeys[i].label, sKeys[i].code);
+        currentX += w + padding;
+    }
+    startY += btnHeight + padding;
+
+    // 6行目: 矢印
+    // ★修正: "<", ">" の順に変更
+    int arrowHeight = 26; 
+    int arrowCount = 4;
+    int arrowW = (screenW - (padding * (arrowCount + 1))) / arrowCount;
+    currentX = padding;
+    String arrowLbl[] = {"<", ">", "^", "v"}; // 左, 右, 上, 下
+    String arrowCode[] = {"LEFT", "RIGHT", "UP", "DOWN"};
+    for(int i=0; i<4; i++){
+        vKeys[vKeyCount++] = KeyButton(currentX, startY, arrowW, arrowHeight, arrowLbl[i], arrowCode[i]);
+        currentX += arrowW + padding;
+    }
+    vKeyboardInitialized = true;
+}
+
+// 仮想キーボード描画
+void drawVirtualKeyboard() {
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setTextDatum(MC_DATUM);
+    for (int i = 0; i < vKeyCount; i++) {
+        KeyButton k = vKeys[i];
+        uint16_t bgColor = 0xD69A; // Light Grey
+        uint16_t lineColor = 0x7BEF; // Dark Grey
+        M5.Lcd.fillRect(k.x, k.y, k.w, k.h, bgColor);
+        M5.Lcd.drawRect(k.x, k.y, k.w, k.h, lineColor);
+        M5.Lcd.setTextColor(BLACK);
+        
+        // 高さが低いボタン（矢印キー等）は文字サイズを小さくして収める
+        if (k.label.length() > 1 || k.h < 30) {
+            M5.Lcd.setTextSize(2); 
+        } else {
+            M5.Lcd.setTextSize(3);
+        }
+        M5.Lcd.drawString(k.label, k.x + k.w/2, k.y + k.h/2);
+    }
+}
+
+// -------------------------------------------------------------------------
+// Main Function: textluck
+// -------------------------------------------------------------------------
+void textluck(int poichi ) {
+    // -------------------------------------------------
+    // 共通の静的変数（モード1・2で共有）
+    // -------------------------------------------------
+    static bool needsInitialDraw = true;
     static bool cursorVisible = true;
     static unsigned long lastBlinkTime = 0;
-    
-    // ★ 前回のカーソル位置と状態を保存 (静的変数として)
     static int lastDrawnCursorScreenX = -1;
     static int lastDrawnCursorScreenY = -1;
-    static char lastCharUnderCursor = ' '; // カーソルの下にあった文字
-    static bool lastCursorVisibility = true; // 前回の表示状態
-
-
-    // M5.begin() など、M5Stackの初期化がここ以外で行われていることを前提とします。
-    // I2C通信の初期化もここ以外で行われていることを前提とします。
-    // 例: Wire.begin(); Wire.setClock(400000);
-    M5.Lcd.setTextSize(3); // フォントサイズを3に設定
-    M5.Lcd.setTextColor(WHITE, BLACK); // テキスト色を白、背景色を黒に設定
-
-    // ★ 修正: このフレームでテキスト全体が再描画されたか
-    bool didRedrawText = false; 
-
-    // ★★★ 修正: 
-    // キー入力処理の「前」に、初回実行時のカーソル位置設定と再描画フラグを処理する
-    if (needsInitialDraw) {
-        needsRedraw = true;
-        needsInitialDraw = false; // フラグを消費
-        cursorIndex = poichi; // ★ 修正: poichi から初期カーソル位置を設定
-    }
-
-    String inputChar = wirecheck(); // wirecheck()を直接呼び出す
-
-    int oldCursorIndex = cursorIndex; // カーソル位置の変更を検出するために保存
-
-    // --- キー入力処理（長押し挙動なし） ---
-    // "NULL"、"error"、"nokey"、"whattf" 以外の信号を有効なキー入力と見なす
-    if (inputChar != "NULL" && inputChar != "error" && inputChar != "nokey" && inputChar != "whattf") {
-        needsRedraw = true; // 有効な入力があれば再描画が必要
-        if(inputChar == "TAB"){
-          entryenter = 1;
-          needsInitialDraw = true; // ★ 修正: 終了時に初回描画フラグをリセット
-          return;
-        }
-        if(inputChar == "ESC"){
-          entryenter = 2;
-          needsInitialDraw = true; // ★ 修正: 終了時に初回描画フラグをリセット
-          return;
-        }
-        if (inputChar == "ENT") {
-            if (SuperT.length() < MAX_STRING_LENGTH) {
-                SuperT = SuperT.substring(0, cursorIndex) + "\n" + SuperT.substring(cursorIndex);
-                cursorIndex++;
-            }
-        } else if (inputChar == "BACK") {
-            if (cursorIndex > 0) {
-                SuperT = SuperT.substring(0, cursorIndex - 1) + SuperT.substring(cursorIndex);
-                cursorIndex--;
-            }
-        } else if (inputChar == "SPACE" ) {
-            if (SuperT.length() < MAX_STRING_LENGTH) {
-                SuperT = SuperT.substring(0, cursorIndex) + " " + SuperT.substring(cursorIndex);
-                cursorIndex++;
-            }
-            if(mainmode == 20){
-                entryenter = -1;
-            }
-        } else if (inputChar == "UP" || inputChar == "DOWN" || inputChar == "LEFT" || inputChar == "RIGHT") {
-            // 矢印キーの場合、performArrowKeyActionを直接呼び出す
-            performArrowKeyAction(inputChar);
-        } else { // 通常の文字
-            if (SuperT.length() < MAX_STRING_LENGTH) {
-                SuperT = SuperT.substring(0, cursorIndex) + inputChar + SuperT.substring(cursorIndex);
-                cursorIndex += inputChar.length();
-            }
-        }
-    }
+    static char lastCharUnderCursor = ' '; 
+    static bool lastCursorVisibility = true;
     
-    // ★ 修正: 最初の実行時... のブロックは上（キー入力前）に移動しました
+    // スクロール制御用
+    static unsigned long lastScrollTime = 0;
+    const unsigned long SCROLL_INTERVAL_MS = 20; // 20msごとに更新（50fps）
 
-    // カーソルインデックスが範囲内にあることを確認
-    if (cursorIndex < 0) cursorIndex = 0;
-    if (cursorIndex > SuperT.length()) cursorIndex = SuperT.length();
+    // ★ボタン制御用の静的変数（自前判定用）
+    static bool lastBtnBState = false; // 前回のBボタン状態
+    static unsigned long btnAPressStartTime = 0; // Aボタン長押し開始時間
+    static bool btnAPressing = false;
+    static unsigned long btnCPressStartTime = 0; // Cボタン長押し開始時間
+    static bool btnCPressing = false;
+    
+    // ★誤動作対策：最初のフレームかどうかのフラグ
+    static bool isFirstFrame = true;
 
-    // カーソル位置のピクセル座標を計算し、スクロールオフセットを調整
-    // adjustScroll()内でneedsRedrawが更新される可能性がある
-    CursorPosInfo currentCursorInfo = calculateCursorPixelPos(cursorIndex, SuperT);
-    cursorPixelX = currentCursorInfo.pixelX;
-    cursorPixelY = currentCursorInfo.pixelY;
-    adjustScroll(); // adjustScroll()がneedsRedrawをtrueに設定する可能性あり
+    // 1. ボタン状態更新
+    M5.update(); 
+    
+    // ★初回フレーム処理
+    // 画面遷移直後などにボタンが押されっぱなしになっている場合の誤動作を防ぐため、
+    // 最初の1回だけは入力を受け付けず、現在のボタン状態を同期するだけに留める。
+    bool allowInput = true;
+    if (isFirstFrame) {
+        isFirstFrame = false;
+        allowInput = false;
+        lastBtnBState = M5.BtnB.isPressed(); // 状態同期のみ
 
-    // カーソルインデックスが変更された場合、またはテキスト内容が変更された場合も再描画が必要
-    if (cursorIndex != oldCursorIndex) { // ★ 修正: キー入力チェックは上で既に行われている
-        needsRedraw = true;
+        // ★追加: 初回起動時にカーソルを末尾へ移動
+        cursorIndex = SuperT.length();
     }
 
+    // --- BtnA 長押し (1秒以上) 判定 ---
+    if (allowInput && M5.BtnA.isPressed()) {
+        if (!btnAPressing) {
+            btnAPressing = true;
+            btnAPressStartTime = millis();
+        } else if (millis() - btnAPressStartTime > 1000) {
+            // 1秒経過
+            entryenter = 2;
+            btnAPressing = false; // リセット
 
-    // 再描画が必要な場合のみ画面をクリアし、テキストを描画
-    if (needsRedraw) {
-        // 通常のテキスト入力領域をクリア
-        M5.Lcd.fillRect(0, 0, M5.Lcd.width(), M5.Lcd.height() - getFontHeight(), BLACK); 
+            // ★改良: キーボードモードなら閉じてMode1を描画してから抜ける
+            if (isVirtualKeyboardMode) {
+                isVirtualKeyboardMode = false;
+                M5.Lcd.fillScreen(BLACK);
+                
+                // Mode1テキスト描画（即時実行）
+                M5.Lcd.setTextSize(3);
+                M5.Lcd.setTextColor(WHITE, BLACK);
+                M5.Lcd.setTextDatum(TL_DATUM);
+                
+                int fH = getFontHeight(); 
+                int cW = getCharWidth();
+                int tH = M5.Lcd.height() - fH;
+                int dX = -offsetX;
+                int dY = -offsetY;
 
-        int currentDrawX = -offsetX;
-        int currentDrawY = -offsetY;
-        int charWidth = getCharWidth();
-        int fontHeight = getFontHeight();
-        int textInputAreaHeight = M5.Lcd.height() - getFontHeight(); // 通常のテキスト入力領域の高さ
-
-        for (int i = 0; i < SuperT.length(); ++i) {
-            char c = SuperT.charAt(i);
-
-            if (c == '\n') {
-                currentDrawX = -offsetX; // 新しい行の開始X座標はオフセットを考慮
-                currentDrawY += fontHeight;
-            } else {
-                // 画面の水平方向と垂直方向の範囲内にある場合のみ描画
-                // スクロールテキスト領域にかからないように描画範囲を制限
-                if (currentDrawX + charWidth > 0 && currentDrawX < M5.Lcd.width() &&
-                    currentDrawY + fontHeight > 0 && currentDrawY < textInputAreaHeight) { // 修正: textInputAreaHeightを使用
-                    M5.Lcd.drawChar(c, currentDrawX, currentDrawY);
+                for (int i = 0; i < (int)SuperT.length(); ++i) {
+                    char c = SuperT.charAt(i);
+                    if (c == '\n') {
+                        dX = -offsetX; 
+                        dY += fH;
+                    } else {
+                        if (dX + cW > 0 && dX < M5.Lcd.width() && dY + fH > 0 && dY < tH) { 
+                            M5.Lcd.drawChar(c, dX, dY);
+                        }
+                        dX += cW;
+                    }
                 }
-                currentDrawX += charWidth;
+            }
+
+            delay(200); 
+            return;
+        }
+    } else {
+        btnAPressing = false;
+    }
+
+    // --- BtnC 長押し (1秒以上) 判定 ---
+    if (allowInput && M5.BtnC.isPressed()) {
+        if (!btnCPressing) {
+            btnCPressing = true;
+            btnCPressStartTime = millis();
+        } else if (millis() - btnCPressStartTime > 1000) {
+            // 1秒経過
+            entryenter = 1;
+            btnCPressing = false; // リセット
+
+            // ★改良: キーボードモードなら閉じてMode1を描画してから抜ける
+            if (isVirtualKeyboardMode) {
+                isVirtualKeyboardMode = false;
+                M5.Lcd.fillScreen(BLACK);
+                
+                // Mode1テキスト描画（即時実行）
+                M5.Lcd.setTextSize(3);
+                M5.Lcd.setTextColor(WHITE, BLACK);
+                M5.Lcd.setTextDatum(TL_DATUM);
+                
+                int fH = getFontHeight(); 
+                int cW = getCharWidth();
+                int tH = M5.Lcd.height() - fH;
+                int dX = -offsetX;
+                int dY = -offsetY;
+
+                for (int i = 0; i < (int)SuperT.length(); ++i) {
+                    char c = SuperT.charAt(i);
+                    if (c == '\n') {
+                        dX = -offsetX; 
+                        dY += fH;
+                    } else {
+                        if (dX + cW > 0 && dX < M5.Lcd.width() && dY + fH > 0 && dY < tH) { 
+                            M5.Lcd.drawChar(c, dX, dY);
+                        }
+                        dX += cW;
+                    }
+                }
+            }
+
+            delay(200); 
+            return;
+        }
+    } else {
+        btnCPressing = false;
+    }
+
+    // --- BtnB クリック判定 (モード切替) ---
+    // wasPressed() ではなく、前回と今回の状態比較でエッジ検出を行う
+    bool currBtnBState = M5.BtnB.isPressed();
+    
+    if (allowInput && currBtnBState && !lastBtnBState) { // 押された瞬間 (Rising Edge)
+        M5.Speaker.tone(1400, 100); // モード切替音
+        isVirtualKeyboardMode = !isVirtualKeyboardMode;
+        needsRedraw = true;     
+        needsInitialDraw = true; 
+        M5.Lcd.fillScreen(BLACK); 
+        // モード切替直後の誤動作を防ぐため少し待つ
+        delay(200);
+        // ボタン状態を更新してからリターンしないと、次回ループでまた「押された瞬間」と判定される可能性があるため更新
+        lastBtnBState = M5.BtnB.isPressed(); 
+        return; 
+    }
+    lastBtnBState = currBtnBState; // 状態更新
+
+    // =================================================================================
+    //  モード 2: 仮想キーボードモード (ポインター位置に挿入)
+    // =================================================================================
+    if (isVirtualKeyboardMode) {
+        if (!vKeyboardInitialized) initVirtualKeyboard();
+        
+        // --- 描画処理 ---
+        if (needsRedraw) {
+            drawVirtualKeyboard();
+            // 下部テキスト表示は共通のスクロール処理で行うため、ここでは行わない
+            needsRedraw = false;
+        }
+
+        // --- タッチ入力処理 (M5Unified対応) ---
+        // M5Unifiedでは isPressed() ではなく getCount() > 0 で判定
+        if (M5.Touch.getCount() > 0) {
+            auto t = M5.Touch.getDetail(0); // 0番目のタッチ情報を取得
+            
+            for (int i = 0; i < vKeyCount; i++) {
+                KeyButton k = vKeys[i];
+                // t.x, t.y で座標にアクセス
+                if (t.x >= k.x && t.x <= k.x + k.w && t.y >= k.y && t.y <= k.y + k.h) {
+                    
+                    // タッチ入力音 (0.1秒)
+                    M5.Speaker.tone(1200, 100);
+
+                    // 1. 点滅演出
+                    M5.Lcd.fillRect(k.x, k.y, k.w, k.h, BLUE);
+                    // はみ出し防止のため枠線も描いてサイズ感を初期表示と合わせる
+                    M5.Lcd.drawRect(k.x, k.y, k.w, k.h, 0x7BEF); 
+                    
+                    M5.Lcd.setTextColor(WHITE);
+                    M5.Lcd.setTextDatum(MC_DATUM);
+                    
+                    // 文字サイズ調整（描画時と同じロジック）
+                    if (k.label.length() > 1 || k.h < 30) M5.Lcd.setTextSize(2); 
+                    else M5.Lcd.setTextSize(3);
+                    
+                    M5.Lcd.drawString(k.label, k.x + k.w/2, k.y + k.h/2);
+                    
+                    // delay(200) をノンブロッキングな待機ループに変更
+                    // これにより、キーを押した直後のウェイト中でもBtnB(モード切替)を受け付ける
+                    unsigned long startWait = millis();
+                    while (millis() - startWait < 150) { // 演出時間(150ms)
+                        M5.update(); // 待機中もボタン更新
+                        
+                        // ここでも自前判定を行う
+                        bool waitBtnB = M5.BtnB.isPressed();
+                        if (waitBtnB && !lastBtnBState) {
+                             M5.Speaker.tone(1400, 100); // 音追加
+                             isVirtualKeyboardMode = !isVirtualKeyboardMode;
+                             needsRedraw = true;     
+                             needsInitialDraw = true; 
+                             M5.Lcd.fillScreen(BLACK);
+                             lastBtnBState = waitBtnB; // 状態更新
+                             return; // 直ちに関数を抜ける
+                        }
+                        lastBtnBState = waitBtnB;
+                    }
+
+                    // 2. 元に戻す
+                    uint16_t bgColor = 0xD69A; uint16_t lineColor = 0x7BEF;
+                    M5.Lcd.fillRect(k.x, k.y, k.w, k.h, bgColor);
+                    M5.Lcd.drawRect(k.x, k.y, k.w, k.h, lineColor);
+                    M5.Lcd.setTextColor(BLACK);
+                    // 元に戻す時もサイズ判定を忘れずに
+                    if (k.label.length() > 1 || k.h < 30) M5.Lcd.setTextSize(2); 
+                    else M5.Lcd.setTextSize(3);
+                    M5.Lcd.drawString(k.label, k.x + k.w/2, k.y + k.h/2);
+
+                    // 3. 入力処理 (カーソル位置 cursorIndex に挿入する)
+                    String code = k.code;
+                    
+                    // カーソル位置の安全確保
+                    if (cursorIndex < 0) cursorIndex = 0;
+                    if (cursorIndex > (int)SuperT.length()) cursorIndex = SuperT.length();
+
+                    // 特殊キー分岐
+                    if (code == "ENT") {
+                          if (SuperT.length() < MAX_STRING_LENGTH) {
+                              SuperT = SuperT.substring(0, cursorIndex) + "\n" + SuperT.substring(cursorIndex);
+                              cursorIndex++;
+                          }
+                    } 
+                    else if (code == "TAB") {
+                          if (SuperT.length() < MAX_STRING_LENGTH) {
+                              SuperT = SuperT.substring(0, cursorIndex) + "   " + SuperT.substring(cursorIndex);
+                              cursorIndex += 3;
+                          }
+                    }
+                    else if (code == "ESC") {
+                          // [ESC] キーの処理 (現在はブランク)
+                    }
+                    else if (code == "BACK") {
+                          if (cursorIndex > 0) {
+                              SuperT = SuperT.substring(0, cursorIndex - 1) + SuperT.substring(cursorIndex);
+                              cursorIndex--;
+                          }
+                    }
+                    else if (code == "UP") { performArrowKeyAction(code); }
+                    else if (code == "DOWN") { performArrowKeyAction(code); }
+                    else if (code == "LEFT") { performArrowKeyAction(code); }
+                    else if (code == "RIGHT") { performArrowKeyAction(code); }
+                    else if (code == "SPACE") {
+                          if (SuperT.length() < MAX_STRING_LENGTH) {
+                              SuperT = SuperT.substring(0, cursorIndex) + " " + SuperT.substring(cursorIndex);
+                              cursorIndex++;
+                          }
+                    }
+                    else {
+                          // 通常文字の処理
+                          if (SuperT.length() < MAX_STRING_LENGTH) {
+                              SuperT = SuperT.substring(0, cursorIndex) + code + SuperT.substring(cursorIndex);
+                              cursorIndex += code.length();
+                          }
+                    }
+                    
+                    // 指が離れるのを待つ
+                    while (M5.Touch.getCount() > 0) { 
+                        M5.update(); 
+                        
+                        // ここでもBtnB判定
+                        bool waitBtnB = M5.BtnB.isPressed();
+                        if (waitBtnB && !lastBtnBState) {
+                            M5.Speaker.tone(1400, 100); // 音追加
+                            isVirtualKeyboardMode = !isVirtualKeyboardMode;
+                            needsRedraw = true;     
+                            needsInitialDraw = true; 
+                            M5.Lcd.fillScreen(BLACK);
+                            lastBtnBState = waitBtnB; // 状態更新
+                            return; // breakではなくreturnで即脱出
+                        }
+                        lastBtnBState = waitBtnB;
+                        delay(10); 
+                    } 
+                }
             }
         }
-        needsRedraw = false; // 描画が完了したのでフラグをリセット
-        didRedrawText = true; // ★ 修正: 描画したことを記録
     }
+    // =================================================================================
+    //  モード 1: 旧textluck モード (ポインター入力 & テキスト表示)
+    // =================================================================================
+    else {
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setTextColor(WHITE, BLACK);
+        M5.Lcd.setTextDatum(TL_DATUM);
 
-    // --- カーソル点滅ロジック ---
-    unsigned long currentTime = millis();
-    bool forceCursorDraw = false; // カーソルが動いたか？
+        bool didRedrawText = false; 
 
-    // ★ カーソル点滅タイミングの計算
-    if (currentTime - lastBlinkTime > 500) { // 500msごとに状態反転
-        cursorVisible = !cursorVisible;
-        lastBlinkTime = currentTime;
-    }
-
-    // 現在のカーソルのスクリーン座標
-    int currentCursorScreenX = cursorPixelX - offsetX;
-    int currentCursorScreenY = cursorPixelY - offsetY;
-    int textInputAreaHeight = M5.Lcd.height() - getFontHeight();
-
-    // カーソルの下にある実際の文字を取得
-    // ★★★ 修正: カーソルが末尾にある場合のチェックを強化 ★★★
-    char charUnderCursor = ' '; // デフォルト（カーソルが末尾にある場合など）
-    if (cursorIndex < SuperT.length()) { // cursorIndex が length() より小さい場合のみ
-        char c = SuperT.charAt(cursorIndex); // バイトインデックスで文字を取得
-        if (c != '\n') { // 改行文字自体は描画しない
-            charUnderCursor = c;
+        if (needsInitialDraw) {
+            needsRedraw = true;
+            needsInitialDraw = false; 
         }
-    }
-    // ★★★ 修正ここまで ★★★
 
+        String inputChar = wirecheck(); 
+        int oldCursorIndex = cursorIndex; 
 
-    // ★ ちらつき防止: 前回のカーソル位置と今回の位置が異なるかチェック
-    if (lastDrawnCursorScreenX != currentCursorScreenX || lastDrawnCursorScreenY != currentCursorScreenY) {
-        // カーソルが移動した
+        // --- キー入力処理 ---
+        if (inputChar != "NULL" && inputChar != "error" && inputChar != "nokey" && inputChar != "whattf") {
+            
+            // 物理キー入力時 (0.1秒)
+            M5.Speaker.tone(1200, 100);
 
-        // ★★★ 修正: 画面全体が再描画されていない場合のみ、前のカーソル位置を復元
-        if (!didRedrawText) { 
-            if (lastDrawnCursorScreenX >= 0) { // 有効な位置なら
-                 M5.Lcd.drawChar(lastCharUnderCursor, lastDrawnCursorScreenX, lastDrawnCursorScreenY);
+            needsRedraw = true; 
+            if(inputChar == "TAB"){
+              entryenter = 1; needsInitialDraw = true; return;
+            }
+            if(inputChar == "ESC"){
+              entryenter = 2; needsInitialDraw = true; return;
+            }
+            if (inputChar == "ENT") {
+                if (SuperT.length() < MAX_STRING_LENGTH) {
+                    SuperT = SuperT.substring(0, cursorIndex) + "\n" + SuperT.substring(cursorIndex);
+                    cursorIndex++;
+                }
+            } else if (inputChar == "BACK") {
+                if (cursorIndex > 0) {
+                    SuperT = SuperT.substring(0, cursorIndex - 1) + SuperT.substring(cursorIndex);
+                    cursorIndex--;
+                }
+            } else if (inputChar == "SPACE" ) {
+                if (SuperT.length() < MAX_STRING_LENGTH) {
+                    SuperT = SuperT.substring(0, cursorIndex) + " " + SuperT.substring(cursorIndex);
+                    cursorIndex++;
+                }
+                if(mainmode == 20) entryenter = -1;
+            } else if (inputChar == "UP" || inputChar == "DOWN" || inputChar == "LEFT" || inputChar == "RIGHT") {
+                performArrowKeyAction(inputChar);
+            } else { 
+                if (SuperT.length() < MAX_STRING_LENGTH) {
+                    SuperT = SuperT.substring(0, cursorIndex) + inputChar + SuperT.substring(cursorIndex);
+                    cursorIndex += inputChar.length();
+                }
             }
         }
         
-        // 点滅状態をリセットし、必ず表示から始める
-        cursorVisible = true;
-        lastBlinkTime = currentTime;
-        forceCursorDraw = true; // 強制的に描画
-    }
+        // カーソル範囲チェック
+        if (cursorIndex < 0) cursorIndex = 0;
+        if (cursorIndex > (int)SuperT.length()) cursorIndex = SuperT.length();
 
-    // カーソルが画面範囲内にあるかチェック
-    bool cursorOnScreen = (currentCursorScreenX >= 0 && currentCursorScreenX < M5.Lcd.width() &&
-                           currentCursorScreenY >= 0 && currentCursorScreenY < textInputAreaHeight);
+        CursorPosInfo currentCursorInfo = calculateCursorPixelPos(cursorIndex, SuperT);
+        cursorPixelX = currentCursorInfo.pixelX;
+        cursorPixelY = currentCursorInfo.pixelY;
+        adjustScroll(); 
 
-    // ★ 状態が変化したか、強制描画が必要な場合のみカーソル（または文字）を描画
-    if (cursorOnScreen && (cursorVisible != lastCursorVisibility || forceCursorDraw)) {
-        if (cursorVisible) {
-            // ★ カーソル表示
-            M5.Lcd.drawChar('|', currentCursorScreenX, currentCursorScreenY);
-        } else {
-            // ★ カーソル非表示 (元の文字を表示)
-            M5.Lcd.drawChar(charUnderCursor, currentCursorScreenX, currentCursorScreenY);
+        if (cursorIndex != oldCursorIndex) needsRedraw = true;
+
+        // 再描画処理
+        if (needsRedraw) {
+            M5.Lcd.fillRect(0, 0, M5.Lcd.width(), M5.Lcd.height() - getFontHeight(), BLACK); 
+            int currentDrawX = -offsetX;
+            int currentDrawY = -offsetY;
+            int charWidth = getCharWidth();
+            int fontHeight = getFontHeight();
+            int textInputAreaHeight = M5.Lcd.height() - getFontHeight();
+
+            for (int i = 0; i < (int)SuperT.length(); ++i) {
+                char c = SuperT.charAt(i);
+                if (c == '\n') {
+                    currentDrawX = -offsetX; 
+                    currentDrawY += fontHeight;
+                } else {
+                    if (currentDrawX + charWidth > 0 && currentDrawX < M5.Lcd.width() &&
+                        currentDrawY + fontHeight > 0 && currentDrawY < textInputAreaHeight) { 
+                        M5.Lcd.drawChar(c, currentDrawX, currentDrawY);
+                    }
+                    currentDrawX += charWidth;
+                }
+            }
+            needsRedraw = false; 
+            didRedrawText = true; 
         }
+
+        // --- カーソル点滅ロジック ---
+        unsigned long currentTime = millis();
+        bool forceCursorDraw = false; 
+
+        if (currentTime - lastBlinkTime > 500) { 
+            cursorVisible = !cursorVisible;
+            lastBlinkTime = currentTime;
+        }
+
+        int currentCursorScreenX = cursorPixelX - offsetX;
+        int currentCursorScreenY = cursorPixelY - offsetY;
+        int textInputAreaHeight = M5.Lcd.height() - getFontHeight();
+
+        char charUnderCursor = ' '; 
+        if (cursorIndex < (int)SuperT.length()) { 
+            char c = SuperT.charAt(cursorIndex); 
+            if (c != '\n') charUnderCursor = c;
+        }
+
+        if (lastDrawnCursorScreenX != currentCursorScreenX || lastDrawnCursorScreenY != currentCursorScreenY) {
+            if (!didRedrawText && lastDrawnCursorScreenX >= 0) { 
+                 M5.Lcd.drawChar(lastCharUnderCursor, lastDrawnCursorScreenX, lastDrawnCursorScreenY);
+            }
+            cursorVisible = true;
+            lastBlinkTime = currentTime;
+            forceCursorDraw = true; 
+        }
+
+        bool cursorOnScreen = (currentCursorScreenX >= 0 && currentCursorScreenX < M5.Lcd.width() &&
+                               currentCursorScreenY >= 0 && currentCursorScreenY < textInputAreaHeight);
+
+        if (cursorOnScreen && (cursorVisible != lastCursorVisibility || forceCursorDraw)) {
+            if (cursorVisible) M5.Lcd.drawChar('|', currentCursorScreenX, currentCursorScreenY);
+            else M5.Lcd.drawChar(charUnderCursor, currentCursorScreenX, currentCursorScreenY);
+        }
+
+        lastDrawnCursorScreenX = currentCursorScreenX;
+        lastDrawnCursorScreenY = currentCursorScreenY;
+        lastCharUnderCursor = charUnderCursor; 
+        lastCursorVisibility = cursorVisible; 
+    } 
+
+    // =================================================================================
+    //  共通処理: 下画面スクロールテキスト描画 (低遅延化対応)
+    // =================================================================================
+    String scrollingText = Textex; 
+    if (isVirtualKeyboardMode) {
+        String previewT = SuperT;
+        
+        int insIdx = cursorIndex;
+        if(insIdx < 0) insIdx = 0;
+        if(insIdx > (int)previewT.length()) insIdx = previewT.length();
+        
+        previewT = previewT.substring(0, insIdx) + "||" + previewT.substring(insIdx);
+        
+        // ★修正: 改行を "\n" という文字列として表示
+        previewT.replace("\n", "\\n");
+        scrollingText = "nowmozi:" + previewT;
     }
 
-    // 最後に描画した情報を保存
-    lastDrawnCursorScreenX = currentCursorScreenX;
-    lastDrawnCursorScreenY = currentCursorScreenY;
-    lastCharUnderCursor = charUnderCursor; // ★ カーソルの下の文字も保存
-    lastCursorVisibility = cursorVisible; // ★ 表示状態も保存
+    // --- スクロールロジック (millis制御) ---
+    // ★追加: 前回の描画内容と比較して、変化がない場合は描画をスキップする最適化
+    static String lastDrawnScrollingText = "";
 
+    if (millis() - lastScrollTime > SCROLL_INTERVAL_MS) {
+        lastScrollTime = millis();
 
-    // --- 最下部のスクロールテキスト描画 ---
-    int scrollLineY = M5.Lcd.height() - getFontHeight(); // スクロールテキストのY座標
+        // テキスト幅計算用設定
+        M5.Lcd.setTextSize(3); 
+        int textW = M5.Lcd.textWidth(scrollingText);
+        int screenW = M5.Lcd.width();
+        int scrollLineY = M5.Lcd.height() - getFontHeight(); 
+        
+        bool shouldDraw = false;
 
-    // スクロールテキスト領域をクリア
-    M5.Lcd.fillRect(0, scrollLineY, M5.Lcd.width(), getFontHeight(), BLACK);
-    
-    // スクロールロジック
-    scrollFrameCounter++;
-    if (scrollFrameCounter >= SCROLL_INTERVAL_FRAMES) {
-        if (firstScrollLoop) {
-            // 初回ループ時、テキストの左端から開始（scrollOffset は 0 または Textex.length()に応じて調整）
-            // テキストが画面幅より短い場合はスクロール不要
-            if (M5.Lcd.textWidth(Textex) > M5.Lcd.width()) {
-                scrollOffset -= SCROLL_SPEED_PIXELS;
+        // 1. テキストが画面に収まる場合 (スクロール不要)
+        if (textW <= screenW) {
+            // テキストの内容が変わった場合のみ再描画フラグを立てる
+            if (scrollingText != lastDrawnScrollingText) {
+                scrollOffset = 0; // 位置を固定
+                shouldDraw = true;
+            }
+            // 内容が同じなら何もしない
+        }
+        // 2. テキストが画面より長い場合 (スクロール必要)
+        else {
+            shouldDraw = true; // 常に動くので描画必要
+
+            if (firstScrollLoop) {
+                if (textW > screenW) {
+                    scrollOffset -= SCROLL_SPEED_PIXELS;
+                } else {
+                    scrollOffset = 0; 
+                }
+
+                if (scrollOffset < -textW) {
+                    scrollOffset = screenW; 
+                    firstScrollLoop = false;
+                }
             } else {
-                scrollOffset = 0; // 画面内に収まる場合は左端に固定
-            }
-
-            // テキストが完全に画面外に出たら、二回目以降のループへ
-            if (scrollOffset < -M5.Lcd.textWidth(Textex)) {
-                scrollOffset = M5.Lcd.width(); // 画面右端から再開
-                firstScrollLoop = false;
-            }
-        } else {
-            // 二回目以降のループ、右端から開始
-            scrollOffset -= SCROLL_SPEED_PIXELS; // 左にスクロール
-            if (scrollOffset < -M5.Lcd.textWidth(Textex)) {
-                scrollOffset = M5.Lcd.width(); // 画面右端から再開
+                scrollOffset -= SCROLL_SPEED_PIXELS; 
+                if (scrollOffset < -textW) {
+                    scrollOffset = screenW; 
+                }
             }
         }
-        scrollFrameCounter = 0;
-    }
+        
+        // 描画実行 (必要な時だけ)
+        if (shouldDraw) {
+            M5.Lcd.fillRect(0, scrollLineY, screenW, getFontHeight(), BLACK);
 
-    // Textexが空でなければ描画
-    if (Textex.length() > 0) {
-        // スクロールオフセットを考慮して描画
-        M5.Lcd.drawString(Textex, scrollOffset, scrollLineY);
+            if (scrollingText.length() > 0) {
+                M5.Lcd.setTextColor(WHITE, BLACK);
+                M5.Lcd.setTextDatum(TL_DATUM);
+                M5.Lcd.drawString(scrollingText, scrollOffset, scrollLineY); 
+            }
+            lastDrawnScrollingText = scrollingText; // 状態更新
+        }
     }
+    
+    // ★重要: ループを少し休ませることで、ボタン判定の安定性を確保する
+    delay(1);
 }
 
 
@@ -6020,7 +6403,7 @@ void createMettHensu(fs::FS &fs, const String& fullFilePath, const String& targe
     bool loadSuccess, isEmpty;
     loadMettFile(fs, fullFilePath, targetTableName, loadSuccess, isEmpty, variables);
 
-    if (loadSuccess) {
+    if (!loadSuccess) {
         Serial.printf("Error (LoadHensu): loadMettFile failed for table '%s'.\n", targetTableName.c_str());
         return false; // ファイル読み込み自体に失敗
     }
@@ -7079,61 +7462,14 @@ bool isValidFormat(const String& str) {
     // 2. Prohibited characters check
     // indexOf returns -1 if the character is NOT found
     if (str.indexOf('\n') != -1) return false; // Contains newline
-    if (str.indexOf(':') != -1)  return false; // Contains colon
+    //if (str.indexOf(':') != -1)  return false; // Contains colon
     if (str.indexOf(';') != -1)  return false; // Contains semicolon
 
     // All conditions passed
     return true;
 }
 
-bool createEE(MettDataMap& MDM){
-    
-  std::vector<MettVariableInfo> loadedVariablesE;
-       bool loadSuccess = false;
-      bool fileIsEmpty =false;
 
-//step1:ファイルを作成する
-bool tt = initializeSDCardAndCreateFile("/save/save2.mett");
-if(!tt){
-    Serial.println("チェック失敗ファイル");
-    return false;
-}
-
-
-    loadMettFile(SD, "/save/save2.mett" ,"TestOpt2", loadSuccess, fileIsEmpty, loadedVariablesE);
-    if(!loadSuccess){
-      Serial.println("load_error!!!");
-      return false;
-    }
-  dataToSaveE = copyVectorToMap(loadedVariablesE);
-        bool jj = false;
-
-        if(datt("table_SSID","")){
-          jj = true;
-        }
-        if(datt("table_Usrname","")){
-          jj = true;
-        }
-        if(datt("table_Pass","")){
-          jj = true;
-        }
-
-       
-        if(jj){
-       
-          saveMettFile(SD, "/save/save2.mett" ,"TestOpt2", dataToSaveE, loadSuccess);
-          if(!loadSuccess){
-            //kanketu("Option Saved!",200);
-            return true;
-          }else{
-           kanketu("Option Save Failed!",200);
-           return false;
-          }
-        }else{
-            return true;
-        }
-        
-}
 
 
 bool isValidHensuValue(String& text, bool isHairetsu) {

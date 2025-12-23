@@ -25,8 +25,7 @@ const String METT_TABLE_NAME_KEY = "table_name";
 const int METT_CHUNK_SIZE = 1024;
 const int MAX_STRING_LENGTH = 65535; 
 const int CURSOR_BLINK_INTERVAL = 10; // カーソル点滅のフレーム間隔
-String TexNet = "  S0:LAN\n  S1:WiFiConct\n  S2:NetStatus\n  S3:WebSock Set\n  S4:Disconnect";
-int IntNet = 5;
+MettDataMap mmmc;
 String sitagar[10] = {"Net Status","Wifi","FLASHBrowser","SDBrowser","Configs","Options","SD Eject/Format","User Management","Log","Help/About"};
 int SCROLL_INTERVAL_FRAMES = 1;
 int SCROLL_SPEED_PIXELS = 3;
@@ -169,7 +168,7 @@ bool showAngleBrackets = true;
 void mainkansu_intmain(){
   delay(1);
   if(mainmode == 31){
-    updatePointer2(3);
+    updatePointer2(1);
     M5.update();
       
       if(pagemoveflag == 1){
@@ -187,6 +186,7 @@ void mainkansu_intmain(){
             holdpositpoint = 0;
             imano_page = 0;
             mainmode = 30;
+            M5.Lcd.setTextSize(3);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
        
@@ -195,26 +195,94 @@ void mainkansu_intmain(){
      
     }else if(M5.BtnB.wasPressed()){
 
-      if(positpoint == 0){
-    /*   if(textnetsette("table_SSID")){
-          positpoint = 0;
-            maxpage = -1;
-            holdpositpoint = 0;
-            imano_page = 0;
-            mainmode = 31;
-          M5.Lcd.fillScreen(BLACK);
+      if(positpoint == 0 || positpoint == 1 || positpoint == 2){
+        String ssgggg;
+        if(positpoint == 0){
+          ssgggg = "table_SSID";
+        }else if(positpoint == 1){
+          ssgggg = "table_Usrname";
+        }else if(positpoint == 2){
+          ssgggg = "table_Pass";
+        }
+       if(textnetsette(ssgggg)){
+          resetto31();
+          return;
         }else{
           positpoint = 0;
             maxpage = -1;
             holdpositpoint = 0;
             imano_page = 0;
             mainmode = 30;
+            M5.Lcd.setTextSize(3);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
        
         
             return;
-        }*/ 
+        }
+      }else if(positpoint == 3){//接続
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        if(!createEE(mmmc,1)){
+          kanketu("!load error!",400);
+            M5.Lcd.setCursor(0, 0);
+            sita = "hello";
+            textexx();
+            positpoint = 0;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 0;
+        }
+        if(GyakuhenkanTxt(mmmc["table_SSID"]) == ""){
+          kanketu("[E04] No SSID Input",1000);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+       
+        
+            return;
+        }
+        if(!connectToEnterpriseWiFi(GyakuhenkanTxt(mmmc["table_SSID"]),GyakuhenkanTxt(mmmc["table_Usrname"]),GyakuhenkanTxt(mmmc["table_Pass"]))){
+                  M5.Lcd.fillScreen(BLACK);
+                  M5.Lcd.setCursor(0,0);
+                  kanketu(UU,1000);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+       
+        
+            return;
+        }
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.setTextSize(1);
+        showmozinn2("connnecterd:\n isglobal:" + WSTT[5] + 
+        "/nyour local ip:" + WSTT[0]
+         + "\nyour global ip:" + WSTT[1] +
+         "your MAC:" + WSTT[2] +
+         "your router MAC:" + WSTT[3]);
+         while(true){
+          delay(1);
+          M5.update();
+          if(M5.BtnB.wasPressed()){
+            break;
+          }
+         }
+         M5.Lcd.setTextSize(1);
+         resetto31();
+
+          return;
+
       }
     }
   }
@@ -247,14 +315,14 @@ void mainkansu_intmain(){
             imano_page = 0;
             mainmode = 31;
           M5.Lcd.fillScreen(BLACK);
-          MettDataMap mmmc;
+          mmmc;
           M5.Lcd.println("SD Waking!");
           SD.begin(GPIO_NUM_4, SPI, 20000000);
           
           
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0, 0);
-          if(!createEE(mmmc)){
+          if(!createEE(mmmc),0){
             kanketu("!load error!",400);
             M5.Lcd.setCursor(0, 0);
             sita = "hello";
@@ -265,8 +333,9 @@ void mainkansu_intmain(){
             mainmode = 0;
       return;
           }
-          M5.Lcd.println("  SSID:" + mmmc["table_SSID"] + "\n  Username:" + mmmc["table_Usrname"] + "\n  Password:" + mmmc["table_Pass"] + "\n  Login\n  ConnectTest\n");
-          positpointmax = 5;
+          M5.Lcd.setTextSize(1);
+          M5.Lcd.println(TexNet1(mmmc));
+          positpointmax = IntNet1;
           return;
       }
 
@@ -1795,6 +1864,7 @@ if(sse == "E"){
        M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
        M5.Lcd.setCursor(0, 0);
         mainmode = 30;
+        M5.Lcd.setTextSize(3);
         M5.Lcd.println(TexNet);
         positpoint = 0;
         maxpage = -1;
@@ -2517,7 +2587,32 @@ int selectOption(const String options[], int numOptions, const String upperText,
 
 
 
-
+void resetto31(){
+  positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+            M5.Lcd.println("loading...");
+            imano_page = 0;
+            mainmode = 31;
+            if(!createEE(mmmc,1)){
+            kanketu("!load error!",400);
+            M5.Lcd.setCursor(0, 0);
+            sita = "hello";
+            textexx();
+            positpoint = 0;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 0;
+      return;
+          }
+          M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0,0);
+          M5.Lcd.println(TexNet1(mmmc));
+          positpointmax = IntNet1;
+          return;
+}
 
 
 
