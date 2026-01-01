@@ -162,11 +162,12 @@ bool showAngleBrackets = true;
 
 #pragma endregion <hensu4aa>
 
-
+// Forward declaration for handleWebSocketLoop
 
 
 void mainkansu_intmain(){
   delay(1);
+handleWebSocketLoop();
   if(mainmode == 31){
     updatePointer2(1);
     M5.update();
@@ -280,7 +281,7 @@ void mainkansu_intmain(){
         M5.Lcd.setTextSize(1);
         showmozinn2("connnecterd:\n isglobal:" + WSTT[5] + 
         "\nyour local ip:" + WSTT[0]
-         + "\nyour global ip:" + WSTT[1] +
+         + "\nyour gateway ip:" + WSTT[1] +
          "\nyour MAC:" + WSTT[2] +
          "\nyour router MAC:" + WSTT[3]);
          statustext = "NetStep:1,Connected to Wifi But no WebSocket";
@@ -310,7 +311,7 @@ void mainkansu_intmain(){
         M5.Lcd.setTextSize(1);
         showmozinn2("connnecterd:\n isglobal:" + WSTT[5] + 
         "\nyour local ip:" + WSTT[0]
-         + "\nyour global ip:" + WSTT[1] +
+         + "\nyour gateway ip:" + WSTT[1] +
          "\nyour MAC:" + WSTT[2] +
          "\nyour router MAC:" + WSTT[3] + 
         "\nPrimary DNS:" + WSTT[11] +
@@ -383,7 +384,63 @@ void mainkansu_intmain(){
           M5.Lcd.println(TexNet1(mmmc));
           positpointmax = IntNet1;
           return;
-      }else if(positpoint == 3){//get status
+      }else if(positpoint == 2){//websocket open/close
+        if(!isWebSocketActive){
+          if(!checkWiFiConnection()){
+            kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
+             M5.Lcd.fillScreen(BLACK);
+              positpoint = 0;
+                maxpage = -1;
+                holdpositpoint = 0;
+                imano_page = 0;
+                mainmode = 30;
+                M5.Lcd.setCursor(0, 0);
+                M5.Lcd.setTextSize(3);
+                positpointmax =IntNet;
+                M5.Lcd.println(TexNet);
+              return;
+          }
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setTextSize(3);
+          M5.Lcd.setCursor(0, 0);
+          M5.Lcd.println("Starting WebSocket...");
+          startWebSocket();
+          kanketu("started",400);
+          statustext = "NetStep:2,Internet With Websocket";
+           M5.Lcd.fillScreen(BLACK);
+            positpoint = 0;
+              maxpage = -1;
+              holdpositpoint = 0;
+              imano_page = 0;
+              mainmode = 30;
+              M5.Lcd.setCursor(0, 0);
+              M5.Lcd.setTextSize(3);
+              positpointmax =IntNet;
+              M5.Lcd.println(TexNet);
+            return;
+        }else{
+          if(!checkWiFiConnection()){
+            isWebSocketActive = false;
+            statustext = "NetStep:0,No Internet!";
+              return;
+          }
+          stopWebSocket();
+          kanketu("stopped",400);
+           M5.Lcd.fillScreen(BLACK);
+           statustext = "NetStep:1,Connected to Wifi But no WebSocket";
+            positpoint = 0;
+              maxpage = -1;
+              holdpositpoint = 0;
+              imano_page = 0;
+              mainmode = 30;
+              M5.Lcd.setCursor(0, 0);
+              M5.Lcd.setTextSize(3);
+              positpointmax =IntNet;
+              M5.Lcd.println(TexNet);
+            return;
+        }
+
+
 
       }else if(positpoint == 4){//disconnect
         if(!checkWiFiConnection()){

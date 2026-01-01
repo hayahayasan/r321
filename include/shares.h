@@ -359,6 +359,8 @@ void stopWebSocket();
 void startWebSocket();
 void monitorConnectionLoss();
 extern bool manual_wifi ;
+extern bool isWebSocketActive ;
+void handleWebSocketLoop();
 
 
 
