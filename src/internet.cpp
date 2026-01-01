@@ -12,6 +12,7 @@
 #include <USB.h> 
 #include <WebServer.h>
 #include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 #include <FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
@@ -50,11 +51,12 @@ int scrollXOffsett = M5.Lcd.width(); // 初期位置は画面右外側 (320)
 int counterSC = 4;
 int minic = 0;
 String UU;
-String TexNet = "  S0:GETWIFI\n  S1:LANPORT\n  S2:WEBSOCKET\n  S3:DATA_STATUS\n  S4:DISCONNECT\n  S5:DO_AUTO";
+String TexNet = "  S0:GETWIFI\n  S1:LANPORT\n  S2:WEBSOCKET\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
 int IntNet = 6;
 bool manual_wifi = false;
 bool g_isWorldInternet;
 std::vector<String> WSTT; // 詳細情報を格納するベクター
+
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 bool isWebSocketActive = false; // WebSocketサーバーの稼働状態フラグ
@@ -391,6 +393,11 @@ void collectWSTT() {
     }
 }
 
+
+void sessionMonitorTask(void *pvParameters) {
+    
+}
+
 void disconnectWiFi() {
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("\nDisconnecting WiFi...");
@@ -626,20 +633,46 @@ String getWiFiStatusName(wl_status_t status) {
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
         case WStype_DISCONNECTED:
+            // 切断時（ブラウザを閉じた、通信途絶など）
             Serial.printf("[WS] [%u] Disconnected!\n", num);
             break;
+
         case WStype_CONNECTED:
             {
+                // 接続直後の処理
                 IPAddress ip = webSocket.remoteIP(num);
                 Serial.printf("[WS] [%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
-                webSocket.sendTXT(num, "Connected to M5Stack Server");
+                webSocket.sendTXT(num, "Server Ready");
             }
             break;
+
         case WStype_TEXT:
-            Serial.printf("[WS] [%u] Text: %s\n", num, payload);
+            {
+                String msg = String((char*)payload);
+                // "id:" から始まるメッセージを抽出
+                if (msg.startsWith("id:")) {
+                    String receivedId = msg.substring(3); // "id:" の後の文字列を取得
+                    Serial.printf("[WS] [%u] ID Received: %s\n", num, receivedId.c_str());
+                    
+                    // 応答（任意）
+                    webSocket.sendTXT(num, "ID Registered: " + receivedId);
+                } else {
+                    // それ以外のテキストメッセージ
+                    Serial.printf("[WS] [%u] Text: %s\n", num, payload);
+                }
+            }
             break;
+
         case WStype_ERROR:
             Serial.printf("[WS] [%u] Error!\n", num);
+            break;
+            
+        case WStype_BIN:
+            // バイナリデータは今回無視
+            break;
+            
+        case WStype_PONG:
+        case WStype_PING:
             break;
     }
 }

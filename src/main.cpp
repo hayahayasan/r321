@@ -47,7 +47,7 @@ int holdpositpointx3 = 0;
 int holdimanopagex3 = 0;
 String ascopt[] = {"nameasc","namedesc","dateasc","datedesc","crtdnew","crtdold"};
 String MMName;
-
+std::vector<ClientSession> SessionList;
 #pragma endregion
 
 //配列のNULL代入も作る
@@ -613,7 +613,7 @@ void looe(bool retr){
 }
 
 
-
+SemaphoreHandle_t sessionMutex;
 void setup() {
   
   TEXT_SCROLL_INTERVAL_MS = 40; 
@@ -627,7 +627,7 @@ void setup() {
   statustext = "NetStep:0,No Internet!";
   scrollPos = M5.Lcd.width();
   Serial.println("M5Stack initialized");
-
+  sessionMutex = xSemaphoreCreateMutex();
     Wire.begin(); 
   Wire.setClock(400000);
   
@@ -636,7 +636,15 @@ void setup() {
   btna = false;
   btnc = false;
 
-  
+  xTaskCreateUniversal(
+        sessionMonitorTask,
+        "SessionMonitor",
+        4096,
+        NULL,
+        1,
+        NULL,
+        0 // メインのloop(Core1)とは別のCore0で動かす
+    );
 
   // 文字のサイズと色を設定（小さめで表示）
   M5.Lcd.setTextSize(sizex);

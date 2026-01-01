@@ -169,6 +169,12 @@ struct LineInfo {
     int startIndex; // 行の開始インデックス
     int length;     // 行の文字数（改行文字を除く）
 };
+struct ClientSession {
+    uint8_t num;
+    String ipAddress;
+    String browserInfo;
+    String userId;
+};
 LineInfo getCurrentLineInfo(int index, const String& text);
 CursorPosInfo calculateCursorPixelPos(int index, const String& text);
 LineInfo getPreviousLineInfo(int currentIndex, const String& text) ;
@@ -180,6 +186,8 @@ extern bool nosd;
 extern bool serious_errorsd;
 extern String karadirectname;
 extern int goukei_page;
+extern std::vector<ClientSession> SessionList;
+void sessionMonitorTask(void *pvParameters);
 extern int cursorPixelY;
 extern int scrollpx;
 extern int cursorPixelX;
