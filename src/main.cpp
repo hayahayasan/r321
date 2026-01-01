@@ -677,6 +677,10 @@ mainkansu_intmain();
   M5.update(); // ボタン状態を更新
   
 
+  if(checkWiFiConnection){
+    monitorConnectionLoss();
+  }
+
 if(M5.Touch.getCount() > 1){
   kanketu("Soft Reset Starting...",1000);
   SD.end();

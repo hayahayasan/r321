@@ -52,8 +52,17 @@ int minic = 0;
 String UU;
 String TexNet = "  S0:GETWIFI\n  S1:LANPORT\n  S2:WEBSOCKET\n  S3:DATA_STATUS\n  S4:DISCONNECT\n  S5:DO_AUTO";
 int IntNet = 6;
+bool manual_wifi = false;
 bool g_isWorldInternet;
 std::vector<String> WSTT; // 詳細情報を格納するベクター
+
+WebSocketsServer webSocket = WebSocketsServer(81);
+bool isWebSocketActive = false; // WebSocketサーバーの稼働状態フラグ
+
+
+
+
+
 String TexNet1(MettDataMap mmmc){
     return "  SSID:" + GyakuhenkanTxt(mmmc["table_SSID"]) + "\n  Username:" + GyakuhenkanTxt(mmmc["table_Usrname"] )+ "\n  Password:" + GyakuhenkanTxt(mmmc["table_Pass"]) + "\n  Login\n  Wifi Status\n";
 }
@@ -151,6 +160,7 @@ bool textnetsette(String tablemozi){
         saveMettFile(SD, "/save/save2.mett" ,"TestOpt2", dataToSaveE, loadSuccess);
         if(!loadSuccess){
             kanketu("saved",300);
+            M5.Lcd.setTextSize(1);
              M5.Lcd.fillScreen(BLACK);
             return true;
         }else{
@@ -388,7 +398,7 @@ void disconnectWiFi() {
         WiFi.mode(WIFI_OFF);
         delay(100);
         Serial.println("WiFi Disconnected.");
-        
+        manual_wifi = false;
         WSTT.clear();
         UU = "Disconnected by User";
         showStatus("WiFi Disconnected", YELLOW);
@@ -538,7 +548,7 @@ bool connectToEnterpriseWiFi(String ssid, String id, String pass) {
 
         // 成功表示のために画面クリア
         showStatus("Connected!", GREEN);
-        
+        manual_wifi = true;
         // 収集した情報を表示 (文字サイズを小さくして一覧表示)
         M5.Lcd.setTextSize(1);
         M5.Lcd.println("IP: " + WSTT[0]);
@@ -571,6 +581,32 @@ bool connectToEnterpriseWiFi(String ssid, String id, String pass) {
 
 
 
+void monitorConnectionLoss() {
+    static bool wasConnected = false;
+    bool isConnected = checkWiFiConnection();
+
+    // 以前までオンラインだった状態の上で接続遮断が行われた場合
+    if (wasConnected && !isConnected && !manual_wifi) {
+        Serial.println("\n[ALERT] WiFi Connection Lost physically!");
+        UU = "[Log] Connection Lost";
+        if(manual_wifi){
+            manual_wifi = false;
+        }
+
+
+        // WebSocket閉鎖
+        stopWebSocket();
+        statustext = "NetStep:0,and disConnected by Router!";
+        // M5のWiFi接続を閉じる
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        
+        Serial.println("[System] WiFi & WebSocket Closed.");
+    }
+
+    // 状態更新
+    wasConnected = isConnected;
+}
 
 String getWiFiStatusName(wl_status_t status) {
     switch (status) {
@@ -584,4 +620,56 @@ String getWiFiStatusName(wl_status_t status) {
         case WL_NO_SHIELD:       return "No WiFi Shield";
         default:                 return "Unknown Error (" + String(status) + ")";
     }
+}
+
+
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[WS] [%u] Disconnected!\n", num);
+            break;
+        case WStype_CONNECTED:
+            {
+                IPAddress ip = webSocket.remoteIP(num);
+                Serial.printf("[WS] [%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+                webSocket.sendTXT(num, "Connected to M5Stack Server");
+            }
+            break;
+        case WStype_TEXT:
+            Serial.printf("[WS] [%u] Text: %s\n", num, payload);
+            break;
+        case WStype_ERROR:
+            Serial.printf("[WS] [%u] Error!\n", num);
+            break;
+    }
+}
+
+void startWebSocket() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (isWebSocketActive) return;
+
+    webSocket.begin();
+    webSocket.onEvent(onWebSocketEvent);
+    isWebSocketActive = true;
+    
+    Serial.println("[WS] Server Started on Port 81");
+}
+
+void stopWebSocket() {
+    if (!isWebSocketActive) return;
+
+    webSocket.close();
+    isWebSocketActive = false;
+    
+    Serial.println("[WS] Server Stopped");
+}
+
+void handleWebSocketLoop() {
+    if (isWebSocketActive) {
+        webSocket.loop();
+    }
+}
+
+bool checkWiFiConnection() {
+    return (WiFi.status() == WL_CONNECTED);
 }

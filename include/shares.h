@@ -354,6 +354,11 @@ String getWiFiStatusName(wl_status_t status) ;
 extern std::vector<String> WSTT; 
 void resetto31();
 void disconnectWiFi();
+bool checkWiFiConnection();
+void stopWebSocket();
+void startWebSocket();
+void monitorConnectionLoss();
+extern bool manual_wifi ;
 
 
 

@@ -187,6 +187,7 @@ void mainkansu_intmain(){
             imano_page = 0;
             mainmode = 30;
             M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
        
@@ -197,6 +198,7 @@ void mainkansu_intmain(){
 
       if(positpoint == 0 || positpoint == 1 || positpoint == 2){
         String ssgggg;
+
         if(positpoint == 0){
           ssgggg = "table_SSID";
         }else if(positpoint == 1){
@@ -213,6 +215,7 @@ void mainkansu_intmain(){
             holdpositpoint = 0;
             imano_page = 0;
             mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextSize(3);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
@@ -221,6 +224,13 @@ void mainkansu_intmain(){
             return;
         }
       }else if(positpoint == 3){//接続
+        if(checkWiFiConnection()){
+          kanketu("Already Connection!\n your MAC:" + WiFi.macAddress(),2000);
+          M5.Lcd.setTextSize(1);
+         resetto31();
+
+          return;
+        }
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setCursor(0,0);
         if(!createEE(mmmc,1)){
@@ -240,6 +250,7 @@ void mainkansu_intmain(){
             holdpositpoint = 0;
             imano_page = 0;
             mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextSize(3);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
@@ -250,12 +261,13 @@ void mainkansu_intmain(){
         if(!connectToEnterpriseWiFi(GyakuhenkanTxt(mmmc["table_SSID"]),GyakuhenkanTxt(mmmc["table_Usrname"]),GyakuhenkanTxt(mmmc["table_Pass"]))){
                   M5.Lcd.fillScreen(BLACK);
                   M5.Lcd.setCursor(0,0);
-                  kanketu(UU,1000);
+                  kanketu(UU,2000);
           positpoint = 0;
             maxpage = -1;
             holdpositpoint = 0;
             imano_page = 0;
             mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextSize(3);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
@@ -267,10 +279,11 @@ void mainkansu_intmain(){
         M5.Lcd.setCursor(0,0);
         M5.Lcd.setTextSize(1);
         showmozinn2("connnecterd:\n isglobal:" + WSTT[5] + 
-        "/nyour local ip:" + WSTT[0]
+        "\nyour local ip:" + WSTT[0]
          + "\nyour global ip:" + WSTT[1] +
-         "your MAC:" + WSTT[2] +
-         "your router MAC:" + WSTT[3]);
+         "\nyour MAC:" + WSTT[2] +
+         "\nyour router MAC:" + WSTT[3]);
+         statustext = "NetStep:1,Connected to Wifi But no WebSocket";
          while(true){
           delay(1);
           M5.update();
@@ -283,6 +296,39 @@ void mainkansu_intmain(){
 
           return;
 
+      }else if(positpoint == 4){//ステータス表示
+        if(!checkWiFiConnection()){
+          kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
+          M5.Lcd.setTextSize(1);
+         resetto31();
+
+          return;
+        }
+        M5.Lcd.fillScreen(BLACK);
+        statustext = "NetStep:0,No Internet!";
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.setTextSize(1);
+        showmozinn2("connnecterd:\n isglobal:" + WSTT[5] + 
+        "\nyour local ip:" + WSTT[0]
+         + "\nyour global ip:" + WSTT[1] +
+         "\nyour MAC:" + WSTT[2] +
+         "\nyour router MAC:" + WSTT[3] + 
+        "\nPrimary DNS:" + WSTT[11] +
+      "\nSecondary DNS:" + WSTT[12] +
+       "\nWifi Type:" + WSTT[18] +
+       "\nHost Name:" + WSTT[14] +
+       "\nBroadcast IP:" + WSTT[15] );
+         while(true){
+          delay(1);
+          M5.update();
+          if(M5.BtnB.wasPressed()){
+            break;
+          }
+         }
+         M5.Lcd.setTextSize(1);
+         resetto31();
+
+          return;
       }
     }
   }
@@ -336,6 +382,40 @@ void mainkansu_intmain(){
           M5.Lcd.setTextSize(1);
           M5.Lcd.println(TexNet1(mmmc));
           positpointmax = IntNet1;
+          return;
+      }else if(positpoint == 3){//get status
+
+      }else if(positpoint == 4){//disconnect
+        if(!checkWiFiConnection()){
+          kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
+           M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+        }
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.println("Disconnecting...");
+        disconnectWiFi();
+        kanketu("Disconnected!\n your MAC:" + WiFi.macAddress(),2000);
+         M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
           return;
       }
 
@@ -1864,6 +1944,7 @@ if(sse == "E"){
        M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
        M5.Lcd.setCursor(0, 0);
         mainmode = 30;
+        
         M5.Lcd.setTextSize(3);
         M5.Lcd.println(TexNet);
         positpoint = 0;
