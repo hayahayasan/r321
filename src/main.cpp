@@ -636,15 +636,6 @@ void setup() {
   btna = false;
   btnc = false;
 
-  xTaskCreateUniversal(
-        sessionMonitorTask,
-        "SessionMonitor",
-        4096,
-        NULL,
-        1,
-        NULL,
-        0 // メインのloop(Core1)とは別のCore0で動かす
-    );
 
   // 文字のサイズと色を設定（小さめで表示）
   M5.Lcd.setTextSize(sizex);

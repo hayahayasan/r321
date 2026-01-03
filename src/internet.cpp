@@ -12,7 +12,6 @@
 #include <USB.h> 
 #include <WebServer.h>
 #include <WebSocketsServer.h>
-#include <ArduinoJson.h>
 #include <FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
@@ -28,6 +27,7 @@
 #include <esp_wpa2.h>
 #include <lwip/etharp.h>
 
+#include <algorithm>
 // Direct inclusion of ESP-IDF headers for low-level WiFi operations
 extern "C" {
   #include "esp_system.h"
@@ -60,10 +60,21 @@ std::vector<String> WSTT; // 詳細情報を格納するベクター
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 bool isWebSocketActive = false; // WebSocketサーバーの稼働状態フラグ
+// セッションリスト (接続中のユーザーを管理)
+
+// セッション管理用マップ
+// 1. メイン管理マップ: Key=ユーザーID, Value=詳細情報(IP, 時刻, デバイス名など)
+std::map<String, String> sessionMap;
+
+// 2. 逆引き用マップ: Key=接続番号(num), Value=ユーザーID
+// ※ 切断イベント(numしか分からない)時に、素早くユーザーIDを特定して削除するために使用
+std::map<uint8_t, String> clientLookup;
 
 
-
-
+String getTimestampStr() {
+    // もしNTP同期していれば getLocalTime を使えますが、ここでは稼働時間を使用
+    return String(millis() / 1000) + "s";
+}
 
 String TexNet1(MettDataMap mmmc){
     return "  SSID:" + GyakuhenkanTxt(mmmc["table_SSID"]) + "\n  Username:" + GyakuhenkanTxt(mmmc["table_Usrname"] )+ "\n  Password:" + GyakuhenkanTxt(mmmc["table_Pass"]) + "\n  Login\n  Wifi Status\n";
@@ -630,11 +641,69 @@ String getWiFiStatusName(wl_status_t status) {
 }
 
 
+void removeSession(uint8_t num) {
+    // クライアント番号からユーザーIDを特定
+    if (clientLookup.count(num)) {
+        String userId = clientLookup[num];
+        
+        // メインマップから削除
+        if (sessionMap.count(userId)) {
+            String details = sessionMap[userId];
+            Serial.printf("[Session] Closed & Removed: ID=%s [%s]\n", userId.c_str(), details.c_str());
+            sessionMap.erase(userId);
+        }
+        
+        // 逆引きマップからも削除
+        clientLookup.erase(num);
+        
+        Serial.printf("[Session] Current Active Users: %d\n", sessionMap.size());
+    } else {
+        // ID登録前に切断された場合など
+        Serial.printf("[Session] Client [%u] disconnected (No ID registered)\n", num);
+    }
+}
+
+/**
+ * 新しいセッションをマップに登録する関数
+ * "id:..." メッセージ受信時に呼び出されます
+ */
+void registerSession(uint8_t num, String userId) {
+    // 以前のIDがあれば削除（ID変更のケース）
+    if (clientLookup.count(num)) {
+        String oldId = clientLookup[num];
+        if (oldId != userId) {
+            sessionMap.erase(oldId);
+        }
+    }
+
+    // 逆引きマップを更新
+    clientLookup[num] = userId;
+
+    // 詳細情報の構築
+    String ip = webSocket.remoteIP(num).toString();
+    String timeStr = getTimestampStr();
+    String deviceName = "Web Browser"; // 必要に応じて拡張可能
+    
+    // 値として詳細情報を文字列で結合
+    String details = "IP:" + ip + ", ConnectAt:" + timeStr + ", Device:" + deviceName;
+
+    // メインマップに登録
+    sessionMap[userId] = details;
+    
+    Serial.printf("[Session] Registered: ID=%s\n", userId.c_str());
+    Serial.printf("          Details: %s\n", details.c_str());
+    Serial.printf("[Session] Current Active Users: %d\n", sessionMap.size());
+}
+
+/**
+ * WebSocket イベントハンドラ
+ */
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
         case WStype_DISCONNECTED:
-            // 切断時（ブラウザを閉じた、通信途絶など）
+            // 切断時: マップから削除処理を実行
             Serial.printf("[WS] [%u] Disconnected!\n", num);
+            removeSession(num);
             break;
 
         case WStype_CONNECTED:
@@ -642,20 +711,24 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
                 // 接続直後の処理
                 IPAddress ip = webSocket.remoteIP(num);
                 Serial.printf("[WS] [%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
-                webSocket.sendTXT(num, "Server Ready");
+                webSocket.sendTXT(num, "Server Ready. Please send 'id:YOUR_ID'");
             }
             break;
 
         case WStype_TEXT:
             {
                 String msg = String((char*)payload);
-                // "id:" から始まるメッセージを抽出
+                // "id:" から始まるメッセージを抽出してセッション登録
                 if (msg.startsWith("id:")) {
                     String receivedId = msg.substring(3); // "id:" の後の文字列を取得
-                    Serial.printf("[WS] [%u] ID Received: %s\n", num, receivedId.c_str());
+                    receivedId.trim();
                     
-                    // 応答（任意）
-                    webSocket.sendTXT(num, "ID Registered: " + receivedId);
+                    if (receivedId.length() > 0) {
+                        // セッション登録関数を呼び出し
+                        registerSession(num, receivedId);
+                        // 応答
+                        webSocket.sendTXT(num, "ID Registered: " + receivedId);
+                    }
                 } else {
                     // それ以外のテキストメッセージ
                     Serial.printf("[WS] [%u] Text: %s\n", num, payload);
@@ -668,7 +741,6 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
             break;
             
         case WStype_BIN:
-            // バイナリデータは今回無視
             break;
             
         case WStype_PONG:
@@ -705,4 +777,57 @@ void handleWebSocketLoop() {
 
 bool checkWiFiConnection() {
     return (WiFi.status() == WL_CONNECTED);
+}
+
+void updateSessionDisplay() {
+    static unsigned long lastUpdate = 0;
+    // 1秒ごとに画面を更新（頻繁な描画によるチラつき防止）
+    if (millis() - lastUpdate < 1000) return;
+    lastUpdate = millis();
+
+    M5.Lcd.startWrite(); // 描画開始
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextSize(1);
+    M5.Lcd.setTextColor(WHITE, BLACK);
+
+    M5.Lcd.println("=== Active Sessions List ===");
+
+    int count = 0;
+    const int max_display = 20;
+
+    // sessionMap (userId -> ipAddress) をループ
+    for (auto const& [userId, ipAddress] : sessionMap) {
+        if (count >= max_display) break;
+
+        // clientLookup (num -> userId) から逆引きして num を取得
+        String clientNumStr = "??"; // 見つからない場合のデフォルト
+        for (auto const& [num, cUserId] : clientLookup) {
+            if (cUserId == userId) {
+                clientNumStr = String(num);
+                break; 
+            }
+        }
+
+        // 1行に収まるようにフォーマットして表示
+        // 例: 1. [#5] IP:192.168.1.5 (ID:user123)
+        M5.Lcd.printf("%d. [#%s] %s (ID:%s)\n", 
+                      count + 1, 
+                      clientNumStr.c_str(), 
+                      ipAddress.c_str(), 
+                      userId.c_str());
+        count++;
+    }
+
+    if (count == 0) {
+        M5.Lcd.println("No Active Sessions.");
+    }
+
+    // 画面最下部に合計数を表示
+    int bottomY = M5.Lcd.height() - 15;
+    M5.Lcd.setCursor(0, bottomY);
+    M5.Lcd.setTextColor(YELLOW, BLACK); // 合計数は黄色で強調
+    M5.Lcd.printf("Total Sessions: %d", sessionMap.size());
+    
+    M5.Lcd.endWrite(); // 描画終了
 }

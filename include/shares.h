@@ -193,6 +193,8 @@ extern int scrollpx;
 extern int cursorPixelX;
 extern String SuperT;
 extern bool otroot;
+extern std::map<String, String> sessionMap;
+extern std::map<uint8_t, String> clientLookup;
 extern int cursorIndex;
 extern int offsetX;
 extern int offsetY;
@@ -369,7 +371,7 @@ void monitorConnectionLoss();
 extern bool manual_wifi ;
 extern bool isWebSocketActive ;
 void handleWebSocketLoop();
-
+void updateSessionDisplay() ;
 
 
 

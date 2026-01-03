@@ -167,10 +167,32 @@ bool showAngleBrackets = true;
 
 void mainkansu_intmain(){
   delay(1);
+  
 handleWebSocketLoop();
-  if(mainmode == 31){
+if(mainmode == 32){
+  updateSessionDisplay();
+  if(M5.BtnB.wasPressed()){
+    positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+       
+        
+            return;
+  }
+  if(M5.BtnB.wasPressed()){
+    
+  }
+}
+ else if(mainmode == 31){
     updatePointer2(1);
-    M5.update();
+    
       
       if(pagemoveflag == 1){
       pagemoveflag = 0;
@@ -217,7 +239,7 @@ handleWebSocketLoop();
             imano_page = 0;
             mainmode = 30;
             M5.Lcd.setCursor(0, 0);
-            M5.Lcd.setTextSize(3);
+            M5.Lcd.setTextSize(1);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
        
@@ -474,6 +496,26 @@ handleWebSocketLoop();
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
           return;
+      }else if(positpoint == 3){//session list
+        if(!checkWiFiConnection()){
+          kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
+           M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+        }
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        mainmode = 32;
+        return;
+       
       }
 
     }
