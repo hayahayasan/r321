@@ -7400,13 +7400,27 @@ bool datt(String opthensuname,String setname,MettDataMap& datass){
   Serial.println("fff" + getMettVariableValue(datass,opthensuname) );
   if(getMettVariableValue(datass,opthensuname) == ""){
       datass[opthensuname] = setname;
-      Serial.println("ddf" + datass[opthensuname]);
+    
       return true;
   }else{
     Serial.println("ggge:" + getMettVariableValue(datass,opthensuname));
   }
   return false;
 }
+bool datt2(String opthensuname,MettDataMap& datass){
+  Serial.println("fff" + getMettVariableValue(datass,opthensuname) );
+  if(getMettVariableValue(datass,opthensuname) == ""){
+   
+      
+      return true;
+  }else{
+    Serial.println("ggge:" + getMettVariableValue(datass,opthensuname));
+  }
+  return false;
+}
+
+
+
 
 
 void createjj(){

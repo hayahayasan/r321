@@ -24,6 +24,7 @@
 const String METT_TABLE_NAME_KEY = "table_name"; 
 const int METT_CHUNK_SIZE = 1024;
 const int MAX_STRING_LENGTH = 65535; 
+String MMX;
 const int CURSOR_BLINK_INTERVAL = 10; // カーソル点滅のフレーム間隔
 MettDataMap mmmc;
 String sitagar[10] = {"Net Status","Wifi","FLASHBrowser","SDBrowser","Configs","Options","SD Eject/Format","User Management","Log","Help/About"};
@@ -169,7 +170,55 @@ void mainkansu_intmain(){
   delay(1);
   
 handleWebSocketLoop();
-if(mainmode == 35){
+if(mainmode == 37){
+  int yy = sessionSelectAndSendNonBlocking(SuperT,"Select Session to Discon:");
+  if(yy != -99){
+    Serial.println("yyy" + String(yy));
+    if(yy == -2)//back
+      {
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+            M5.Lcd.println(TexNet2);
+            positpoint = 0;
+            mainmode  = 33;
+            return;
+
+      }else if(yy > -2){
+        M5.Lcd.setCursor(0, 0);
+        mainmode  = 33;
+            bool ii = forceDisconnectClient(yy);
+            if(!ii){
+              Serial.println("Disconnect Failed!");
+            }
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setTextSize(3);
+      positpointmax =IntNet2;
+            M5.Lcd.println(TexNet2);
+            positpoint = 0;
+            return;
+      }
+  }
+}
+else if(mainmode == 36){
+  updateMailDisplay2(GyakuhenkanTxt(MMX));
+  if(M5.BtnB.wasPressed()){
+    M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+      
+            M5.Lcd.println(TexNet2);
+            mainmode  = 33;
+            return;
+  }
+}
+else if(mainmode == 35){
   updateMailDisplay(MailRList);
   if(M5.BtnB.wasPressed()){
     M5.Lcd.setTextSize(3);
@@ -209,8 +258,8 @@ else if(mainmode == 34){
             return;
     }
   }else if(sendmode == 1){
-    int yy = sessionSelectAndSendNonBlocking(SuperT);
-    if(yy != 99){
+    int yy = sessionSelectAndSendNonBlocking(SuperT,"Select Session to Send:");
+    if(yy != -99){
       if(yy == -2)//back
       {
         M5.Lcd.setTextSize(3);
@@ -225,21 +274,15 @@ else if(mainmode == 34){
 
       }else if(yy > -2){//all
         M5.Lcd.setCursor(0, 0);
-            M5.Lcd.setTextColor(WHITE);
-            M5.Lcd.fillScreen(BLACK);
-            M5.Lcd.println("Sending to ...");
-            if(!sendMessageByNum(String(yy), SuperT)){
-              kanketu("failed!",1000);
-              
-            } else{
-              kanketu("succeed sent!",1000);
-            }
+        mainmode  = 33;
+            sendToWorkerTask(TASK_DATA_SOME, yy,"all", SuperT);
             M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextColor(WHITE);
             M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setTextSize(3);
       positpointmax =IntNet2;
             M5.Lcd.println(TexNet2);
-            mainmode  = 33;
+            
             return;
       }
     }
@@ -288,8 +331,39 @@ else if(mainmode == 33){
        
         
             return;
-      }
+      }else if(positpoint ==2){// all userid
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        positpoint = 0;
+        mainmode = 36;
+        bool ss = false;
+    bool tt = false;
+    std::vector<MettVariableInfo> loadedVariablesE;
+    loadMettFile(SD,"/save/save3.mett","testsus2",tt,ss,loadedVariablesE);
+    MettDataMap dataToloadEE = copyVectorToMap(loadedVariablesE);
+    if(!tt){
+      Serial.println("Load Error!");
+        maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
     }
+    MMX = dataToloadEE["txd2list"];
+    return;
+    }else if(positpoint == 3){//force exit
+      
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setCursor(0,0);
+      mainmode = 37;
+      
+      return;
+    }
+  }
 }
 if(mainmode == 32){
   updateSessionDisplay();

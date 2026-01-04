@@ -181,8 +181,11 @@ extern QueueHandle_t processingQueue;
 enum TaskType {
     TASK_DATA_LOAD,
     TASK_DATA_SAVE,
-    TASK_DATA_SEND_OTHER, // 追加
-    TASK_DATA_SAMPLE      // 追加
+    TASK_DATA_SEND_OTHER,
+    TASK_DATA_SAMPLE,
+    TASK_DATA_PING,      // 追加
+    TASK_DATA_LIST,
+    TASK_DATA_SOME
 };
 
 // キューに送るメッセージ構造体
@@ -392,7 +395,7 @@ void handleWebSocketLoop();
 void updateSessionDisplay() ;
 extern int SessionSized;
 bool sendMessageByNum(String numStr, String message);
-int sessionSelectAndSendNonBlocking(String Txxxtsosin);
+int sessionSelectAndSendNonBlocking(String Txxxtsosin,String annnai);
 extern String TexNet2;
 extern int IntNet2;
 void ReceiveWebM(uint8_t num, String content,String RTCDate) ;
@@ -407,5 +410,10 @@ void backgroundProcessingTask(void *pvParameters);
 void sendToWorkerTask(TaskType type, int num, String data1 = "", String data2 = "");
 void thedatasendother(int nummm,String user1,String user2);
 void thedatasample(int nummm);
-
+void thedataping(int nummm);
+int getClientNumByUserId(String userId);
+bool datt2(String opthensuname,MettDataMap& datass);
+void updateMailDisplay2(const String& MailText);
+void thedatasomething(int nummm,String isall,String textf);
+bool forceDisconnectClient(int nummm);
 #endif // SHARED

@@ -83,7 +83,7 @@ void setup() {
   statustext = "NetStep:0,No Internet!";
   scrollPos = M5.Lcd.width();
   Serial.println("M5Stack initialized");
-processingQueue = xQueueCreate(10, sizeof(TaskMessage));
+processingQueue = xQueueCreate(1000, sizeof(TaskMessage));
     
     if (processingQueue == NULL) {
         Serial.println("Failed to create queue");
@@ -146,8 +146,7 @@ processingQueue = xQueueCreate(10, sizeof(TaskMessage));
 
 void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableName, const MettDataMap& data, bool& isError) {
     isError = false;
-    
-    // --- 1. 全テーブルの構造を保持するためのデータ構造 ---
+
     struct TableData {
         String name;
         std::vector<MettVariableInfo> variables;
@@ -156,58 +155,71 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
     std::vector<TableData> allTables;
     bool foundTargetTable = false;
 
-    // --- 2. 既存ファイルの読み込みと解析 ---
+    // --- 2. 既存ファイルの読み込み ---
     if (fs.exists(fullFilePath.c_str())) {
         File file = fs.open(fullFilePath.c_str(), FILE_READ);
         if (file) {
             TableData* currentTable = nullptr;
+            
+            Serial.printf("Debug (Save): Reading existing file %s...\n", fullFilePath.c_str());
 
             while (file.available()) {
                 String line = file.readStringUntil('\n');
                 String trimmed = line;
                 trimmed.trim();
 
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+                if (trimmed.isEmpty()) continue;
 
+                // 【修正箇所】判定順序を変更。### を先にチェックする。
                 if (trimmed.startsWith("### METT_TABLE_ID ###")) {
-                    // 新しいテーブルセクションの開始
                     allTables.emplace_back();
                     currentTable = &allTables.back();
+                    // Serial.println("Debug (Save): Found new table section.");
                     continue;
                 }
 
-                if (trimmed.startsWith("TABLE_NAME:") && currentTable) {
-                    currentTable->name = trimmed.substring(11); // "TABLE_NAME:" 以降
+                // その他の # で始まる行はコメントとして無視
+                if (trimmed.startsWith("#")) continue;
+
+                if (!currentTable) continue; 
+
+                if (trimmed.startsWith("TABLE_NAME:")) {
+                    currentTable->name = trimmed.substring(11); 
                     currentTable->name.trim();
+                    Serial.printf("Debug (Save): Found table '%s'\n", currentTable->name.c_str());
                     continue;
                 }
-
-                if (!currentTable) continue; // テーブル外のデータは無視
 
                 if (trimmed.startsWith("HENSU_OPTIONS:")) {
                     currentTable->optionsLines.push_back(line);
                 } else {
-                    // 変数行の解析 (Name:ID:Value)
+                    // 変数行の解析
                     int firstColon = trimmed.indexOf(':');
-                    int secondColon = trimmed.indexOf(':', firstColon + 1);
-                    if (firstColon > 0 && secondColon > firstColon) {
-                        MettVariableInfo var;
-                        var.variableName = trimmed.substring(0, firstColon);
-                        var.dataType = trimmed.substring(firstColon + 1, secondColon);
-                        var.valueString = trimmed.substring(secondColon + 1);
-                        currentTable->variables.push_back(var);
+                    if (firstColon > 0) {
+                        int secondColon = trimmed.indexOf(':', firstColon + 1);
+                        if (secondColon > firstColon) {
+                            MettVariableInfo var;
+                            var.variableName = trimmed.substring(0, firstColon);
+                            var.dataType = trimmed.substring(firstColon + 1, secondColon);
+                            var.valueString = trimmed.substring(secondColon + 1);
+                            currentTable->variables.push_back(var);
+                        }
                     }
                 }
             }
             file.close();
         }
+    } else {
+        Serial.println("Debug (Save): New file creation.");
     }
 
     // --- 3. メモリ上でのデータマージ ---
-    // 指定されたテーブルが既存かチェックし、なければ作成
     TableData* target = nullptr;
+    String targetNameClean = tableName;
+    targetNameClean.trim();
+
     for (auto& t : allTables) {
-        if (t.name == tableName) {
+        if (t.name == targetNameClean) {
             target = &t;
             foundTargetTable = true;
             break;
@@ -217,10 +229,13 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
     if (!target) {
         allTables.emplace_back();
         target = &allTables.back();
-        target->name = tableName;
+        target->name = targetNameClean;
+        Serial.printf("Debug (Save): Creating new table '%s' in memory.\n", targetNameClean.c_str());
+    } else {
+        Serial.printf("Debug (Save): Updating existing table '%s'.\n", targetNameClean.c_str());
     }
 
-    // 渡された新データ(MettDataMap)で更新・追加
+    // データ更新・追加
     for (const auto& pair : data) {
         const String& newVarName = pair.first;
         const String& newValue = pair.second;
@@ -235,15 +250,21 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         }
 
         if (!exists) {
-            // 新規変数の追加
             MettVariableInfo newVar;
             newVar.variableName = newVarName;
-            newVar.dataType = ""; // 保存時にIDが必要ならデフォルト値を検討
+            newVar.dataType = ""; 
             newVar.valueString = newValue;
             target->variables.push_back(newVar);
-            
-            // オプション行も初期状態で追加
-            target->optionsLines.push_back("HENSU_OPTIONS:" + newVarName + ":");
+
+            // オプション行の重複チェックと追加
+            String newOptPrefix = "HENSU_OPTIONS:" + newVarName + ":";
+            bool optExists = false;
+            for(const auto& opt : target->optionsLines) {
+                if(opt.startsWith(newOptPrefix)) { optExists = true; break; }
+            }
+            if(!optExists) {
+                target->optionsLines.push_back("HENSU_OPTIONS:" + newVarName + ":");
+            }
         }
     }
 
@@ -255,28 +276,27 @@ void saveMettFile(fs::FS &fs, const String& fullFilePath, const String& tableNam
         return;
     }
 
+    Serial.printf("Debug (Save): Writing %d tables to file.\n", allTables.size());
+
     for (const auto& t : allTables) {
         file.println("### METT_TABLE_ID ###");
         file.println("TABLE_NAME:" + t.name);
         
-        // 変数行の書き出し
         for (const auto& v : t.variables) {
             file.printf("%s:%s:%s\n", v.variableName.c_str(), v.dataType.c_str(), v.valueString.c_str());
         }
         
-        // オプション行の書き出し
         for (const auto& opt : t.optionsLines) {
-            String o = opt; o.trim();
+            String o = opt; 
+            o.trim();
             if (!o.isEmpty()) file.println(o);
         }
-        // テーブル間の区切り改行（任意）
-        // file.println(); 
+        file.println(); // 可読性のためテーブル間に空行を入れる（読み込みロジックは空行無視に対応済み）
     }
 
     file.close();
-    Serial.printf("Info (Save): Success. Table '%s' %s.\n", tableName.c_str(), foundTargetTable ? "updated" : "added");
+    Serial.println("Info (Save): Save completed.");
 }
-
 
 void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTableName, bool& success, bool& isEmpty, std::vector<MettVariableInfo>& variables) {
     variables.clear();
@@ -285,7 +305,7 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
 
     if (!fs.exists(fullFilePath.c_str())) {
         Serial.printf("Info (Load): File does not exist: %s\n", fullFilePath.c_str());
-        success = true; // ファイルがないことは「読み込み処理」としては正常終了
+        success = true; // ファイルがない＝空として正常
         return;
     }
     
@@ -306,30 +326,26 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
     bool inTableContext = false; 
     bool foundFirstContent = false; 
 
+    // 検索対象のテーブル名も空白除去して正規化しておく（重要）
+    String targetNameClean = targetTableName;
+    targetNameClean.trim();
+
     while (file.available()) {
         String line = file.readStringUntil('\n');
-        String originalLine = line; 
-        line.trim();
+        line.trim(); // 行の前後の空白を除去（\r も消える）
 
-        // 空行やコメントを飛ばす（最初にこれを行うことで、無駄な処理を減らす）
         if (line.isEmpty() || line.startsWith("#")) {
-            continue;
-        }
-
-        // --- 最初の意味のある行を探すフェーズ ---
-        if (!foundFirstContent) {
-            if (line.startsWith("### METT_TABLE_ID ###") || line.startsWith("TABLE_NAME:")) {
-                foundFirstContent = true;
-                // ここで continue せず、下の解析ロジックに流すことで
-                // 最初の TABLE_NAME: 行を確実にキャッチする
-            } else {
-                // ヘッダー等の未知の行は読み飛ばす
-                continue; 
+            // "### METT_TABLE_ID ###" は "#" で始まるためここで弾かれないよう注意が必要だが、
+            // 元コードでは "#" チェックが先にあるため、セクション区切り行がコメント扱いされて無視される可能性がある
+            // 修正: セクション区切りは特別扱いする
+            if (!line.startsWith("### METT_TABLE_ID ###")) {
+                 continue;
             }
         }
 
-        // --- 解析メインロジック ---
+        // --- セクション開始/切り替え判定 ---
         if (line.startsWith("### METT_TABLE_ID ###")) {
+            foundFirstContent = true;
             currentTableNameInFile = "";
             shouldLoadCurrentTable = false; 
             inTableContext = false; 
@@ -337,36 +353,64 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
         }
         
         if (line.startsWith("TABLE_NAME:")) {
+            foundFirstContent = true;
             inTableContext = true; 
-            int colonIndex = line.indexOf(':');
-            currentTableNameInFile = (colonIndex != -1) ? line.substring(colonIndex + 1) : "";
-            currentTableNameInFile.trim();
-            shouldLoadCurrentTable = (targetTableName == currentTableNameInFile);
+            
+            // テーブル名抽出処理
+            // "TABLE_NAME:" (11文字) 以降を取得
+            if (line.length() > 11) {
+                currentTableNameInFile = line.substring(11);
+            } else {
+                currentTableNameInFile = "";
+            }
+            currentTableNameInFile.trim(); // ファイル内の名前もトリム
+
+            // 比較（完全一致）
+            shouldLoadCurrentTable = (targetNameClean == currentTableNameInFile);
             
             if (shouldLoadCurrentTable) {
-                Serial.printf("Debug (Load): Found target table '%s'\n", currentTableNameInFile.c_str());
+                // Serial.printf("Debug (Load): Found target table '%s'\n", currentTableNameInFile.c_str());
             }
             continue;
         }
 
-        if (line.startsWith("HENSU_OPTIONS:")) {
-            continue;
-        }
+        // --- 変数読み込みフェーズ ---
+        // まだ最初のセクションにも到達していないなら何もしない
+        if (!foundFirstContent) continue;
 
-        // 変数行の解析
-        if (inTableContext && shouldLoadCurrentTable) {
-            int firstColon = line.indexOf(':');
+        // 対象テーブルでない、またはオプション行ならスキップ
+        if (!inTableContext || !shouldLoadCurrentTable) continue;
+        if (line.startsWith("HENSU_OPTIONS:")) continue;
+
+        // 変数解析 (Name:DataType:Value)
+        int firstColon = line.indexOf(':');
+        
+        // 変数名があり、かつ区切り文字が存在する場合
+        if (firstColon > 0) {
             int secondColon = line.indexOf(':', firstColon + 1);
             
-            if (firstColon > 0 && secondColon > firstColon) {
+            if (secondColon > firstColon) {
                 MettVariableInfo varInfo;
                 varInfo.variableName = line.substring(0, firstColon);
+                varInfo.variableName.trim(); // 変数名の余分な空白を除去
+
                 varInfo.dataType = line.substring(firstColon + 1, secondColon);
-                varInfo.valueString = line.substring(secondColon + 1);
-                varInfo.tableName = currentTableNameInFile;
-                varInfo.id1 = varInfo.dataType.toInt();
+                // 型情報はトリムしないほうが安全（ID等の場合）、または必要に応じてトリム
                 
-                // 他のIDやフィールドの初期化
+                varInfo.valueString = line.substring(secondColon + 1);
+                // 値のトリムは仕様によるが、line.trim()で行全体がトリムされているため、
+                // 末尾の空白は既に消えていることに注意。
+
+                varInfo.tableName = currentTableNameInFile;
+                
+                // 型変換の安全策
+                if (varInfo.dataType.length() > 0) {
+                    varInfo.id1 = varInfo.dataType.toInt();
+                } else {
+                    varInfo.id1 = 0; // 空の場合は0（または適切なデフォルト値）
+                }
+                
+                // 初期化
                 varInfo.id2 = 0; varInfo.id3 = 0; varInfo.id4 = 0;
                 
                 variables.push_back(varInfo);
@@ -376,17 +420,13 @@ void loadMettFile(fs::FS &fs, const String& fullFilePath, const String& targetTa
 
     file.close();
 
-    // 最終的な状態確定
+    // 読み込み結果の判定
     if (foundFirstContent) {
         success = true;
         isEmpty = variables.empty();
-        if (isEmpty) {
-            Serial.println("Info (Load): Table found but it was empty or no variables matched.");
-        }
     } else {
-        // 有効なマーカーが一つも見つからなかった場合のみ警告
-        Serial.printf("Warning (Load): No valid METT structure found in %s\n", fullFilePath.c_str());
-        success = true; // 構文エラーであっても実行継続は可能とする
+        // 有効なデータ構造が一つもなかった場合
+        success = true; // エラーにはしない
         isEmpty = true;
     }
 }

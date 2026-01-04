@@ -3,7 +3,7 @@ import { Terminal, Send, Wifi, WifiOff, UserPlus, Fingerprint, AlertCircle, Arro
 
 /**
  * M5Stack WebSocket Client App
- * - WebSocket接続 (Port 81)
+ * - WebSocket接続 (Port 80)
  * - タブの多重起動防止機能
  * - ログ表示 (最新50件)
  * - ファイル受信機能 (バイナリ受信対応)
@@ -83,7 +83,7 @@ export default function App() {
     if (socketRef.current) socketRef.current.close();
     if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
 
-    const url = `ws://${m5Ip}:81`;
+    const url = `ws://${m5Ip}:80`;
     addLog('System', `Attempting to connect to ${url}...`);
     
     try {
@@ -114,7 +114,15 @@ export default function App() {
           // 最終受信時刻からの経過時間をチェック
           if (Date.now() - lastMessageTimeRef.current > CONNECTION_TIMEOUT) {
             addLog('Error', 'Connection timed out (no response). Disconnecting...');
+            
+            // 強制的に切断処理を行う
             socket.close();
+            setStatus('disconnected');
+            
+            if (heartbeatTimerRef.current) {
+              clearInterval(heartbeatTimerRef.current);
+              heartbeatTimerRef.current = null;
+            }
           }
         }, HEARTBEAT_INTERVAL);
       };
@@ -156,7 +164,7 @@ export default function App() {
             }
           }
           else {
-            addLog('M5Stack', data);
+            addLog('M5', data); // 送信者名を 'M5' に設定
           }
         }
       };
@@ -178,7 +186,7 @@ export default function App() {
 
       socket.onerror = (error) => {
         setStatus('error');
-        addLog('Error', 'WebSocket connection failed. Check IP address and Port 81.');
+        addLog('Error', 'WebSocket connection failed. Check IP address and Port 80.');
       };
 
       socketRef.current = socket;
@@ -297,7 +305,7 @@ export default function App() {
               <h1 className="text-2xl font-bold flex items-center gap-2 text-blue-400">
                 <Wifi size={28} /> M5Stack Console
               </h1>
-              <p className="text-slate-400 text-sm mt-1">WebSocket Controller (Port 81)</p>
+              <p className="text-slate-400 text-sm mt-1">WebSocket Controller (Port 80)</p>
             </div>
             
             <div className="flex items-center gap-2">
@@ -451,7 +459,7 @@ export default function App() {
                 <div key={msg.id} className="flex gap-2 animate-in fade-in slide-in-from-top-2 duration-200 border-b border-slate-800/30 pb-1 last:border-0">
                   <span className="text-slate-500 shrink-0">[{msg.time}]</span>
                   <span className={`font-bold shrink-0 ${
-                    msg.sender === 'M5Stack' ? 'text-green-400' : 
+                    msg.sender === 'M5' ? 'text-green-400' : 
                     msg.sender === 'You' ? 'text-blue-400' : 
                     msg.sender === 'System' ? 'text-indigo-400' : 
                     msg.sender === 'Error' ? 'text-red-400' : 'text-amber-400'
