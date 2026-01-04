@@ -123,7 +123,7 @@ String joinVectorToString(const std::vector<T>& vec) ;
 String joinStringVectorToString(const std::vector<String>& vec);
 String inferDataType(const String& valueString) ;
 bool containsInvalidTableNameChars(const String& name);
-bool datt(String opthensuname,String setname);
+bool datt(String opthensuname,String setname,MettDataMap& datass);
 const int SD_CS_PIN = 4;
 extern MettDataMap dataToSaveE;
 int areubunki2(String texta,String textb,String textc);
@@ -175,6 +175,24 @@ struct ClientSession {
     String browserInfo;
     String userId;
 };
+
+extern QueueHandle_t processingQueue;
+// キューに送るメッセージ構造体
+enum TaskType {
+    TASK_DATA_LOAD,
+    TASK_DATA_SAVE,
+    TASK_DATA_SEND_OTHER, // 追加
+    TASK_DATA_SAMPLE      // 追加
+};
+
+// キューに送るメッセージ構造体
+struct TaskMessage {
+    TaskType type;       // 処理の種類
+    int clientNum;       // クライアント番号
+    char* dataPayload;   // データ文字列1 (ポインタで渡す)
+    char* dataPayload2;  // データ文字列2 (追加: ポインタで渡す)
+};
+
 LineInfo getCurrentLineInfo(int index, const String& text);
 CursorPosInfo calculateCursorPixelPos(int index, const String& text);
 LineInfo getPreviousLineInfo(int currentIndex, const String& text) ;
@@ -372,16 +390,22 @@ extern bool manual_wifi ;
 extern bool isWebSocketActive ;
 void handleWebSocketLoop();
 void updateSessionDisplay() ;
-
-
-
-
-
-
-
-
-
-
-
+extern int SessionSized;
+bool sendMessageByNum(String numStr, String message);
+int sessionSelectAndSendNonBlocking(String Txxxtsosin);
+extern String TexNet2;
+extern int IntNet2;
+void ReceiveWebM(uint8_t num, String content,String RTCDate) ;
+void updateMailDisplay(const std::vector<String>& MailRList);
+extern std::vector<String> MailRList;
+extern bool isshokai;
+void checkidandsave2(int sendbynum);
+void checkidandsave1(int sendbynum);
+void thedataload(int nummm);
+void thedatasave(int nummm);
+void backgroundProcessingTask(void *pvParameters);
+void sendToWorkerTask(TaskType type, int num, String data1 = "", String data2 = "");
+void thedatasendother(int nummm,String user1,String user2);
+void thedatasample(int nummm);
 
 #endif // SHARED

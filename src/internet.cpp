@@ -53,14 +53,27 @@ int minic = 0;
 String UU;
 String TexNet = "  S0:GETWIFI\n  S1:LANPORT\n  S2:WEBSOCKET\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
 int IntNet = 6;
+String TexNet2 = "  Send Text\n  Receive Text\n  All UserID LIST\n  UserText List";
+int IntNet2 = 4;
 bool manual_wifi = false;
 bool g_isWorldInternet;
 std::vector<String> WSTT; // 詳細情報を格納するベクター
+int SessionSized = 0;
+bool isshokai = false;
+// 状態管理用のグローバル変数
+int g_lastListSize = -1; // 初期値を-1にして初回描画を強制
+int g_currentScrollY = 0; // 行単位のスクロール位置
+int g_totalWrappedLines = 0; // 折り返しを含めた総行数
 
-
+// 追加: 更新メッセージ表示制御用
+bool g_isShowingUpdateMessage = false;
+unsigned long g_updateMessageStartTime = 0;
 WebSocketsServer webSocket = WebSocketsServer(81);
 bool isWebSocketActive = false; // WebSocketサーバーの稼働状態フラグ
 // セッションリスト (接続中のユーザーを管理)
+
+std::vector<String> MailRList;
+
 
 // セッション管理用マップ
 // 1. メイン管理マップ: Key=ユーザーID, Value=詳細情報(IP, 時刻, デバイス名など)
@@ -69,6 +82,13 @@ std::map<String, String> sessionMap;
 // 2. 逆引き用マップ: Key=接続番号(num), Value=ユーザーID
 // ※ 切断イベント(numしか分からない)時に、素早くユーザーIDを特定して削除するために使用
 std::map<uint8_t, String> clientLookup;
+
+
+
+// キューハンドル
+QueueHandle_t processingQueue;
+
+
 
 
 String getTimestampStr() {
@@ -106,13 +126,13 @@ if(!tt){
   if(type == 0){
     bool jj = false;
 
-        if(datt("table_SSID","")){
+        if(datt("table_SSID","",dataToSaveE)){
           jj = true;
         }
-        if(datt("table_Usrname","")){
+        if(datt("table_Usrname","",dataToSaveE)){
           jj = true;
         }
-        if(datt("table_Pass","")){
+        if(datt("table_Pass","",dataToSaveE)){
           jj = true;
         }
 
@@ -415,6 +435,8 @@ void disconnectWiFi() {
         WiFi.disconnect(true); // true = WiFiオフにする
         WiFi.mode(WIFI_OFF);
         delay(100);
+        MailRList.clear();
+        SessionSized = 0;
         Serial.println("WiFi Disconnected.");
         manual_wifi = false;
         WSTT.clear();
@@ -550,12 +572,14 @@ bool connectToEnterpriseWiFi(String ssid, String id, String pass) {
             M5.Lcd.println("World Internet");
             M5.Lcd.setTextColor(WHITE, BLACK);
             isWorldInternet = true;
+            g_isWorldInternet = true;
         } else {
             Serial.println("Local Internet Only");
             M5.Lcd.setTextColor(YELLOW, BLACK);
             M5.Lcd.println("Local Only");
             M5.Lcd.setTextColor(WHITE, BLACK);
             isWorldInternet = false;
+            g_isWorldInternet = false;
         }
         
         // 読みやすさのため少し待機
@@ -701,37 +725,73 @@ void registerSession(uint8_t num, String userId) {
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
         case WStype_DISCONNECTED:
-            // 切断時: マップから削除処理を実行
             Serial.printf("[WS] [%u] Disconnected!\n", num);
-            removeSession(num);
+            removeSession(num); // 切断時にマップから削除
             break;
 
         case WStype_CONNECTED:
             {
-                // 接続直後の処理
                 IPAddress ip = webSocket.remoteIP(num);
-                Serial.printf("[WS] [%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+                Serial.printf("[WS] [%u] Connected from %s\n", num, ip.toString().c_str());
                 webSocket.sendTXT(num, "Server Ready. Please send 'id:YOUR_ID'");
             }
             break;
 
         case WStype_TEXT:
             {
-                String msg = String((char*)payload);
-                // "id:" から始まるメッセージを抽出してセッション登録
+                String msg = String((char*)payload).substring(0, length);
+
+                // RTC時刻取得
+                auto dt = M5.Rtc.getDateTime();
+                char timeBuffer[25];
+                snprintf(timeBuffer, sizeof(timeBuffer), "%04d/%02d/%02d %02d:%02d:%02d",
+                         dt.date.year, dt.date.month, dt.date.date,
+                         dt.time.hours, dt.time.minutes, dt.time.seconds);
+                String rtcTimeString = String(timeBuffer);
+
                 if (msg.startsWith("id:")) {
-                    String receivedId = msg.substring(3); // "id:" の後の文字列を取得
+                    String receivedId = msg.substring(3);
                     receivedId.trim();
-                    
                     if (receivedId.length() > 0) {
-                        // セッション登録関数を呼び出し
-                        registerSession(num, receivedId);
-                        // 応答
+                        // ここで確実にマップに登録する
+                        registerSession(num, receivedId); 
                         webSocket.sendTXT(num, "ID Registered: " + receivedId);
+                        checkidandsave1(int(num));
+                        checkidandsave2(int(num));
                     }
                 } else {
-                    // それ以外のテキストメッセージ
-                    Serial.printf("[WS] [%u] Text: %s\n", num, payload);
+                    // 通常メッセージ処理
+                    if (msg.startsWith("dataload:")) {
+                        // ロード命令をキューに入れる
+                        sendToWorkerTask(TASK_DATA_LOAD, (int)num);
+                    } 
+                    else if (msg.startsWith("datasave:")) {
+                        // セーブ命令とデータ本体をキューに入れる
+                        sendToWorkerTask(TASK_DATA_SAVE, (int)num, msg.substring(9));
+                    }else if(msg.startsWith("ping:")){
+                    //何もしない（ブラウザ応答用）
+
+                    }else if(msg.startsWith("test:")){
+                        sendToWorkerTask(TASK_DATA_SAMPLE, (int)num);
+                    }else if(msg.startsWith("sendo:")){
+                        String params = msg.substring(6);
+                        int commaIndex = params.indexOf(',');
+                        if (commaIndex != -1) {
+                            String m1 = params.substring(0, commaIndex);
+                            String m2 = params.substring(commaIndex + 1);
+                            // 引数2つを渡す
+                            sendToWorkerTask(TASK_DATA_SEND_OTHER, (int)num, m1, m2);
+                        } else {
+                            // カンマがない場合は全体をmsg1とするなどのフォールバック
+                            sendToWorkerTask(TASK_DATA_SEND_OTHER, (int)num, params, "");
+                        }
+                    }else{
+
+                     // ログ記録などはそのまま実行（またはこれもキュー化可能）
+                    ReceiveWebM(num, msg, rtcTimeString);
+                    }
+                    
+                    
                 }
             }
             break;
@@ -739,12 +799,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
         case WStype_ERROR:
             Serial.printf("[WS] [%u] Error!\n", num);
             break;
-            
-        case WStype_BIN:
-            break;
-            
-        case WStype_PONG:
-        case WStype_PING:
+
+        default:
             break;
     }
 }
@@ -781,27 +837,31 @@ bool checkWiFiConnection() {
 
 void updateSessionDisplay() {
     static unsigned long lastUpdate = 0;
-    // 1秒ごとに画面を更新（頻繁な描画によるチラつき防止）
+    // 1秒ごとに画面を更新（描画負荷軽減）
     if (millis() - lastUpdate < 1000) return;
     lastUpdate = millis();
 
-    M5.Lcd.startWrite(); // 描画開始
+    M5.Lcd.startWrite();
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
-    M5.Lcd.setTextSize(1);
+    M5.Lcd.setTextSize(1); // フォントサイズを1に固定
     M5.Lcd.setTextColor(WHITE, BLACK);
 
     M5.Lcd.println("=== Active Sessions List ===");
 
     int count = 0;
-    const int max_display = 20;
+    const int max_display = 20; // 1行が細いため、表示件数を確保
 
     // sessionMap (userId -> ipAddress) をループ
-    for (auto const& [userId, ipAddress] : sessionMap) {
+    // 以前のコードで表示されなかった不具合対策として、イテレータの参照を確実に処理
+    for (auto it = sessionMap.begin(); it != sessionMap.end(); ++it) {
         if (count >= max_display) break;
 
+        String userId = it->first;
+        String ipAddress = it->second;
+        
         // clientLookup (num -> userId) から逆引きして num を取得
-        String clientNumStr = "??"; // 見つからない場合のデフォルト
+        String clientNumStr = "??";
         for (auto const& [num, cUserId] : clientLookup) {
             if (cUserId == userId) {
                 clientNumStr = String(num);
@@ -809,9 +869,9 @@ void updateSessionDisplay() {
             }
         }
 
-        // 1行に収まるようにフォーマットして表示
-        // 例: 1. [#5] IP:192.168.1.5 (ID:user123)
-        M5.Lcd.printf("%d. [#%s] %s (ID:%s)\n", 
+        // 1行に収めるフォーマット
+        // 例: 1.[#5] 192.168.1.5 ID:user123
+        M5.Lcd.printf("%d.[#%s] %s ID:%s\n", 
                       count + 1, 
                       clientNumStr.c_str(), 
                       ipAddress.c_str(), 
@@ -822,12 +882,617 @@ void updateSessionDisplay() {
     if (count == 0) {
         M5.Lcd.println("No Active Sessions.");
     }
+    
+    SessionSized = count;
 
     // 画面最下部に合計数を表示
-    int bottomY = M5.Lcd.height() - 15;
+    int bottomY = M5.Lcd.height() - 10;
     M5.Lcd.setCursor(0, bottomY);
-    M5.Lcd.setTextColor(YELLOW, BLACK); // 合計数は黄色で強調
-    M5.Lcd.printf("Total Sessions: %d", sessionMap.size());
+    M5.Lcd.setTextColor(YELLOW, BLACK);
+    M5.Lcd.printf("Total: %d / MapSize: %d", count, (int)sessionMap.size());
     
-    M5.Lcd.endWrite(); // 描画終了
+    M5.Lcd.endWrite();
+}
+
+
+bool sendMessageByNum(String numStr, String message) {
+    if (!isWebSocketActive) return false;
+
+    // 前後の空白を削除
+    numStr.trim();
+
+    // 1. 空文字、または "all" などの指定がある場合は全セッションにブロードキャスト
+    if (numStr == "" || numStr.equalsIgnoreCase("all")) {
+        Serial.println("[WS] Sending broadcast message...");
+        return webSocket.broadcastTXT(message);
+    } 
+    // 2. 数値が指定されている場合は、そのクライアントにのみ送信
+    else {
+        // 全員送信（ブロードキャスト）は絶対に行われないルート
+        
+        // toInt()は変換失敗時に0を返すため、"0"という入力自体が有効かチェック
+        if (numStr != "0" && numStr.toInt() == 0) {
+            Serial.printf("[WS] Invalid Client Num: %s\n", numStr.c_str());
+            return false;
+        }
+
+        int num = numStr.toInt();
+        
+        // uint8_tの範囲内であることを確認
+        if (num < 0 || num > 255) {
+            Serial.printf("[WS] Client Num out of range: %d\n", num);
+            return false;
+        }
+
+        Serial.printf("[WS] Sending to specific client [%d]: %s\n", num, message.c_str());
+        return webSocket.sendTXT((uint8_t)num, message);
+    }
+}
+
+/**
+ * [受信関数] ブラウザからのメッセージを取り出す (loop内で使用)
+ * @param content [出力] 受信したメッセージ内容
+ * @param num [出力] 送信元のクライアント番号
+ * @param userId [出力] 送信元のユーザーID (未登録なら"Unknown")
+ * @return メッセージがあればtrue、なければfalse
+ */
+void ReceiveWebM(uint8_t num, String content,String RTCDate) {
+    String userId = clientLookup[num];
+    String gg = "num:" + String(num) + " id:" + userId + " ::RTC:" + RTCDate +  "\n log:" + content ;
+    MailRList.push_back(gg);
+}
+
+
+int sessionSelectAndSendNonBlocking(String Txxxtsosin) {
+    // 状態保持用のstatic変数
+    static bool initialized = false;
+    static int selection = 0;
+    static bool needRedraw = true;
+
+    // --- 1. 初期化処理 (初回のみ実行) ---
+    if (!initialized) {
+        M5.Lcd.fillScreen(BLACK);
+        selection = 0;
+        initialized = true;
+        needRedraw = true;
+    }
+
+    int totalSessions = sessionMap.size();
+    // 選択肢: 0..(total-1) [個別], total [All], total+1 [Back]
+    int maxItems = totalSessions + 2; 
+
+    // --- 2. ボタン入力判定 ---
+    // ※呼び出し元で M5.update() が実行されている前提
+    
+    if (M5.BtnA.wasPressed()) {
+        selection--;
+        if (selection < 0) selection = maxItems - 1;
+        needRedraw = true;
+    }
+    
+    if (M5.BtnC.wasPressed()) {
+        selection++;
+        if (selection >= maxItems) selection = 0;
+        needRedraw = true;
+    }
+
+    // --- 3. 画面描画 (変更があった場合のみ) ---
+    if (needRedraw) {
+        M5.Lcd.startWrite();
+        
+        // ヘッダーと送信テキスト
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setTextColor(WHITE, BLACK);
+        M5.Lcd.println("Send Message:");
+        
+        M5.Lcd.setTextColor(CYAN, BLACK);
+        String dispText = Txxxtsosin.length() > 20 ? Txxxtsosin.substring(0, 17) + "..." : Txxxtsosin;
+        // 前回の残像を消すために行クリア的な空白を入れるか、fillRectする
+        M5.Lcd.fillRect(0, 20, 320, 20, BLACK);
+        M5.Lcd.setCursor(0, 20);
+        M5.Lcd.println("sosin text:" + dispText);
+        
+        M5.Lcd.drawFastHLine(0, 50, 320, WHITE);
+
+        // 選択中のターゲット情報
+        M5.Lcd.setCursor(0, 70);
+        M5.Lcd.setTextColor(YELLOW, BLACK);
+        M5.Lcd.print("Target: ");
+
+        String targetName = "";
+        String detailInfo = "";
+
+        if (selection < totalSessions) {
+            // マップからN番目の要素を取得
+            auto it = sessionMap.begin();
+            std::advance(it, selection);
+            targetName = "User: " + it->first;
+            detailInfo = "IP: " + it->second;
+        } else if (selection == totalSessions) {
+            targetName = "ALL Users";
+            detailInfo = "Broadcast to all";
+        } else {
+            targetName = "BACK";
+            detailInfo = "Cancel & Return";
+        }
+        
+        // 表示エリアをクリアしてから描画
+        M5.Lcd.fillRect(0, 90, 320, 60, BLACK);
+        
+        M5.Lcd.setCursor(10, 90);
+        M5.Lcd.println(targetName);
+        
+        M5.Lcd.setTextSize(1);
+        M5.Lcd.setTextColor(WHITE, BLACK);
+        M5.Lcd.setCursor(10, 120);
+        M5.Lcd.println(detailInfo);
+        
+        // 下部ナビゲーション < 0 >
+        int bottomY = M5.Lcd.height() - 40;
+        M5.Lcd.fillRect(0, bottomY, 320, 40, BLACK);
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setCursor(120, bottomY);
+        M5.Lcd.setTextColor(WHITE, BLACK);
+        M5.Lcd.printf("< %d >", selection);
+        
+        // ガイド
+        M5.Lcd.setTextSize(1);
+        M5.Lcd.setCursor(10, M5.Lcd.height() - 12);
+        M5.Lcd.setTextColor(LIGHTGREY, BLACK);
+        M5.Lcd.print("BTN A: <   BTN B: SEND   BTN C: >");
+        
+        M5.Lcd.endWrite();
+        needRedraw = false;
+    }
+
+    // --- 4. 決定処理 (BtnB) ---
+    if (M5.BtnB.wasPressed()) {
+        int returnValue = -99;
+        
+        // Back (-2)
+        if (selection == totalSessions + 1) {
+            returnValue = -2;
+        }
+        // 送信処理 (All or Individual)
+        else {
+            bool sendResult = false;
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(10, 100);
+            M5.Lcd.setTextSize(2);
+            M5.Lcd.setTextColor(WHITE, BLACK);
+            M5.Lcd.println("Sending...");
+
+            if (selection == totalSessions) {
+                // All (-1)
+                sendResult = sendMessageByNum("", Txxxtsosin);
+                returnValue = -1;
+            } else {
+                // Individual (Index)
+                auto it = sessionMap.begin();
+                std::advance(it, selection);
+                String userId = it->first;
+                
+                // userId -> num 逆引き
+                String numStr = "";
+                for (auto const& [n, u] : clientLookup) {
+                    if (u == userId) {
+                        numStr = String(n);
+                        break;
+                    }
+                }
+                
+                if (numStr != "") {
+                    sendResult = sendMessageByNum(numStr, Txxxtsosin);
+                    returnValue = selection;
+                } else {
+                    sendResult = false;
+                    returnValue = selection; // 送信失敗でも選択インデックスを返す
+                }
+            }
+            
+            // 結果表示
+            if (sendResult) {
+                M5.Lcd.setTextColor(GREEN, BLACK);
+                M5.Lcd.println("Success!");
+            } else {
+                M5.Lcd.setTextColor(RED, BLACK);
+                M5.Lcd.println("Failed!");
+            }
+            // 少しだけ結果を見せる (ここだけはブロッキング許容、あるいは呼び出し元で管理)
+            delay(500); 
+        }
+
+        // 終了処理: 画面クリアと初期化フラグのリセット
+        M5.Lcd.fillScreen(BLACK);
+        initialized = false;
+        
+        return returnValue;
+    }
+
+    return -99; // 処理継続中
+}
+int countWrappedLines(const char* text, int charsPerLine) {
+    if (!text || text[0] == '\0') return 1;
+    int len = strlen(text);
+    if (len == 0) return 1;
+    
+    int lines = 0;
+    int currentLen = 0;
+    
+    for (int i = 0; i < len; i++) {
+        if (text[i] == '\n') {
+            lines++;
+            currentLen = 0;
+        } else {
+            currentLen++;
+            if (currentLen >= charsPerLine) {
+                lines++;
+                currentLen = 0;
+            }
+        }
+    }
+    // 最後の行に文字が残っていれば行数を加算
+    if (currentLen > 0 || lines == 0) lines++;
+    
+    return lines;
+}
+
+void updateMailDisplay(const std::vector<String>& MailRList) {
+    int listSize = (int)MailRList.size();
+    bool needsRedraw = false;
+
+    // --- 1. リスト変動の検知と更新メッセージ処理 ---
+    // サイズが変わった場合、または初回起動(isshokai)の場合
+    if (listSize != g_lastListSize || isshokai) {
+        
+        // 初回実行時: "Mail Updated" を出さずに即座に表示
+        if (isshokai) {
+            isshokai = false; // 初回フラグをオフ
+            g_lastListSize = listSize;
+            g_currentScrollY = 0;
+            M5.Lcd.fillScreen(BLACK);
+            needsRedraw = true; 
+        } 
+        // 2回目以降の変動: "Mail Updated" を表示して待機モードへ
+        else if (!g_isShowingUpdateMessage) {
+            g_lastListSize = listSize;
+            g_isShowingUpdateMessage = true;
+            g_updateMessageStartTime = millis();
+
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(10, 100);
+            M5.Lcd.setTextSize(2);
+            M5.Lcd.setTextColor(GREEN, BLACK);
+            M5.Lcd.println("Mail Updated");
+            return; // 更新通知を表示して終了
+        }
+    }
+
+    // --- 2. 更新メッセージ表示中の待機処理 ---
+    if (g_isShowingUpdateMessage) {
+        if (millis() - g_updateMessageStartTime < 1000) {
+            return; // 待機中
+        }
+        // 1秒経過後、復帰
+        g_isShowingUpdateMessage = false;
+        g_currentScrollY = 0;
+        M5.Lcd.fillScreen(BLACK);
+        needsRedraw = true;
+    }
+
+    // --- 3. データがない場合の処理 ---
+    if (listSize == 0) {
+        if (needsRedraw) {
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(1);
+            M5.Lcd.setTextColor(WHITE, BLACK);
+            M5.Lcd.println("no logs.");
+        }
+        return;
+    }
+
+    // --- 4. 画面パラメータ計算 ---
+    int screenHeight = M5.Lcd.height();
+    int screenWidth = M5.Lcd.width();
+    int lineHeight = 8; // フォントサイズ1の高さ
+    int charWidth = 6;  // フォントサイズ1の文字幅(概算)
+    int charsPerLine = screenWidth / charWidth; 
+    int maxRowsOnScreen = screenHeight / lineHeight;
+
+    // --- 5. 総行数の計算 (再描画が必要な場合のみ) ---
+    if (needsRedraw) {
+        int targetCount = (listSize > 1000) ? 1000 : listSize;
+        int startIndex = listSize - targetCount;
+        
+        g_totalWrappedLines = 0;
+        for (int i = startIndex; i < listSize; i++) {
+            g_totalWrappedLines += countWrappedLines(MailRList[i].c_str(), charsPerLine);
+        }
+    }
+
+    // --- 6. ボタン入力によるスクロール処理 ---
+    int maxScroll = g_totalWrappedLines - maxRowsOnScreen;
+    if (maxScroll < 0) maxScroll = 0;
+
+    // 位置補正
+    if (g_currentScrollY > maxScroll) {
+        g_currentScrollY = maxScroll;
+        needsRedraw = true;
+    }
+
+    if (M5.BtnA.wasPressed()) { // 上へ
+        if (g_currentScrollY > 0) {
+            g_currentScrollY--;
+            needsRedraw = true;
+        }
+    }
+    if (M5.BtnC.wasPressed()) { // 下へ
+        if (g_currentScrollY < maxScroll) {
+            g_currentScrollY++;
+            needsRedraw = true;
+        }
+    }
+
+    // --- 7. 描画実行 ---
+    if (needsRedraw) {
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0, 0);
+        M5.Lcd.setTextSize(1);
+        M5.Lcd.setTextColor(WHITE, BLACK);
+
+        int targetCount = (listSize > 1000) ? 1000 : listSize;
+        int startIndex = listSize - targetCount;
+        int currentVirtualLine = 0; // 現在の仮想行カウント
+        bool stopDrawing = false;   // 描画終了フラグ
+
+        for (int i = startIndex; i < listSize; i++) {
+            if (stopDrawing) break;
+
+            String text = MailRList[i].c_str();
+            int len = text.length();
+            int pos = 0;
+
+            // 要素を行単位に分割して処理
+            while (pos < len || (len == 0 && pos == 0)) { 
+                int nextNewLine = text.indexOf('\n', pos);
+                int chunkLen;
+                
+                if (nextNewLine != -1 && (nextNewLine - pos) < charsPerLine) {
+                    chunkLen = nextNewLine - pos;
+                } else {
+                    chunkLen = (len - pos) > charsPerLine ? charsPerLine : (len - pos);
+                }
+                
+                String lineStr = text.substring(pos, pos + chunkLen);
+                
+                pos += chunkLen;
+                if (pos < len && text[pos] == '\n') pos++;
+                else if (chunkLen == 0 && len > 0) pos++;
+                else if (len == 0) pos++;
+
+                // 表示範囲内なら描画
+                if (currentVirtualLine >= g_currentScrollY && 
+                    currentVirtualLine < g_currentScrollY + maxRowsOnScreen) {
+                    M5.Lcd.println(lineStr);
+                }
+                
+                currentVirtualLine++;
+
+                // 画面下端を超えたらループ脱出
+                if (currentVirtualLine >= g_currentScrollY + maxRowsOnScreen) {
+                    stopDrawing = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+bool appendUniqueLine(String kakikomitxt, String& kakikomisaki) {
+    // 1. 入力チェック: 改行コードが含まれている、または空文字の場合はエラー
+    if (kakikomitxt.indexOf('\n') != -1 || kakikomitxt.length() == 0) {
+        return false;
+    }
+
+    // 2. kakikomisaki を一行単位で検索（重複チェック）
+    int len = kakikomisaki.length();
+    int pos = 0;
+    
+    while (pos < len) {
+        int nextNewLine = kakikomisaki.indexOf('\n', pos);
+        String line;
+        
+        if (nextNewLine == -1) {
+            line = kakikomisaki.substring(pos);
+            pos = len; // 終了
+        } else {
+            // 改行を除いて取得
+            line = kakikomisaki.substring(pos, nextNewLine);
+            pos = nextNewLine + 1; // 次の行へ
+        }
+        
+        // 厳密な一致判定
+        if (line == kakikomitxt) {
+            return true; // 既に存在するので何もせず終了（成功扱い）
+        }
+    }
+
+    // 3. 追加処理
+    // 既存の文字列があり、かつ末尾が改行でない場合のみ改行を補完（空行回避）
+    if (kakikomisaki.length() > 0 && !kakikomisaki.endsWith("\n")) {
+        kakikomisaki += "\n";
+    }
+    
+    // 文字列を追加し、末尾に改行を付与して「完全な行」として保存する
+    // 空行（\n\n）が生成されないよう、必ずコンテンツの後に\nを置くルールで統一
+    kakikomisaki += kakikomitxt + "\n";
+    
+    return true;
+}
+
+void checkidandsave1(int sendbynum){
+    
+    String useridd = clientLookup[sendbynum];
+    if(useridd == ""){
+        Serial.println("ユーザーidがまだセーブされていないエラー");
+        return;
+    }
+    bool ss = false;
+    bool tt = false;
+    std::vector<MettVariableInfo> loadedVariablesE;
+    loadMettFile(SD,"/save/save3.mett","testsus",tt,ss,loadedVariablesE);
+    if(!tt){
+        Serial.println("Hensuload Error!");
+        return;
+    }
+    dataToSaveE = copyVectorToMap(loadedVariablesE);
+    if(!datt("txd1:" + useridd,"",dataToSaveE)){
+        Serial.println("正常終了：" + useridd +"のテストデータ保存済み");
+        return;
+    }
+    saveMettFile(SD, "/save/save3.mett", "testsus", dataToSaveE, tt);
+    if(tt){
+        Serial.println("Hensusave Error!");
+        return;
+    }else{
+        Serial.println("正常終了：" + useridd +"のテストデータ新規保存");
+        return;
+    }
+}
+
+void checkidandsave2(int sendbynum){
+    
+    String useridd = clientLookup[sendbynum];
+    if(useridd == ""){
+        Serial.println("ユーザーidがまだセーブされていないエラー");
+        return;
+    }
+    bool ss = false;
+    bool tt = false;
+    std::vector<MettVariableInfo> loadedVariablesE;
+    loadMettFile(SD,"/save/save3.mett","testsus2",tt,ss,loadedVariablesE);
+    if(!tt){
+        Serial.println("Hensuload Error!");
+        return;
+    }
+    dataToSaveE = copyVectorToMap(loadedVariablesE);
+    if(!datt("txd2list","",dataToSaveE)){
+        Serial.println(useridd +"のテストリスト捜索開始");
+    
+    }else{
+       Serial.println(useridd +"のテストリストと全体リスト新規作成");
+    }
+    String sse = dataToSaveE["txd2list"];
+    appendUniqueLine(";" + useridd,sse);
+    dataToSaveE["txd2list"] = sse;
+    saveMettFile(SD, "/save/save3.mett", "testsus2", dataToSaveE, tt);
+    if(tt){
+    Serial.println("Hensusave Error!");
+        return;
+    }else{
+        Serial.println("正常終了：" + useridd +"のテストリスト保存");
+    }
+
+    
+}
+
+void thedataload(int nummm){
+    
+}
+
+void thedatasave(int nummm,String datasavecontent){
+
+}
+
+void thedatasendother(int nummm,String user1,String user2){
+
+}
+
+void thedatasample(int nummm){
+    sendMessageByNum(String(nummm), "Test message responded!!!!! :" + clientLookup[nummm] + " san");
+}
+
+
+void backgroundProcessingTask(void *pvParameters) {
+    TaskMessage msg;
+
+    while (true) {
+        // キューにデータが来るまで待機 (CPUを使わない)
+        if (xQueueReceive(processingQueue, &msg, portMAX_DELAY) == pdTRUE) {
+            
+            Serial.printf("[Task] Processing request for Client %d (Type: %d)\n", msg.clientNum, msg.type);
+
+            // 処理の分岐
+            if (msg.type == TASK_DATA_LOAD) {
+                thedataload(msg.clientNum);
+            } 
+            else if (msg.type == TASK_DATA_SAVE) {
+                if (msg.dataPayload != NULL) {
+                    thedatasave(msg.clientNum, String(msg.dataPayload));
+                }
+            }
+            else if (msg.type == TASK_DATA_SEND_OTHER) {
+                // 2つのメッセージを復元して関数呼び出し
+                String s1 = (msg.dataPayload != NULL) ? String(msg.dataPayload) : "";
+                String s2 = (msg.dataPayload2 != NULL) ? String(msg.dataPayload2) : "";
+                thedatasendother(msg.clientNum, s1, s2);
+            }
+            else if (msg.type == TASK_DATA_SAMPLE) {
+                thedatasample(msg.clientNum);
+            }
+
+            // 確保したメモリを必ず解放する (重要)
+            // どのタイプであっても、ポインタがNULLでなければ解放を試みる
+            if (msg.dataPayload != NULL) {
+                free(msg.dataPayload);
+                msg.dataPayload = NULL;
+            }
+            if (msg.dataPayload2 != NULL) {
+                free(msg.dataPayload2);
+                msg.dataPayload2 = NULL;
+            }
+
+            // 処理後のウェイト（必要であれば）
+            vTaskDelay(10 / portTICK_PERIOD_MS);
+        }
+    }
+}
+
+/**
+ * [Helper] タスクキューへ命令を送る関数
+ * 引数を拡張し、最大2つの文字列データを渡せるように変更
+ */
+void sendToWorkerTask(TaskType type, int num, String data1, String data2) {
+    TaskMessage msg;
+    msg.type = type;
+    msg.clientNum = num;
+    msg.dataPayload = NULL;
+    msg.dataPayload2 = NULL;
+
+    // データがある場合はヒープメモリにコピーしてポインタを渡す
+    if (data1.length() > 0) {
+        msg.dataPayload = strdup(data1.c_str());
+        if (msg.dataPayload == NULL) {
+            Serial.println("[Error] Memory allocation failed for data1");
+            return;
+        }
+    }
+    
+    if (data2.length() > 0) {
+        msg.dataPayload2 = strdup(data2.c_str());
+        if (msg.dataPayload2 == NULL) {
+            Serial.println("[Error] Memory allocation failed for data2");
+            // data1も解放して終了
+            if (msg.dataPayload) free(msg.dataPayload);
+            return;
+        }
+    }
+
+    // キューへ送信 (満杯なら0ms待機して諦める=通信ブロック防止)
+    if (xQueueSend(processingQueue, &msg, 0) != pdTRUE) {
+        Serial.println("[Error] Queue is full, task dropped.");
+        // 送信失敗時は確保したメモリを即座に解放
+        if (msg.dataPayload != NULL) free(msg.dataPayload);
+        if (msg.dataPayload2 != NULL) free(msg.dataPayload2);
+    }
 }

@@ -70,7 +70,66 @@ String TTM;
 #pragma region <potlist>
 
 
+void setup() {
+  
+  TEXT_SCROLL_INTERVAL_MS = 40; 
+  auto cfg = M5.config();
+  Serial.begin(115200);
+  lastTextScrollTime = 0;
+  SCROLL_SPEED_PIXELS = 4;
+  M5.begin();
+  frameleft = 1;
+  frameright = 1;
+  statustext = "NetStep:0,No Internet!";
+  scrollPos = M5.Lcd.width();
+  Serial.println("M5Stack initialized");
+processingQueue = xQueueCreate(10, sizeof(TaskMessage));
+    
+    if (processingQueue == NULL) {
+        Serial.println("Failed to create queue");
+        return;
+    }
 
+    // 2. ワーカータスクの起動
+    // Core 0 (WiFi処理とは別のコア) または Core 1 で実行
+    xTaskCreatePinnedToCore(
+        backgroundProcessingTask, // タスク関数
+        "StorageWorker",          // タスク名
+        8192,                     // スタックサイズ (SD扱うなら大きめに)
+        NULL,                     // パラメータ
+        1,                        // 優先度 (1 = 低, ネットワーク処理を邪魔しない)
+        NULL,                     // タスクハンドル
+        1                         // Core 1 (Arduino loopと同じ) で実行推奨
+    );
+    Wire.begin(); 
+  Wire.setClock(400000);
+  
+  // SDカードの初期化を試みます
+  // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
+  btna = false;
+  btnc = false;
+
+
+  // 文字のサイズと色を設定（小さめで表示）
+  M5.Lcd.setTextSize(sizex);
+  M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
+  M5.Lcd.fillScreen(BLACK); // 画面全体を黒でクリア
+  // 左上すれすれ (0,0) に表示
+  M5.Lcd.setCursor(0, 0);
+  sita = tttt;
+  textexx();
+ 
+  wirecheck();
+  mainmode = 0;
+   
+
+  
+  // USB接続/切断コールバックを設定
+
+
+  
+
+}
 
 
 /**
@@ -614,49 +673,7 @@ void looe(bool retr){
 
 
 SemaphoreHandle_t sessionMutex;
-void setup() {
-  
-  TEXT_SCROLL_INTERVAL_MS = 40; 
-  auto cfg = M5.config();
-  Serial.begin(115200);
-  lastTextScrollTime = 0;
-  SCROLL_SPEED_PIXELS = 4;
-  M5.begin();
-  frameleft = 1;
-  frameright = 1;
-  statustext = "NetStep:0,No Internet!";
-  scrollPos = M5.Lcd.width();
-  Serial.println("M5Stack initialized");
-  sessionMutex = xSemaphoreCreateMutex();
-    Wire.begin(); 
-  Wire.setClock(400000);
-  
-  // SDカードの初期化を試みます
-  // 起動時にSDカードが存在しない場合でも、sdcmode()が繰り返し初期化を試みます。
-  btna = false;
-  btnc = false;
 
-
-  // 文字のサイズと色を設定（小さめで表示）
-  M5.Lcd.setTextSize(sizex);
-  M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
-  M5.Lcd.fillScreen(BLACK); // 画面全体を黒でクリア
-  // 左上すれすれ (0,0) に表示
-  M5.Lcd.setCursor(0, 0);
-  sita = tttt;
-  textexx();
- 
-  wirecheck();
-  mainmode = 0;
-   
-
-  
-  // USB接続/切断コールバックを設定
-
-
-  
-
-}
 //後でファイル名作成時の拡張子オプションロード追加，テーブルの丸ごとコピー機能追加
 //変数は変更ロックの登録・解除機能，デフォルト数値，NULL置き換え追加
 //ログ機能の追加．ログ追加後，メニューから一発でテーブル編集に飛ぶ機能，つまりファイルのお気に入り指定の追加

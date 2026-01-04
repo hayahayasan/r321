@@ -163,12 +163,134 @@ bool showAngleBrackets = true;
 #pragma endregion <hensu4aa>
 
 // Forward declaration for handleWebSocketLoop
-
+int sendmode;
 
 void mainkansu_intmain(){
   delay(1);
   
 handleWebSocketLoop();
+if(mainmode == 35){
+  updateMailDisplay(MailRList);
+  if(M5.BtnB.wasPressed()){
+    M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+      
+            M5.Lcd.println(TexNet2);
+            mainmode  = 33;
+            return;
+  }
+}
+else if(mainmode == 34){
+  if(sendmode == 0){
+    textluck();
+    if(entryenter == 2){//back
+      M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+      
+            M5.Lcd.println(TexNet2);
+            mainmode  = 33;
+            return;
+    }else if(entryenter == 1){//next
+      if(!isValidFormat(SuperT)){
+        Textex = "Invalid Format! No kaigho or too long!";
+        return;
+      }
+      sendmode = 1;
+      M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+            return;
+    }
+  }else if(sendmode == 1){
+    int yy = sessionSelectAndSendNonBlocking(SuperT);
+    if(yy != 99){
+      if(yy == -2)//back
+      {
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+            M5.Lcd.println(TexNet2);
+            
+            mainmode  = 33;
+            return;
+
+      }else if(yy > -2){//all
+        M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.println("Sending to ...");
+            if(!sendMessageByNum(String(yy), SuperT)){
+              kanketu("failed!",1000);
+              
+            } else{
+              kanketu("succeed sent!",1000);
+            }
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+            M5.Lcd.println(TexNet2);
+            mainmode  = 33;
+            return;
+      }
+    }
+  }
+  
+}
+else if(mainmode == 33){
+   updatePointer2(3);
+    
+      
+      if(pagemoveflag == 1){
+      pagemoveflag = 0;
+      
+      return;
+    
+    }else if(pagemoveflag == 5){
+      M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+     
+    }else if(M5.BtnB.wasPressed()){
+      if(positpoint == 0){//send
+      
+        M5.Lcd.fillScreen(BLACK);
+        mainmode = 34;
+        sendmode = 0;
+        SuperT = "";
+        Textex = "Input Message (No kaigho)";
+        entryenter = 0;
+        return;
+      }else if(positpoint == 1){//receive
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        positpoint = 0;
+        mainmode = 35;
+        isshokai = true;
+        
+       
+        
+            return;
+      }
+    }
+}
 if(mainmode == 32){
   updateSessionDisplay();
   if(M5.BtnB.wasPressed()){
@@ -177,6 +299,7 @@ if(mainmode == 32){
             holdpositpoint = 0;
             imano_page = 0;
             mainmode = 30;
+            M5.Lcd.fillScreen(BLACK);
             M5.Lcd.setTextSize(3);
             M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextColor(WHITE);
@@ -186,8 +309,22 @@ if(mainmode == 32){
         
             return;
   }
-  if(M5.BtnB.wasPressed()){
-    
+  else if(M5.BtnC.wasPressed() && checkWiFiConnection() ){//メッセージ送信・受信モード
+      M5.Lcd.setTextSize(3);
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.fillScreen(BLACK);
+      positpointmax =IntNet2;
+            M5.Lcd.println(TexNet2);
+            mainmode  = 33;
+            positpoint = 0;
+            M5.update();
+            bool tt =  initializeSDCardAndCreateFile("/save/save3.mett");
+          if(!tt){
+            Serial.println("SD Card or File Error!");
+            return;
+          }
+            return;
   }
 }
  else if(mainmode == 31){
@@ -200,7 +337,7 @@ if(mainmode == 32){
       return;
     
     }else if(pagemoveflag == 5){
-      
+      pagemoveflag = 0;
       M5.Lcd.fillScreen(BLACK);
             M5.Lcd.setCursor(0, 0);
 
@@ -516,6 +653,63 @@ if(mainmode == 32){
         mainmode = 32;
         return;
        
+      }else if(positpoint == 5){//do_auto
+        SD.begin(GPIO_NUM_4, SPI, 20000000);
+        if(checkWiFiConnection()){
+          kanketu("Yes Connection!\n your MAC:" + WiFi.macAddress(),2000);
+           M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+        }
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+          if(!createEE(mmmc,1)){
+            kanketu("load Error..",400);
+            M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+          }
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+          if(!connectToEnterpriseWiFi(GyakuhenkanTxt(mmmc["table_SSID"]),GyakuhenkanTxt(mmmc["table_Usrname"]),GyakuhenkanTxt(mmmc["table_Pass"]))){
+            kanketu("load Error..",400);
+            M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+          }
+          startWebSocket();
+          M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        mainmode = 32;
+        return;
+
+
+
+
       }
 
     }

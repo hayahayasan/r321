@@ -7396,14 +7396,14 @@ void opt_hukusei(){
 }
 
 
-bool datt(String opthensuname,String setname){
-  Serial.println("fff" + getMettVariableValue(dataToSaveE,opthensuname) );
-  if(getMettVariableValue(dataToSaveE,opthensuname) == ""){
-      dataToSaveE[opthensuname] = setname;
-      Serial.println("ddf" + dataToSaveE[opthensuname]);
+bool datt(String opthensuname,String setname,MettDataMap& datass){
+  Serial.println("fff" + getMettVariableValue(datass,opthensuname) );
+  if(getMettVariableValue(datass,opthensuname) == ""){
+      datass[opthensuname] = setname;
+      Serial.println("ddf" + datass[opthensuname]);
       return true;
   }else{
-    Serial.println("ggge:" + getMettVariableValue(dataToSaveE,opthensuname));
+    Serial.println("ggge:" + getMettVariableValue(datass,opthensuname));
   }
   return false;
 }
@@ -7420,22 +7420,22 @@ void createjj(){
   dataToSaveE = copyVectorToMap(loadedVariablesE);
         bool jj = false;
 
-        if(datt("table_opt1","0")){
+        if(datt("table_opt1","0",dataToSaveE)){
           jj = true;
         }
-        if(datt("table_opt2","normal")){
+        if(datt("table_opt2","normal",dataToSaveE)){
           jj = true;
         }
-        if(datt("table_opt3","")){
+        if(datt("table_opt3","",dataToSaveE)){
           jj = true;
         }
-        if(datt("table_opt4",getDateTimeString())){
+        if(datt("table_opt4",getDateTimeString(),dataToSaveE)){
           jj = true;
         }
-        if(datt("table_opt5",getDateTimeString())){
+        if(datt("table_opt5",getDateTimeString(),dataToSaveE)){
           jj = true;
         }
-        if(datt("table_opt6","nameasc")){
+        if(datt("table_opt6","nameasc",dataToSaveE)){
           jj = true;
         }
         Serial.println("DD!" + dataToSaveE["table_opt1"]);
@@ -7455,7 +7455,7 @@ void createjj(){
 
 bool isValidFormat(const String& str) {
     // 1. Length check (1000 characters limit)
-    if (str.length() > 1000) {
+    if (str.length() > 100000) {
         return false;
     }
 
