@@ -727,15 +727,15 @@ String getDateTimeString();
 void loop() {
 
 
-
+ delay(1);
 
 
 
 //delay入れたらサーバー起動時にエラー出ます
 mainkansu_intmain();
-  if(mainmode != 30 && mainmode != 32 && mainmode != 38){//重要・サーバー起動時のフリーズ対策
-    delay(1);
-  }
+  
+   
+  
 
   if(mainmode == 13){
     tututu = false;

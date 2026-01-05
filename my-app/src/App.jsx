@@ -5,7 +5,6 @@ import { Terminal, Send, Wifi, WifiOff, Fingerprint, AlertCircle, ArrowUpCircle,
  * 【重要】publicフォルダの参照ルール
  * public/icon.png   => "/icon.png"
  * public/haikei.png => "/haikei.png"
- * import文は使わず、文字列として直接指定します。
  */
 const FAVICON_PATH = '/icon.png'; 
 const BACKGROUND_IMAGE = '/haikei.png';
@@ -13,7 +12,7 @@ const TITLE_TEXT = 'The M5 Sotuken App';
 
 const HEARTBEAT_INTERVAL = 3000;
 const PING_FAIL_THRESHOLD = 3;
-const WS_PORT = 65500; // ポート番号を65500に設定
+const WS_PORT = 65500;
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -33,12 +32,8 @@ export default function App() {
   const heartbeatTimerRef = useRef(null);
   const missedPingsRef = useRef(0);
 
-  // サイトのアイデンティティ（タイトル・Favicon）の設定
   useEffect(() => {
-    // 1. タイトルの設定
     document.title = TITLE_TEXT;
-
-    // 2. Faviconの設定
     let link = document.querySelector("link[rel*='icon']");
     if (!link) {
       link = document.createElement('link');
@@ -47,7 +42,6 @@ export default function App() {
     }
     link.href = FAVICON_PATH;
 
-    // デバイスIDの生成・取得
     try {
       const savedId = localStorage.getItem('m5_console_user_id');
       if (savedId) {
@@ -60,12 +54,11 @@ export default function App() {
         setUserId(result);
       }
 
-      // タブ重複チェック
       localStorage.setItem('m5_console_active_tab', tabIdRef.current);
       const handleStorageChange = (e) => {
         if (e.key === 'm5_console_active_tab' && e.newValue !== tabIdRef.current) {
           setIsTabBlocked(true);
-          if (socketRef.current) socketRef.current.close();
+          disconnectWebSocket();
         }
       };
       window.addEventListener('storage', handleStorageChange);
@@ -79,13 +72,26 @@ export default function App() {
     } catch (e) {}
   }, [m5Ip]);
 
+  const disconnectWebSocket = () => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+    setStatus('disconnected');
+  };
+
   const connectWebSocket = () => {
     if (isTabBlocked) return;
-    if (socketRef.current) socketRef.current.close();
-    if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+    
+    // 既存の接続をクリーンアップ
+    disconnectWebSocket();
 
-    const url = `ws://${m5Ip}:${WS_PORT}`; // ポート番号 65500 を使用
-    addLog('System', `Attempting to connect to ${url}...`);
+    const url = `ws://${m5Ip}:${WS_PORT}`;
+    addLog('System', `Connecting to ${url}...`);
     setStatus('connecting');
     
     try {
@@ -93,15 +99,16 @@ export default function App() {
       
       socket.onopen = () => {
         setStatus('connected');
-        addLog('System', `Connected successfully to ${url}`);
+        addLog('System', `Connected to ${url}`);
         socket.send(`id:${userId}`);
 
         missedPingsRef.current = 0;
         heartbeatTimerRef.current = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
             if (missedPingsRef.current >= PING_FAIL_THRESHOLD) {
-              addLog('Error', 'Connection timed out.');
-              socket.close();
+              addLog('Error', 'Timeout: No response from M5. Disconnecting...');
+              // タイムアウト時に即座に切断状態へ戻す
+              disconnectWebSocket();
               return;
             }
             try {
@@ -120,24 +127,20 @@ export default function App() {
       };
 
       socket.onclose = () => {
-        setStatus('disconnected');
-        if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+        disconnectWebSocket();
       };
 
       socket.onerror = () => {
+        addLog('Error', `Connection failed on port ${WS_PORT}.`);
+        disconnectWebSocket();
         setStatus('error');
-        addLog('Error', `WebSocket connection failed. (Port: ${WS_PORT})`);
       };
 
       socketRef.current = socket;
     } catch (e) {
       addLog('Error', e.message);
+      setStatus('error');
     }
-  };
-
-  const disconnectWebSocket = () => {
-    if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
-    if (socketRef.current) socketRef.current.close();
   };
 
   const addLog = (sender, text) => {
@@ -208,24 +211,18 @@ export default function App() {
         </form>
 
         <div className="flex flex-col gap-2">
-          <div style={{
-            padding: '12px',
-            backgroundColor: 'rgba(71, 85, 105, 0.3)',
-            border: '2px solid rgba(148, 163, 184, 0.6)',
-            borderRadius: '4px',
-            boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5), 0 10px 30px rgba(0,0,0,0.6)'
-          }}>
+          <div className="p-3 bg-slate-700/30 border-2 border-slate-600/60 rounded shadow-[inset_0_0_10px_rgba(0,0,0,0.5)]">
             <div className="bg-slate-950/90 h-[400px] flex flex-col overflow-hidden border border-slate-800">
               <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 flex justify-between items-center text-[10px] font-mono text-slate-400">
                 <span className="flex items-center gap-1"><Terminal size={12}/> TERMINAL_LOG</span>
-                <span>LATEST_FIRST</span>
+                <span className={status === 'connected' ? 'text-green-500' : 'text-red-500 animate-pulse'}>{status.toUpperCase()}</span>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-xs scrollbar-custom">
                 {messages.length === 0 && <div className="text-slate-800 italic text-center mt-20 font-sans">No logs yet.</div>}
                 {messages.map(msg => (
                   <div key={msg.id} className="flex gap-2 border-b border-slate-900 pb-1 opacity-90 animate-in fade-in duration-300">
                     <span className="text-slate-600">[{msg.time}]</span>
-                    <span className={msg.sender === 'M5' ? 'text-green-500' : 'text-blue-400'}>{msg.sender}:</span>
+                    <span className={msg.sender === 'M5' ? 'text-green-500' : msg.sender === 'System' ? 'text-indigo-400' : 'text-blue-400'}>{msg.sender}:</span>
                     <span className="text-slate-300 break-all">{msg.text}</span>
                   </div>
                 ))}
@@ -240,15 +237,14 @@ export default function App() {
         </div>
 
         <footer className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-[10px] text-slate-500 text-center space-y-2">
-          <p className="text-slate-300 font-bold italic">接続はping応答が3回連続で途絶えると自動切断されます</p>
+          <p className="text-slate-300 font-bold italic">接続はping応答が3回連続で途絶えると即座に切断されます</p>
           <div className="grid grid-cols-2 gap-2 opacity-70">
-             <p>dataload:(数)：SD読込(1~3)</p>
+             <p>dataload:(数)：SD読込</p>
              <p>datasave:(テ),(数):SD書込</p>
              <p>sendme:(テ):反復送信</p>
-              <p>test: :テスト信号</p>
-              <p>sendo:(テ),(ユーザーid):特定ユーザーに送信</p>
-             <p>list: :接続ユーザー表示</p>
-             <p>それ以外:何も来ないがM5がログに記録する</p>
+             <p>test: :テスト信号</p>
+             <p>sendo:(テ),(ID):特定送信</p>
+             <p>list: :接続リスト</p>
           </div>
         </footer>
       </div>

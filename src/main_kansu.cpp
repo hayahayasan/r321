@@ -2299,7 +2299,7 @@ if(sse == "E"){
     }
 
     #pragma endregion <optmoX>
- }else if (mainmode == 0) { // メニューモードの場合
+ }else if (mainmode == 0 ) { // メニューモードの場合
 
     String key = wirecheck(); // wirecheck()は常に呼び出される
     //これを入れないとmainmode変数認識が遅れやすい
@@ -2401,6 +2401,9 @@ if(sse == "E"){
         M5.Lcd.println("  SD Eject\n  SD Format");
         return;
       }else if(maindex == 0){//ステップ1 wifi起動モード
+        if(!SD.begin(GPIO_NUM_4, SPI, 20000000)){
+          return;
+        }
         M5.Lcd.fillScreen(BLACK); // 画面をクリア
         M5.Lcd.setTextSize(3);
        M5.Lcd.setTextColor(WHITE, BLACK); // 白文字、黒背景
