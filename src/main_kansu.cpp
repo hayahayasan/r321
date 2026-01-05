@@ -806,6 +806,7 @@ if(mainmode == 32){
           kanketu("PLZ Access...:\nhttp://" + WiFi.localIP().toString(),4000);
           M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setCursor(0,0);
+        isServerRunning = true;
         mainmode = 32;
         return;
 
