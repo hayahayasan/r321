@@ -167,8 +167,8 @@ bool showAngleBrackets = true;
 int sendmode;
 
 void mainkansu_intmain(){
-  delay(1);
-  if(checkWiFiConnection() && isWebSocketActive){
+
+  if(checkWiFiConnection() && isServerRunning){
     if(SSListc == 0){
       statustext = "NetStep:2,Internet With Websocket";
     }else{
@@ -176,9 +176,15 @@ void mainkansu_intmain(){
     }
   }
 
+if(checkWiFiConnection()){
+  handleWebSocketLoop();
+}
 
-handleWebSocketLoop();
-if(mainmode == 37){
+
+if(mainmode == 38){
+  
+}
+else if(mainmode == 37){
   int yy = sessionSelectAndSendNonBlocking(SuperT,"Select Session to Discon:");
   if(yy != -99){
     Serial.println("yyy" + String(yy));
@@ -449,7 +455,9 @@ if(mainmode == 32){
           ssgggg = "table_Pass";
         }
        if(textnetsette(ssgggg)){
-          resetto31();
+        
+        resetto31();
+          
           return;
         }else{
           positpoint = 0;
@@ -625,7 +633,7 @@ if(mainmode == 32){
           M5.Lcd.println(TexNet1(mmmc));
           positpointmax = IntNet1;
           return;
-      }else if(positpoint == 2){//websocket open/close
+      }else if(false){//websocket open/close
         if(!isWebSocketActive){
           if(!checkWiFiConnection()){
             kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
@@ -666,6 +674,9 @@ if(mainmode == 32){
               return;
           }
           stopWebSocket();
+          if(isServerRunning){
+            stopWebServer();
+          }
           SSListc = 0;
           kanketu("stopped",400);
            M5.Lcd.fillScreen(BLACK);
@@ -701,6 +712,12 @@ if(mainmode == 32){
         }
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setTextSize(3);
+        if(isWebSocketActive){
+          stopWebSocket();
+        }
+        if(isServerRunning){
+          stopWebServer();
+        }
         M5.Lcd.setCursor(0, 0);
         M5.Lcd.println("Disconnecting...");
         disconnectWiFi();
@@ -785,6 +802,8 @@ if(mainmode == 32){
           return;
           }
           startWebSocket();
+          startWebServer();
+          kanketu("PLZ Access...:\nhttp://" + WiFi.localIP().toString(),4000);
           M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setCursor(0,0);
         mainmode = 32;
@@ -793,6 +812,73 @@ if(mainmode == 32){
 
 
 
+      }else if(positpoint == 2){//webserveer start/stop
+        Serial.println("fe");
+        if(!checkWiFiConnection()){
+          kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
+           M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+        }
+        if(!isServerRunning){
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            
+           
+            
+            isServerRunning = true;
+            M5.Lcd.println("Starting WebServer...");
+            delay(500);
+           startWebSocket();
+          startWebServer();
+          M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+           
+          
+            
+            
+         
+        }else{
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            M5.Lcd.println("Stopping WebServer...");
+            delay(500);
+
+          stopWebServer();
+          stopWebSocket();
+           M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          
+        }
+        return;
       }
 
     }
@@ -3046,6 +3132,7 @@ int selectOption(const String options[], int numOptions, const String upperText,
 
 void resetto31(){
   positpoint = 0;
+  M5.Lcd.setTextSize(1);  
             maxpage = -1;
             holdpositpoint = 0;
             M5.Lcd.fillScreen(BLACK);

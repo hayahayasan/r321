@@ -418,4 +418,8 @@ bool datt2(String opthensuname,MettDataMap& datass);
 void updateMailDisplay2(const String& MailText);
 void thedatasomething(int nummm,String isall,String textf);
 bool forceDisconnectClient(int nummm);
+extern bool isServerRunning;
+
+void startWebServer();
+void stopWebServer();
 #endif // SHARED

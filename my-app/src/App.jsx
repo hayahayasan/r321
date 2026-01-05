@@ -9,18 +9,21 @@ import { Terminal, Send, Wifi, WifiOff, Fingerprint, AlertCircle, ArrowUpCircle,
  */
 const FAVICON_PATH = '/icon.png'; 
 const BACKGROUND_IMAGE = '/haikei.png';
-const TITLE_TEXT = 'aaa';
+const TITLE_TEXT = 'The M5 Sotuken App';
 
 const HEARTBEAT_INTERVAL = 3000;
 const PING_FAIL_THRESHOLD = 3;
+const WS_PORT = 65500; // ポート番号を65500に設定
 
 export default function App() {
   const [messages, setMessages] = useState([]);
   const [inputCommand, setInputCommand] = useState('');
   const [status, setStatus] = useState('disconnected');
   const [m5Ip, setM5Ip] = useState(() => {
-    const saved = localStorage.getItem('m5_console_last_ip');
-    return saved !== null ? saved : '192.168.1.100';
+    try {
+      const saved = localStorage.getItem('m5_console_last_ip');
+      return saved !== null ? saved : '192.168.1.100';
+    } catch (e) { return '192.168.1.100'; }
   });
   const [userId, setUserId] = useState('');
   const [isTabBlocked, setIsTabBlocked] = useState(false);
@@ -36,7 +39,6 @@ export default function App() {
     document.title = TITLE_TEXT;
 
     // 2. Faviconの設定
-    // relはブラウザが認識できるよう必ず "icon" にする必要があります。
     let link = document.querySelector("link[rel*='icon']");
     if (!link) {
       link = document.createElement('link');
@@ -46,31 +48,35 @@ export default function App() {
     link.href = FAVICON_PATH;
 
     // デバイスIDの生成・取得
-    const savedId = localStorage.getItem('m5_console_user_id');
-    if (savedId) {
-      setUserId(savedId);
-    } else {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-      let result = '';
-      for (let i = 0; i < 20; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
-      localStorage.setItem('m5_console_user_id', result);
-      setUserId(result);
-    }
-
-    // タブ重複チェック
-    localStorage.setItem('m5_console_active_tab', tabIdRef.current);
-    const handleStorageChange = (e) => {
-      if (e.key === 'm5_console_active_tab' && e.newValue !== tabIdRef.current) {
-        setIsTabBlocked(true);
-        if (socketRef.current) socketRef.current.close();
+    try {
+      const savedId = localStorage.getItem('m5_console_user_id');
+      if (savedId) {
+        setUserId(savedId);
+      } else {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < 20; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+        localStorage.setItem('m5_console_user_id', result);
+        setUserId(result);
       }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+
+      // タブ重複チェック
+      localStorage.setItem('m5_console_active_tab', tabIdRef.current);
+      const handleStorageChange = (e) => {
+        if (e.key === 'm5_console_active_tab' && e.newValue !== tabIdRef.current) {
+          setIsTabBlocked(true);
+          if (socketRef.current) socketRef.current.close();
+        }
+      };
+      window.addEventListener('storage', handleStorageChange);
+      return () => window.removeEventListener('storage', handleStorageChange);
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('m5_console_last_ip', m5Ip);
+    try {
+      localStorage.setItem('m5_console_last_ip', m5Ip);
+    } catch (e) {}
   }, [m5Ip]);
 
   const connectWebSocket = () => {
@@ -78,7 +84,7 @@ export default function App() {
     if (socketRef.current) socketRef.current.close();
     if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
 
-    const url = `ws://${m5Ip}:80`;
+    const url = `ws://${m5Ip}:${WS_PORT}`; // ポート番号 65500 を使用
     addLog('System', `Attempting to connect to ${url}...`);
     setStatus('connecting');
     
@@ -120,7 +126,7 @@ export default function App() {
 
       socket.onerror = () => {
         setStatus('error');
-        addLog('Error', 'WebSocket connection failed.');
+        addLog('Error', `WebSocket connection failed. (Port: ${WS_PORT})`);
       };
 
       socketRef.current = socket;
@@ -131,7 +137,7 @@ export default function App() {
 
   const disconnectWebSocket = () => {
     if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
-    socketRef.current?.close();
+    if (socketRef.current) socketRef.current.close();
   };
 
   const addLog = (sender, text) => {
@@ -182,8 +188,8 @@ export default function App() {
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <h1 className="text-2xl font-bold text-blue-400 flex items-center gap-2"><Wifi /> M5 Console</h1>
             <div className="flex gap-2">
-              <input value={m5Ip} onChange={e => setM5Ip(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-3 py-1 text-sm text-white w-36" />
-              <button onClick={status === 'connected' ? disconnectWebSocket : connectWebSocket} className={`${status === 'connected' ? 'bg-red-500' : 'bg-blue-600'} px-4 py-2 rounded font-bold text-sm shadow-lg`}>
+              <input value={m5Ip} onChange={e => setM5Ip(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-3 py-1 text-sm text-white w-36 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <button onClick={status === 'connected' ? disconnectWebSocket : connectWebSocket} className={`${status === 'connected' ? 'bg-red-500' : 'bg-blue-600'} px-4 py-2 rounded font-bold text-sm shadow-lg hover:opacity-90 transition-opacity`}>
                 {status === 'connected' ? 'Disconnect' : 'Connect'}
               </button>
             </div>
@@ -192,13 +198,13 @@ export default function App() {
             <div className="flex items-center gap-2 text-sm font-mono text-indigo-300">
               <Fingerprint size={16} /> {userId || 'Generating...'}
             </div>
-            <span className="text-[10px] text-slate-600 font-bold italic">SESSION ACTIVE</span>
+            <span className="text-[10px] text-slate-600 font-bold italic">PORT: {WS_PORT}</span>
           </div>
         </header>
 
         <form onSubmit={sendCommand} className="relative">
           <input value={inputCommand} onChange={e => setInputCommand(e.target.value)} disabled={status !== 'connected'} placeholder="Enter command..." className="w-full bg-slate-800/90 border border-slate-700 rounded-xl p-4 pr-12 text-white shadow-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-          <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500"><Send size={24} /></button>
+          <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-400 transition-colors"><Send size={24} /></button>
         </form>
 
         <div className="flex flex-col gap-2">
@@ -217,7 +223,7 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-xs scrollbar-custom">
                 {messages.length === 0 && <div className="text-slate-800 italic text-center mt-20 font-sans">No logs yet.</div>}
                 {messages.map(msg => (
-                  <div key={msg.id} className="flex gap-2 border-b border-slate-900 pb-1 opacity-90">
+                  <div key={msg.id} className="flex gap-2 border-b border-slate-900 pb-1 opacity-90 animate-in fade-in duration-300">
                     <span className="text-slate-600">[{msg.time}]</span>
                     <span className={msg.sender === 'M5' ? 'text-green-500' : 'text-blue-400'}>{msg.sender}:</span>
                     <span className="text-slate-300 break-all">{msg.text}</span>

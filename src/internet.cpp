@@ -26,6 +26,7 @@
 #include <WiFi.h>
 #include <esp_wpa2.h>
 #include <lwip/etharp.h>
+#include <ESPAsyncWebServer.h>
 
 #include <algorithm>
 // Direct inclusion of ESP-IDF headers for low-level WiFi operations
@@ -52,7 +53,7 @@ int scrollXOffsett = M5.Lcd.width(); // 初期位置は画面右外側 (320)
 int counterSC = 4;
 int minic = 0;
 String UU;
-String TexNet = "  S0:GETWIFI\n  S1:LANPORT\n  S2:WEBSOCKET\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
+String TexNet = "  S0:GETWIFI\n  S1:WEBSOCKET\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
 int IntNet = 6;
 String TexNet2 = "  Send Text\n  Receive Text\n  All UserID LIST\n  Force Exit";
 int IntNet2 = 4;
@@ -69,12 +70,16 @@ int g_totalWrappedLines = 0; // 折り返しを含めた総行数
 // 追加: 更新メッセージ表示制御用
 bool g_isShowingUpdateMessage = false;
 unsigned long g_updateMessageStartTime = 0;
-WebSocketsServer webSocket = WebSocketsServer(80);
+WebSocketsServer webSocket = WebSocketsServer(65500);
 bool isWebSocketActive = false; // WebSocketサーバーの稼働状態フラグ
 // セッションリスト (接続中のユーザーを管理)
 
 std::vector<String> MailRList;
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");   // ws://<IP>/ws
 
+bool isServerRunning = false;
+bool isInitialized   = false;
 
 // セッション管理用マップ
 // 1. メイン管理マップ: Key=ユーザーID, Value=詳細情報(IP, 時刻, デバイス名など)
@@ -1860,4 +1865,67 @@ bool forceDisconnectClient(int nummm) {
     webSocket.disconnect((uint8_t)nummm);
     
     return true;
+}
+
+
+
+void onWsEvent(
+    AsyncWebSocket *server,
+    AsyncWebSocketClient *client,
+    AwsEventType type,
+    void *arg,
+    uint8_t *data,
+    size_t len
+) {
+    switch (type) {
+        case WS_EVT_CONNECT:
+            M5_LOGI("WS client #%u connected from %s",
+                client->id(),
+                client->remoteIP().toString().c_str()
+            );
+            break;
+
+        case WS_EVT_DISCONNECT:
+            M5_LOGI("WS client #%u disconnected", client->id());
+            break;
+
+        case WS_EVT_DATA:
+            // 必要ならここでコマンド処理
+            break;
+
+        case WS_EVT_PONG:
+        case WS_EVT_ERROR:
+            break;
+    }
+}
+
+void startWebServer() {
+  static bool started = false;
+  if (started) return;
+
+  if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) return;
+  if (!SD.exists("/data/index.html")) return;
+
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+
+  server.serveStatic("/", SD, "/data/")
+        .setDefaultFile("index.html");
+
+  server.begin();
+  started = true;
+}
+
+
+
+void stopWebServer() {
+    if (!isServerRunning) return;
+
+    // WebSocketは維持する前提なので closeAll しない
+    // ws.closeAll(); ← やらない
+
+    server.end();
+    isServerRunning = false;
+
+    M5_LOGI("WebServer stopped (WebSocket kept alive)");
 }

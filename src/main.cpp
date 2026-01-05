@@ -726,7 +726,17 @@ String getDateTimeString();
 
 void loop() {
 
+
+
+
+
+
+//delay入れたらサーバー起動時にエラー出ます
 mainkansu_intmain();
+  if(mainmode != 30 && mainmode != 32 && mainmode != 38){//重要・サーバー起動時のフリーズ対策
+    delay(1);
+  }
+
   if(mainmode == 13){
     tututu = false;
   }
@@ -742,7 +752,7 @@ if(M5.Touch.getCount() > 1){
   SD.end();
   ESP.restart();
 }
- delay(1);//serial.println暴走対策,Allname[positpoint]はテーブル名
+ //serial.println暴走対策,Allname[positpoint]はテーブル名
 if(mainmode == 22){
      updatePointer2(3,imano_pagek);
       
