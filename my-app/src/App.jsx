@@ -18,6 +18,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [inputCommand, setInputCommand] = useState('');
   const [status, setStatus] = useState('disconnected');
+  const [isCookieDisabled, setIsCookieDisabled] = useState(false);
   const [m5Ip, setM5Ip] = useState(() => {
     try {
       const saved = localStorage.getItem('m5_console_last_ip');
@@ -33,6 +34,12 @@ export default function App() {
   const missedPingsRef = useRef(0);
 
   useEffect(() => {
+    // Cookie/LocalStorageの実行可否チェック
+    if (!navigator.cookieEnabled) {
+      setIsCookieDisabled(true);
+      return;
+    }
+
     document.title = TITLE_TEXT;
     let link = document.querySelector("link[rel*='icon']");
     if (!link) {
@@ -63,14 +70,18 @@ export default function App() {
       };
       window.addEventListener('storage', handleStorageChange);
       return () => window.removeEventListener('storage', handleStorageChange);
-    } catch (e) {}
+    } catch (e) {
+      // LocalStorageが使えない場合（プライバシーモードなど）もエラー表示
+      setIsCookieDisabled(true);
+    }
   }, []);
 
   useEffect(() => {
+    if (isCookieDisabled) return;
     try {
       localStorage.setItem('m5_console_last_ip', m5Ip);
     } catch (e) {}
-  }, [m5Ip]);
+  }, [m5Ip, isCookieDisabled]);
 
   const disconnectWebSocket = () => {
     if (heartbeatTimerRef.current) {
@@ -85,9 +96,8 @@ export default function App() {
   };
 
   const connectWebSocket = () => {
-    if (isTabBlocked) return;
+    if (isTabBlocked || isCookieDisabled) return;
     
-    // 既存の接続をクリーンアップ
     disconnectWebSocket();
 
     const url = `ws://${m5Ip}:${WS_PORT}`;
@@ -107,7 +117,6 @@ export default function App() {
           if (socket.readyState === WebSocket.OPEN) {
             if (missedPingsRef.current >= PING_FAIL_THRESHOLD) {
               addLog('Error', 'Timeout: No response from M5. Disconnecting...');
-              // タイムアウト時に即座に切断状態へ戻す
               disconnectWebSocket();
               return;
             }
@@ -158,6 +167,18 @@ export default function App() {
     setInputCommand('');
   };
 
+  // Cookie/JS実行ができない環境向けの警告表示
+  if (isCookieDisabled) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-bold text-xl uppercase tracking-widest text-center">
+        <div className="space-y-4">
+          <AlertCircle className="mx-auto text-red-500" size={64} />
+          <p className="animate-pulse">please relaunch with js and cookie enabled browser!</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isTabBlocked) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-slate-100 text-center">
@@ -172,6 +193,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen p-4 md:p-8 relative text-slate-100 font-sans">
+      <noscript>
+        <div className="fixed inset-0 z-[9999] bg-slate-950 flex items-center justify-center p-6 text-white font-bold text-xl uppercase text-center">
+          please relaunch with js enabled browser!
+        </div>
+      </noscript>
+
       <style>{`
         body { 
           margin: 0; 
@@ -239,7 +266,7 @@ export default function App() {
         <footer className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-[10px] text-slate-500 text-center space-y-2">
           <p className="text-slate-300 font-bold italic">接続はping応答が3回連続で途絶えると即座に切断されます</p>
           <div className="grid grid-cols-2 gap-2 opacity-70">
-             <p>dataload:(数)：SD読込</p>
+             <p>dataload:(数):SD読込</p>
              <p>datasave:(テ),(数):SD書込</p>
              <p>sendme:(テ):反復送信</p>
              <p>test: :テスト信号</p>
