@@ -46,6 +46,7 @@ int scrollXOffset = 320;
 const int SCROLL_SPEED = 1;
 const int BOTTOM_AREA_Y = M5.Lcd.height() - 30; // 240 - 30 = 210
 const int BOTTOM_AREA_HEIGHT = 30;
+int SSListc = 0;
 // スクロールテキストのX座標オフセット
 int scrollXOffsett = M5.Lcd.width(); // 初期位置は画面右外側 (320)
 int counterSC = 4;
@@ -434,6 +435,7 @@ void disconnectWiFi() {
         WiFi.mode(WIFI_OFF);
         delay(100);
         MailRList.clear();
+        SSListc = 0;
         SessionSized = 0;
         Serial.println("WiFi Disconnected.");
         manual_wifi = false;
@@ -721,6 +723,10 @@ void registerSession(uint8_t num, String userId) {
  * WebSocket イベントハンドラ
  */
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    
+    
+    
+    
     switch(type) {
         case WStype_DISCONNECTED:
             Serial.printf("[WS] [%u] Disconnected!\n", num);
@@ -761,11 +767,26 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
                     // 通常メッセージ処理
                     if (msg.startsWith("dataload:")) {
                         // ロード命令をキューに入れる
-                        sendToWorkerTask(TASK_DATA_LOAD, (int)num);
+                        sendToWorkerTask(TASK_DATA_LOAD, (int)num, msg.substring(9));
                     } 
                     else if (msg.startsWith("datasave:")) {
                         // セーブ命令とデータ本体をキューに入れる
                         Serial.println("saving;" + msg.substring(9));
+
+                        
+                        int commaIndex = msg.indexOf(',');
+                        if (commaIndex != -1) {
+                            String m1 = msg.substring(9, commaIndex);
+                            String m2 = msg.substring(commaIndex + 1);
+                            // 引数2つを渡す
+                            sendToWorkerTask(TASK_DATA_SAVE, (int)num, m1, m2);
+                        } else {
+                            // カンマがない場合は全体をmsg1とするなどのフォールバック
+                            sendToWorkerTask(TASK_DATA_SAVE, (int)num, msg.substring(9), "");
+                        }
+
+
+
                         sendToWorkerTask(TASK_DATA_SAVE, (int)num, msg.substring(9));
                     }else if (msg.startsWith("ping:")) { // 追加
                         // Ping命令 (引数なし、ペイロード内容は不要なのでnumのみ渡す)
@@ -807,6 +828,9 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
         default:
             break;
     }
+
+    std::vector<String> idlist = getConnectedUserIds();
+    SSListc = idlist.size();
 }
 
 void startWebSocket() {
@@ -955,7 +979,7 @@ void ReceiveWebM(uint8_t num, String content,String RTCDate) {
 }
 
 
-int sessionSelectAndSendNonBlocking(String Txxxtsosin) {
+int sessionSelectAndSendNonBlocking(String Txxxtsosin,String annnai) {
     static bool initialized = false;
     static int selection = 0;
     static bool needRedraw = true;
@@ -967,7 +991,8 @@ int sessionSelectAndSendNonBlocking(String Txxxtsosin) {
         needRedraw = true;
     }
 
-    int totalSessions = sessionMap.size();
+    // clientLookup (num) のサイズを基準にする
+    int totalSessions = clientLookup.size();
     int maxItems = totalSessions + 2; 
 
     if (M5.BtnA.wasPressed()) {
@@ -996,21 +1021,31 @@ int sessionSelectAndSendNonBlocking(String Txxxtsosin) {
         M5.Lcd.drawFastHLine(0, 50, 320, WHITE);
         M5.Lcd.setCursor(0, 70);
         M5.Lcd.setTextColor(YELLOW, BLACK);
-        M5.Lcd.print("Target: ");
+        M5.Lcd.print(annnai);
 
         String targetName = "";
         String detailInfo = "";
         
-        // 選択肢の表示ロジック
+        // 選択肢の表示ロジック (clientLookup基準に変更)
         if (selection < totalSessions) {
-            auto it = sessionMap.begin();
+            // clientLookup は std::map<uint8_t, String> なのでキー(num)の昇順に並んでいる
+            auto it = clientLookup.begin();
             std::advance(it, selection);
-            targetName = "User: " + it->first;
-            detailInfo = "IP: " + it->second;
+            uint8_t num = it->first;
+            String userId = it->second;
             
-            // ★デバッグ表示: 内部的なnumを確認
-            int internalNum = getClientNumByUserId(it->first);
-            detailInfo += " (#" + String(internalNum) + ")";
+            targetName = "User: " + userId;
+            
+            // IPなどの詳細は sessionMap から引く
+            String ip = "Unknown IP";
+            if (sessionMap.count(userId)) {
+                ip = sessionMap[userId];
+            } else {
+                // 登録直後などで sessionMap にまだない場合のフォールバック
+                ip = webSocket.remoteIP(num).toString();
+            }
+
+            detailInfo = "IP:" + ip + " (#" + String(num) + ")";
         } else if (selection == totalSessions) {
             targetName = "ALL Users";
             detailInfo = "Broadcast to all";
@@ -1055,18 +1090,14 @@ int sessionSelectAndSendNonBlocking(String Txxxtsosin) {
                 sendResult = sendMessageByNum("", Txxxtsosin);
                 returnValue = -1;
             } else { // Individual
-                auto it = sessionMap.begin();
+                // 選択対象の num を直接取得
+                auto it = clientLookup.begin();
                 std::advance(it, selection);
-                String userId = it->first;
-                int num = getClientNumByUserId(userId);
+                uint8_t num = it->first;
                 
-                if (num != -1) {
-                    sendResult = sendMessageByNum(String(num), Txxxtsosin);
-                    returnValue = selection;
-                } else {
-                    sendResult = false;
-                    returnValue = selection;
-                }
+                // 直接 num を指定して送信
+                sendResult = sendMessageByNum(String(num), Txxxtsosin);
+                returnValue = selection;
             }
             
             if (sendResult) {
@@ -1504,11 +1535,12 @@ void checkidandsave1(int sendbynum){
         return;
     }
    MettDataMap datatosaveEE = copyVectorToMap(loadedVariablesE);
-
-    if(!datt2(useridd2,datatosaveEE)){
+    bool bb = !datt2(useridd2 + ";1",datatosaveEE) * !datt2(useridd2 + ";2",datatosaveEE) * !datt2(useridd2 + ";3",datatosaveEE);
+    if(bb){
         Serial.println("正常終了：" + useridd +"のテストデータ保存済み" + useridd2);
         return;
     }
+
     saveMettFile(SD, "/save/save3.mett", "testsus", datatosaveEE, tt);
     if(tt){
         Serial.println("Hensusave Error!");
@@ -1567,10 +1599,14 @@ int getClientNumByUserId(String userId) {
 }
 
 
-void thedataload(int nummm){
+void thedataload(int nummm,String id){
+    if(id != "1" && id != "2" && id != "3"){
+        sendMessageByNum(String(nummm), "load error:error code 03");
+        return;
+    }
     Serial.println("loadkaishi: id:" + clientLookup[nummm]);
     String useriidd = clientLookup[nummm];
-    String useridd2 = "txd1;" + useriidd;
+    String useridd2 = "txd1;" + useriidd + ";" + id;
     if(useriidd == ""){
         Serial.println("ユーザーidがまだセーブされていないエラー");
         sendMessageByNum(String(nummm), "load error:error code 01");
@@ -1598,10 +1634,14 @@ void thedatasomething(int nummm,String isall,String textf){
     sendMessageByNum(String(nummm),textf);
 }
 
-void thedatasave(int nummm,String datasavecontent){
+void thedatasave(int nummm,String datasavecontent,String id){
+    if(id != "1" && id != "2" && id != "3"){
+        sendMessageByNum(String(nummm), "load error:error code 04");
+        return;
+    }
     Serial.println("loadkaishi: id:" + clientLookup[nummm]);
     String useriidd = clientLookup[nummm];
-    String useridd2 = "txd1;" + useriidd;
+    String useridd2 = "txd1;" + useriidd + ";" + id;
     if(!isValidHensuValue(datasavecontent,false)){
         Serial.println("セーブする内容に禁止文字などのエラー");
         sendMessageByNum(String(nummm), "save error:error code 04");
@@ -1675,7 +1715,7 @@ void thedatalist(int nummm){
     for(const String& id : idlist){
         liststr += id + ", ";
     }
-    sendMessageByNum(String(nummm), liststr );
+    sendMessageByNum(String(nummm).substring(0,String(nummm).length() - 2), liststr );
 }
 
 
@@ -1690,11 +1730,11 @@ void backgroundProcessingTask(void *pvParameters) {
 
             // 処理の分岐
             if (msg.type == TASK_DATA_LOAD) {
-                thedataload(msg.clientNum);
+                thedataload(msg.clientNum,String(msg.dataPayload));
             } 
             else if (msg.type == TASK_DATA_SAVE) {
                 if (msg.dataPayload != NULL) {
-                    thedatasave(msg.clientNum, String(msg.dataPayload));
+                    thedatasave(msg.clientNum, String(msg.dataPayload),String(msg.dataPayload2));
                 }
             }
             else if (msg.type == TASK_DATA_SEND_OTHER) {

@@ -168,7 +168,15 @@ int sendmode;
 
 void mainkansu_intmain(){
   delay(1);
-  
+  if(checkWiFiConnection() && isWebSocketActive){
+    if(SSListc == 0){
+      statustext = "NetStep:2,Internet With Websocket";
+    }else{
+      statustext = "NetStep:3," + String(SSListc) + " Sessions Connected.";
+    }
+  }
+
+
 handleWebSocketLoop();
 if(mainmode == 37){
   int yy = sessionSelectAndSendNonBlocking(SuperT,"Select Session to Discon:");
@@ -539,7 +547,7 @@ if(mainmode == 32){
           return;
         }
         M5.Lcd.fillScreen(BLACK);
-        statustext = "NetStep:0,No Internet!";
+        
         M5.Lcd.setCursor(0,0);
         M5.Lcd.setTextSize(1);
         showmozinn2("connnecterd:\n isglobal:" + WSTT[5] + 
@@ -658,6 +666,7 @@ if(mainmode == 32){
               return;
           }
           stopWebSocket();
+          SSListc = 0;
           kanketu("stopped",400);
            M5.Lcd.fillScreen(BLACK);
            statustext = "NetStep:1,Connected to Wifi But no WebSocket";
