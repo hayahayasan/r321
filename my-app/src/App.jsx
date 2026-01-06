@@ -32,6 +32,7 @@ export default function App() {
   const tabIdRef = useRef(typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2));
   const heartbeatTimerRef = useRef(null);
   const missedPingsRef = useRef(0);
+  const gpsCounterRef = useRef(0); // GPS送信頻度調整用カウンター
 
   useEffect(() => {
     // Cookie/LocalStorageの実行可否チェック
@@ -113,6 +114,8 @@ export default function App() {
         socket.send(`id:${userId}`);
 
         missedPingsRef.current = 0;
+        gpsCounterRef.current = 0; // リセット
+
         heartbeatTimerRef.current = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
             if (missedPingsRef.current >= PING_FAIL_THRESHOLD) {
@@ -121,8 +124,42 @@ export default function App() {
               return;
             }
             try {
+              // 1. Ping送信 (毎回)
               socket.send('ping:');
               missedPingsRef.current += 1;
+              
+              // カウンターを進める
+              gpsCounterRef.current += 1;
+
+              // 2. GPS自動送信 (Ping 5回に1回実行)
+              if (gpsCounterRef.current >= 5) {
+                gpsCounterRef.current = 0; // カウンターをリセット
+
+                if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                      // 非同期処理中に切断されている可能性があるためチェック
+                      if (socket.readyState === WebSocket.OPEN) {
+                        const { latitude, longitude } = position.coords;
+                        // カンマを使わず、スラッシュ(/)区切りで記述
+                        const gpsStr = `${latitude.toFixed(6)}/${longitude.toFixed(6)}`;
+                        const cmd = `datasave:${gpsStr},4`;
+                        socket.send(cmd);
+                        // ログ出力は行わない
+                      }
+                    },
+                    (err) => {
+                      // GPSエラーはログに出しすぎないようwarnのみ
+                      console.warn('GPS Error:', err);
+                    },
+                    { 
+                      enableHighAccuracy: false, 
+                      timeout: 2000, 
+                      maximumAge: 10000 
+                    }
+                  );
+                }
+              }
             } catch (e) { console.error(e); }
           }
         }, HEARTBEAT_INTERVAL);
@@ -249,13 +286,16 @@ export default function App() {
                 {messages.map(msg => (
                   <div key={msg.id} className="flex gap-2 border-b border-slate-900 pb-1 opacity-90 animate-in fade-in duration-300">
                     <span className="text-slate-600">[{msg.time}]</span>
-                    <span className={msg.sender === 'M5' ? 'text-green-500' : msg.sender === 'System' ? 'text-indigo-400' : 'text-blue-400'}>{msg.sender}:</span>
+                    <span className={msg.sender === 'M5' ? 'text-green-500' : msg.sender.includes('Auto') ? 'text-yellow-500' : msg.sender === 'System' ? 'text-indigo-400' : 'text-blue-400'}>{msg.sender}:</span>
                     <span className="text-slate-300 break-all">{msg.text}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
+          
+          <div style={{ borderTop: '1px solid #475569', margin: '4px 0', width: '100%' }}></div>
+
           <div className="flex justify-end">
             <button onClick={() => setMessages([])} className="flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-red-400 px-3 py-2 bg-slate-800 rounded border border-slate-700 shadow-sm transition-colors">
               <Trash2 size={12}/> CLEAR HISTORY

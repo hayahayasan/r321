@@ -2021,7 +2021,7 @@ else if(mainmode == -1){
     }else if((pagemoveflag == 5) ){
      M5.Lcd.setCursor(0, 0);
      M5.Lcd.fillScreen(BLACK);
-        sita = tttt;
+        sita = sitagar[maindex];
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -2064,7 +2064,7 @@ else if(mainmode == -1){
           }
           
           M5.Lcd.setTextSize(3);
-        sita = tttt;
+        sita = sitagar[maindex];
         releaseSDBusForOtherUse();
         M5.Lcd.fillScreen(BLACK);
         textexx();
@@ -2095,7 +2095,7 @@ else if(mainmode == -1){
           kanketu("Format Failed!",500);
         }
         M5.Lcd.setTextSize(3);
-        sita = tttt;
+        sita = sitagar[maindex];
         releaseSDBusForOtherUse();
         M5.Lcd.fillScreen(BLACK);
         textexx();
@@ -2108,7 +2108,7 @@ else if(mainmode == -1){
 
         }else{
            M5.Lcd.setTextSize(3);
-        sita = tttt;
+       sita = sitagar[maindex];
         M5.Lcd.fillScreen(BLACK);
         textexx();
         positpoint = 0;

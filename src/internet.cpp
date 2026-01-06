@@ -1540,7 +1540,7 @@ void checkidandsave1(int sendbynum){
         return;
     }
    MettDataMap datatosaveEE = copyVectorToMap(loadedVariablesE);
-    bool bb = !datt2(useridd2 + ";1",datatosaveEE) * !datt2(useridd2 + ";2",datatosaveEE) * !datt2(useridd2 + ";3",datatosaveEE);
+    bool bb = !datt2(useridd2 + ";1",datatosaveEE) * !datt2(useridd2 + ";2",datatosaveEE) * !datt2(useridd2 + ";3",datatosaveEE)* !datt2(useridd2 + ";4",datatosaveEE);
     if(bb){
         Serial.println("正常終了：" + useridd +"のテストデータ保存済み" + useridd2);
         return;
@@ -1605,7 +1605,7 @@ int getClientNumByUserId(String userId) {
 
 
 void thedataload(int nummm,String id){
-    if(id != "1" && id != "2" && id != "3"){
+    if(id != "1" && id != "2" && id != "3" && id != "4"){
         sendMessageByNum(String(nummm), "load error:error code 03");
         return;
     }
@@ -1640,7 +1640,7 @@ void thedatasomething(int nummm,String isall,String textf){
 }
 
 void thedatasave(int nummm,String datasavecontent,String id){
-    if(id != "1" && id != "2" && id != "3"){
+    if(id != "1" && id != "2" && id != "3" && id != "4"){
         sendMessageByNum(String(nummm), "load error:error code 04");
         return;
     }
@@ -1675,7 +1675,10 @@ void thedatasave(int nummm,String datasavecontent,String id){
     if(tt){
         sendMessageByNum(String(nummm), "save error:error code 03");
     }else{
-        sendMessageByNum(String(nummm), "savedata:ok");
+        if(id != "4"){
+            sendMessageByNum(String(nummm), "savedata:ok");
+        }
+        
         Serial.println("datasave completed!" + useridd2);
     }
 }
@@ -1715,6 +1718,9 @@ void thedataping(int nummm){
     Serial.println("pingouto:" + clientLookup[nummm] );
 }
 void thedatalist(int nummm){
+
+    
+
     std::vector<String> idlist = getConnectedUserIds();
     String liststr = "idlist of active:(count:" + String(idlist.size()) + "): ";
     for(const String& id : idlist){

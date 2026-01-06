@@ -19,6 +19,7 @@
 #include <SDFat.h>
 #include <SPIFFS.h>
 #include <SPI.h> 
+#include <Adafruit_NeoPixel.h>
 #include "shares.h"
 #pragma region <hensu4aa>
 const String METT_TABLE_NAME_KEY = "table_name"; 
@@ -172,13 +173,21 @@ void mainkansu_intmain(){
     if(SSListc == 0){
       statustext = "NetStep:2,Internet With Websocket";
     }else{
+      
       statustext = "NetStep:3," + String(SSListc) + " Sessions Connected.";
     }
   }
 
+/*  if(isServerRunning){
+      startBatteryLed();
+       
+  }else{
+    stopBatteryLed();
+  }
+
 if(checkWiFiConnection()){
   handleWebSocketLoop();
-}
+}*/
 
 
 if(mainmode == 38){
@@ -486,7 +495,8 @@ if(mainmode == 32){
         if(!createEE(mmmc,1)){
           kanketu("!load error!",400);
             M5.Lcd.setCursor(0, 0);
-            sita = "hello";
+            positpoint = 0;
+            sita = sitagar[maindex];
             textexx();
             positpoint = 0;
             holdpositpoint = 0;
@@ -595,7 +605,7 @@ if(mainmode == 32){
       
       M5.Lcd.fillScreen(BLACK);
             M5.Lcd.setCursor(0, 0);
-            sita = "hello";
+            sita = sitagar[maindex];
             textexx();
             positpoint = 0;
             holdpositpoint = 0;
@@ -621,7 +631,7 @@ if(mainmode == 32){
           if(!createEE(mmmc),0){
             kanketu("!load error!",400);
             M5.Lcd.setCursor(0, 0);
-            sita = "hello";
+         
             textexx();
             positpoint = 0;
             holdpositpoint = 0;
@@ -1198,7 +1208,7 @@ if(sse == "E"){
           }else if(currentPos == 5){
             M5.Lcd.fillScreen(BLACK);
             M5.Lcd.setCursor(0, 0);
-            sita = "hello";
+            sita = sitagar[maindex];
             textexx();
             positpoint = 0;
             holdpositpoint = 0;
@@ -1492,7 +1502,7 @@ if(sse == "E"){
   
   // 左上すれすれ (0,0) に表示
         M5.Lcd.setCursor(0, 0);
-        sita = tttt;
+        sita = sitagar[maindex];
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -1814,9 +1824,10 @@ if(sse == "E"){
   
   // 左上すれすれ (0,0) に表示
         M5.Lcd.setCursor(0, 0);
-        sita = "hello ";
+        sita = sitagar[maindex];
         textexx();
         positpoint = 0;
+        sita = sitagar[maindex];
         holdpositpoint = 0;
         imano_page = 0;
         mainmode = 0;
@@ -2138,6 +2149,7 @@ if(sse == "E"){
       nosd = false;
         mainmode = 0;
         M5.Lcd.fillScreen(BLACK);
+        sita = sitagar[maindex];
         M5.Lcd.setCursor(0, 0);
         textexx();
         return;// !nosd の if ブロック終了 (ここに閉じ括弧を追加しました)
@@ -2334,7 +2346,7 @@ if(sse == "E"){
           mainmode = 0;
           beginizeSD = false;
           M5.Lcd.setCursor(0, 0);
-        
+        sita = sitagar[maindex];
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -2353,7 +2365,7 @@ if(sse == "E"){
           mainmode = 0;
 
           M5.Lcd.setCursor(0, 0);
-       
+       sita = sitagar[maindex];
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -2369,7 +2381,7 @@ if(sse == "E"){
           mainmode = 0;
 
           M5.Lcd.setCursor(0, 0);
-        
+        sita = sitagar[maindex];
         textexx();
         positpoint = 0;
         holdpositpoint = 0;
@@ -2422,7 +2434,8 @@ if(sse == "E"){
       // これはメニューモードでのみ行われる
       M5.Lcd.fillScreen(BLACK); // 画面をクリア
       M5.Lcd.setCursor(0, 0);
-      sita = "button1"; // 一時的に表示テキストを変更
+
+      sita = "no function!"; // 一時的に表示テキストを変更
       textexx(); // メニュー画面を再描画
     }
 
@@ -3147,7 +3160,7 @@ void resetto31(){
             if(!createEE(mmmc,1)){
             kanketu("!load error!",400);
             M5.Lcd.setCursor(0, 0);
-            sita = "hello";
+            sita = sitagar[maindex];
             textexx();
             positpoint = 0;
             holdpositpoint = 0;
@@ -3163,6 +3176,55 @@ void resetto31(){
 }
 
 
+// --- Configuration ---
+#define LED_PIN 25
+#define NUM_LEDS 10
+#define CHECK_INTERVAL 10000 // 10 seconds
 
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
+// --- State Variables ---
+bool isLedActive = false;
+bool isInternetAvailable = true; // 初期値はtrueとしておき、最初のチェックで判定させる
+unsigned long lastCheckTime = 0;
 
+/**
+ * LEDの呼吸（Breathing）エフェクトを更新する
+ * 毎ループ呼ばれますが、isLedActiveがfalseなら何もしません
+ */
+void startBatteryLed() {
+  if(isLedActive) return; // すでにアクティブなら何もしない
+    isLedActive = true;
+    for (int i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, strip.Color(0, 100, 0)); // 緑色で点灯
+    }
+    strip.show();
+    Serial.println("LED: Turned ON");
+}
+
+/**
+ * LEDを消灯する (1回のみ実行される想定)
+ */
+void stopBatteryLed() {
+  if(!isLedActive) return; // すでに非アクティブなら何もしない
+    isLedActive = false;
+    strip.clear();
+    strip.show();
+    Serial.println("LED: Turned OFF");
+}
+/**
+ * 点滅アニメーションの更新
+ */
+void updateBatteryLedBreathing() {
+    // isLedActiveがfalseの間は、strip.show()を一切呼ばない
+    if (!isLedActive) return;
+
+    unsigned long ms = millis();
+    float intensity = (sin(ms * 0.00314f) + 1.0f) / 2.0f;
+    int brightness = (int)(intensity * 150);
+
+    for (int i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, strip.Color(0, brightness, 0));
+    }
+    strip.show();
+}
