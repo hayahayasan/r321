@@ -3169,3 +3169,40 @@ void resetto31(){
           return;
 }
 
+
+#define AW9523_ADDR 0x58
+
+/**
+ * AW9523Bのレジスタに書き込む補助関数
+ */
+void writeAW9523(uint8_t reg, uint8_t val) {
+    Wire1.beginTransmission(AW9523_ADDR);
+    Wire1.write(reg);
+    Wire1.write(val);
+    Wire1.endTransmission();
+}
+
+/**
+ * バッテリー底面のLEDを緑色に点灯させる関数
+ * 呼び出し時に1回だけ実行
+ */
+void turnOnBatteryLedGreen() {
+    // CoreS3の内部I2C(Wire1)を使用
+    // AW9523Bの初期化（P1ポートをプッシュプル出力モードに設定）
+    writeAW9523(0x12, 0x00); // Config P1 (All Output)
+    
+    // LEDのアノード/カソード接続先に合わせ、特定のビットを操作します
+    // 通常、M5のボトムLEDはP1_0, P1_1などに割り当てられています
+    // ここでは緑色に相当するピンをLOW/HIGH制御します
+    writeAW9523(0x03, 0x01); // P1出力データ: 緑点灯 (ピンアサインに依存)
+    
+    Serial.println("Battery LED: Green ON");
+}
+
+/**
+ * バッテリー底面のLEDを消灯させる関数
+ */
+void turnOffBatteryLed() {
+    writeAW9523(0x03, 0x00); // P1出力データ: すべて消灯
+    Serial.println("Battery LED: OFF");
+}

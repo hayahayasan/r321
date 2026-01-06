@@ -1908,7 +1908,7 @@ void onWsEvent(
 void startWebServer() {
   static bool started = false;
   if (started) return;
-
+ // turnOnBatteryLedGreen();
   if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) return;
   if (!SD.exists("/data/index.html")) return;
 
@@ -1919,6 +1919,7 @@ void startWebServer() {
         .setDefaultFile("index.html");
 
   server.begin();
+  
   started = true;
 }
 

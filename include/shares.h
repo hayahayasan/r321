@@ -422,5 +422,6 @@ extern bool isServerRunning;
 
 void startWebServer();
 void stopWebServer();
-
+void turnOnBatteryLedGreen();
+void turnOffBatteryLed();
 #endif // SHARED
