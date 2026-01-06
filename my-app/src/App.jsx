@@ -293,9 +293,6 @@ export default function App() {
               </div>
             </div>
           </div>
-          
-          <div style={{ borderTop: '1px solid #475569', margin: '4px 0', width: '100%' }}></div>
-
           <div className="flex justify-end">
             <button onClick={() => setMessages([])} className="flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-red-400 px-3 py-2 bg-slate-800 rounded border border-slate-700 shadow-sm transition-colors">
               <Trash2 size={12}/> CLEAR HISTORY

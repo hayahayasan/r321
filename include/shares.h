@@ -422,7 +422,5 @@ extern bool isServerRunning;
 
 void startWebServer();
 void stopWebServer();
-void updateBatteryLedBreathing() ;
-void stopBatteryLed() ;
-void startBatteryLed() ;
+
 #endif // SHARED

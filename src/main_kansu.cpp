@@ -19,7 +19,7 @@
 #include <SDFat.h>
 #include <SPIFFS.h>
 #include <SPI.h> 
-#include <Adafruit_NeoPixel.h>
+
 #include "shares.h"
 #pragma region <hensu4aa>
 const String METT_TABLE_NAME_KEY = "table_name"; 
@@ -178,16 +178,10 @@ void mainkansu_intmain(){
     }
   }
 
-/*  if(isServerRunning){
-      startBatteryLed();
-       
-  }else{
-    stopBatteryLed();
-  }
 
 if(checkWiFiConnection()){
   handleWebSocketLoop();
-}*/
+}
 
 
 if(mainmode == 38){
@@ -3175,56 +3169,3 @@ void resetto31(){
           return;
 }
 
-
-// --- Configuration ---
-#define LED_PIN 25
-#define NUM_LEDS 10
-#define CHECK_INTERVAL 10000 // 10 seconds
-
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
-
-// --- State Variables ---
-bool isLedActive = false;
-bool isInternetAvailable = true; // 初期値はtrueとしておき、最初のチェックで判定させる
-unsigned long lastCheckTime = 0;
-
-/**
- * LEDの呼吸（Breathing）エフェクトを更新する
- * 毎ループ呼ばれますが、isLedActiveがfalseなら何もしません
- */
-void startBatteryLed() {
-  if(isLedActive) return; // すでにアクティブなら何もしない
-    isLedActive = true;
-    for (int i = 0; i < NUM_LEDS; i++) {
-        strip.setPixelColor(i, strip.Color(0, 100, 0)); // 緑色で点灯
-    }
-    strip.show();
-    Serial.println("LED: Turned ON");
-}
-
-/**
- * LEDを消灯する (1回のみ実行される想定)
- */
-void stopBatteryLed() {
-  if(!isLedActive) return; // すでに非アクティブなら何もしない
-    isLedActive = false;
-    strip.clear();
-    strip.show();
-    Serial.println("LED: Turned OFF");
-}
-/**
- * 点滅アニメーションの更新
- */
-void updateBatteryLedBreathing() {
-    // isLedActiveがfalseの間は、strip.show()を一切呼ばない
-    if (!isLedActive) return;
-
-    unsigned long ms = millis();
-    float intensity = (sin(ms * 0.00314f) + 1.0f) / 2.0f;
-    int brightness = (int)(intensity * 150);
-
-    for (int i = 0; i < NUM_LEDS; i++) {
-        strip.setPixelColor(i, strip.Color(0, brightness, 0));
-    }
-    strip.show();
-}
