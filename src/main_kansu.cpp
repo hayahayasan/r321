@@ -10,7 +10,7 @@
 #include <Wire.h>
 #include<SD.h>
 #include <USB.h> 
-
+//#include <Adafruit_AW9523.h>
 #include <FS.h>
 #include <vector>    // std::vector を使用するために必要
 #include <algorithm>
@@ -19,7 +19,7 @@
 #include <SDFat.h>
 #include <SPIFFS.h>
 #include <SPI.h> 
-
+#include <FastLED.h>
 #include "shares.h"
 #pragma region <hensu4aa>
 const String METT_TABLE_NAME_KEY = "table_name"; 
@@ -178,7 +178,7 @@ void mainkansu_intmain(){
     }
   }
 
-
+delay(1);
 if(checkWiFiConnection()){
   handleWebSocketLoop();
 }
@@ -3169,40 +3169,24 @@ void resetto31(){
           return;
 }
 
-
-#define AW9523_ADDR 0x58
+#define LED_PIN    7     // Typically GPIO 1 for bottom LED on CoreS3/S3 SE extensions
+#define NUM_LEDS    1     // Number of LEDs in the bottom strip (usually 1 or a small strip)
+#define BRIGHTNESS  50 
+CRGB leds[NUM_LEDS];
 
 /**
- * AW9523Bのレジスタに書き込む補助関数
+ * Function to turn on the LED once with a specific color
+ * @param color: FastLED CRGB color (e.g., CRGB::Red)
  */
-void writeAW9523(uint8_t reg, uint8_t val) {
-    Wire1.beginTransmission(AW9523_ADDR);
-    Wire1.write(reg);
-    Wire1.write(val);
-    Wire1.endTransmission();
+void turnOnLED(CRGB color) {
+    leds[0] = color;
+    FastLED.show();
 }
 
 /**
- * バッテリー底面のLEDを緑色に点灯させる関数
- * 呼び出し時に1回だけ実行
+ * Function to turn off the LED once
  */
-void turnOnBatteryLedGreen() {
-    // CoreS3の内部I2C(Wire1)を使用
-    // AW9523Bの初期化（P1ポートをプッシュプル出力モードに設定）
-    writeAW9523(0x12, 0x00); // Config P1 (All Output)
-    
-    // LEDのアノード/カソード接続先に合わせ、特定のビットを操作します
-    // 通常、M5のボトムLEDはP1_0, P1_1などに割り当てられています
-    // ここでは緑色に相当するピンをLOW/HIGH制御します
-    writeAW9523(0x03, 0x01); // P1出力データ: 緑点灯 (ピンアサインに依存)
-    
-    Serial.println("Battery LED: Green ON");
-}
-
-/**
- * バッテリー底面のLEDを消灯させる関数
- */
-void turnOffBatteryLed() {
-    writeAW9523(0x03, 0x00); // P1出力データ: すべて消灯
-    Serial.println("Battery LED: OFF");
+void turnOffLED() {
+    leds[0] = CRGB::Black;
+    FastLED.show();
 }

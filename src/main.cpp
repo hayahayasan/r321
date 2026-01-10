@@ -727,7 +727,7 @@ String getDateTimeString();
 void loop() {
 
 
- delay(1);
+
 
 
 

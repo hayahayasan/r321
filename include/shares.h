@@ -1,6 +1,7 @@
 #ifndef SHARED_H
 #define SHARED_H
 #include <WiFi.h>
+#include <FastLED.h>
 // 他のファイルで定義された変数を参照するための宣言
 extern int shared_variable;
 
@@ -422,6 +423,6 @@ extern bool isServerRunning;
 
 void startWebServer();
 void stopWebServer();
-void turnOnBatteryLedGreen();
-void turnOffBatteryLed();
+void turnOnLED(CRGB color);
+void turnOffLED();
 #endif // SHARED
