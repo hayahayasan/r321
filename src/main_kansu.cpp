@@ -169,7 +169,7 @@ int sendmode;
 
 void mainkansu_intmain(){
 
-  if(checkWiFiConnection() && isServerRunning){
+  if(wifi_links && isServerRunning){
     if(SSListc == 0){
       statustext = "NetStep:2,Internet With Websocket";
     }else{
@@ -178,12 +178,12 @@ void mainkansu_intmain(){
     }
   }
 
-if(checkWiFiConnection()){
+if(wifi_links){
   handleWebSocketLoop();
   Serial.println("fefe");
 }
 
-
+delay(1);
 if(mainmode == 38){
   
 }
@@ -790,7 +790,7 @@ if(mainmode == 32){
             M5.Lcd.println(TexNet);
           return;
       }else if(positpoint == 3){//session list
-        if(!checkWiFiConnection()){
+        if(!wifi_links){
           kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
            M5.Lcd.fillScreen(BLACK);
           positpoint = 0;
@@ -911,6 +911,7 @@ if(mainmode == 32){
             delay(500);
            startWebSocket();
           startWebServer();
+          
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0, 0);
           if(issoftap){
