@@ -61,7 +61,7 @@ bool btnc;
 unsigned long lastTextScrollTime;
 
 unsigned long TEXT_SCROLL_INTERVAL_MS;
-
+bool wifi_links = false;
 int scrollPos;
 //後で実装　ファイルのゴミ箱移動オプション
 //ファイルコピペ時に、ペースト後「カットしますか」を出す
@@ -178,9 +178,9 @@ void mainkansu_intmain(){
     }
   }
 
-delay(1);
 if(checkWiFiConnection()){
   handleWebSocketLoop();
+  Serial.println("fefe");
 }
 
 
@@ -482,6 +482,7 @@ if(mainmode == 32){
           M5.Lcd.setTextSize(1);
          resetto31();
 
+
           return;
         }
         M5.Lcd.fillScreen(BLACK);
@@ -519,6 +520,8 @@ if(mainmode == 32){
           positpoint = 0;
             maxpage = -1;
             holdpositpoint = 0;
+            
+            issoftap = false;
             imano_page = 0;
             mainmode = 30;
             M5.Lcd.setCursor(0, 0);
@@ -583,6 +586,27 @@ if(mainmode == 32){
          resetto31();
 
           return;
+      }else if(positpoint == 5){//ssid scan
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.setTextSize(1);
+        M5.Lcd.println("Scanning SSID...");
+        String ssidList = scanAndGetSSIDList();
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0,0);
+        M5.Lcd.println("SSIDS:\n" + ssidList);
+        while(true){
+          delay(1);
+          M5.update();
+          if(M5.BtnB.wasPressed()){
+            break;
+          }
+        }
+        M5.Lcd.setTextSize(1);
+        positpoint = 0;
+         resetto31();
+
+          return;
       }
     }
   }
@@ -607,7 +631,21 @@ if(mainmode == 32){
             mainmode = 0;
       return;
     }else if(M5.BtnB.wasPressed()){
-      if(positpoint == 0){
+      if(positpoint == 0){//wifi connect
+        if(issoftap){
+          kanketu("Soft AP Enabled!",599);
+          M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+        }
         M5.Lcd.setCursor(0, 0);
             positpoint = 0;
             maxpage = -1;
@@ -615,7 +653,7 @@ if(mainmode == 32){
             imano_page = 0;
             mainmode = 31;
           M5.Lcd.fillScreen(BLACK);
-          mmmc;
+          
           M5.Lcd.println("SD Waking!");
           SD.begin(GPIO_NUM_4, SPI, 20000000);
           
@@ -700,6 +738,20 @@ if(mainmode == 32){
 
 
       }else if(positpoint == 4){//disconnect
+        if(issoftap){
+          kanketu("Soft AP Enabled!",599);
+          M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+          return;
+        }
         if(!checkWiFiConnection()){
           kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
            M5.Lcd.fillScreen(BLACK);
@@ -759,7 +811,7 @@ if(mainmode == 32){
        
       }else if(positpoint == 5){//do_auto
         SD.begin(GPIO_NUM_4, SPI, 20000000);
-        if(checkWiFiConnection()){
+        if(wifi_links){
           kanketu("Yes Connection!\n your MAC:" + WiFi.macAddress(),2000);
            M5.Lcd.fillScreen(BLACK);
           positpoint = 0;
@@ -775,6 +827,8 @@ if(mainmode == 32){
         }
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0, 0);
+        bool yy = areubunki("STA","AP");
+          
           if(!createEE(mmmc,1)){
             kanketu("load Error..",400);
             M5.Lcd.fillScreen(BLACK);
@@ -791,7 +845,8 @@ if(mainmode == 32){
           }
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0, 0);
-          if(!connectToEnterpriseWiFi(GyakuhenkanTxt(mmmc["table_SSID"]),GyakuhenkanTxt(mmmc["table_Usrname"]),GyakuhenkanTxt(mmmc["table_Pass"]))){
+          if(yy){
+            if(!connectToEnterpriseWiFi(GyakuhenkanTxt(mmmc["table_SSID"]),GyakuhenkanTxt(mmmc["table_Usrname"]),GyakuhenkanTxt(mmmc["table_Pass"]))){
             kanketu("load Error..",400);
             M5.Lcd.fillScreen(BLACK);
           positpoint = 0;
@@ -805,9 +860,20 @@ if(mainmode == 32){
             M5.Lcd.println(TexNet);
           return;
           }
+          }else{
+            startSoftAP("M5_test","testtest");
+            kanketu("Your SSID:M5_test\nYour Pass:testtest",4000);
+          }
+          wifi_links = true;
           startWebSocket();
           startWebServer();
-          kanketu("PLZ Access...:\nhttp://" + WiFi.localIP().toString(),4000);
+          
+          if(yy){
+            kanketu("PLZ Access...:\nhttp://" + WiFi.localIP().toString(),4000);
+          }else{
+            kanketu("PLZ Access...:\nhttp://" + currentIPString ,4000);
+          }
+          
           M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setCursor(0,0);
         isServerRunning = true;
@@ -819,7 +885,7 @@ if(mainmode == 32){
 
       }else if(positpoint == 2){//webserveer start/stop
         Serial.println("fe");
-        if(!checkWiFiConnection()){
+        if(!wifi_links){
           kanketu("No Connection!\n your MAC:" + WiFi.macAddress(),2000);
            M5.Lcd.fillScreen(BLACK);
           positpoint = 0;
@@ -846,6 +912,13 @@ if(mainmode == 32){
            startWebSocket();
           startWebServer();
           M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
+          if(issoftap){
+            refreshServerIP();
+            kanketu("Your Local IP:\n" + currentIPString,4000);
+          }
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0, 0);
           positpoint = 0;
             maxpage = -1;
             holdpositpoint = 0;
@@ -855,6 +928,11 @@ if(mainmode == 32){
             M5.Lcd.setTextSize(3);
             positpointmax =IntNet;
             M5.Lcd.println(TexNet);
+
+
+            
+
+
           return;
            
           
@@ -862,6 +940,25 @@ if(mainmode == 32){
             
          
         }else{
+          if(issoftap){
+            int tt = areubunki2("Disconnect","Back","yourip:" + currentIPString);
+            if(tt == 0 || tt == -1){
+              M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+            }
+
+
+          }
           M5.Lcd.fillScreen(BLACK);
           M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextSize(3);
@@ -884,6 +981,73 @@ if(mainmode == 32){
           
         }
         return;
+      }else if(positpoint == 1){//soapmode
+        if(!issoftap){
+          M5.Lcd.fillScreen(BLACK);
+          if(wifi_links){
+            stopSoftAP();
+            stopWebServer();
+            stopWebSocket();
+            kanketu("Turned off AP Mode! " ,500);
+            
+            M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.println(TexNet);
+            return;
+          }
+
+          startSoftAP("M5_test","testtest");
+          wifi_links = true;
+          M5.Lcd.setCursor(0,0);
+          issoftap = true;
+          M5.Lcd.println("WLAN Started:\n SSID:M5_test\n Pass:testtest\n  IPv4:" + currentIPString );
+          while(true){
+            delay(1);
+            M5.update();
+            if(M5.BtnB.wasPressed()){
+              break;
+            }
+          }
+          M5.Lcd.setTextSize(1);
+        positpoint = 0;
+          M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+        }else{
+          stopSoftAP();
+          kanketu("Stopped!",500);
+          M5.Lcd.setTextSize(1);
+        M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+        }
       }
 
     }

@@ -9,6 +9,7 @@
 #include <M5Unified.h>
 #include <Wire.h>
 #include<SD.h>
+
 #include <USB.h> 
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -39,11 +40,34 @@ extern "C" {
   #include "esp_wpa2.h"
 }
 
+// 現在のIPアドレスを保持する変数
+String currentIPString = "0.0.0.0";
 
+// --- LAN設定 (M5Stack CoreS3 + LAN Module W5500) ---
+// W5500はSPI接続です。CoreS3の底面MBUSのSPIピンアサインに合わせます。
+#define ETH_SPI_SCK  36
+#define ETH_SPI_MISO 35
+#define ETH_SPI_MOSI 37
+#define ETH_CS_PIN   9   // LANモジュールのCSピン（Baseによって26の場合もあり）
+#define ETH_INT_PIN  10  // 割り込みピン
+#define ETH_RST_PIN  -1  // リセットピン（なければ-1）
+#define ETH_ADDR     1   // PHYアドレス（通常1）
+#define ETH_POWER_PIN -1 // 電源制御ピン（なければ-1）
+
+// 直結用固定IP設定 (DHCP失敗時のフォールバック用)
+IPAddress staticIP(192, 168, 0, 200);
+IPAddress gateway(192, 168, 0, 1);
+IPAddress subnet(255, 255, 255, 0);
+IPAddress dns(8, 8, 8, 8);
+String stationIPString;
+static bool eth_connected = false;
+
+bool issoftap;
 // スクロール表示用のグローバル変数
 // M5Stackの画面解像度: 320x240
 // 最下部の表示エリアのY座標と高さ
 int scrollXOffset = 320;
+bool wifi_nosoapap = false;
 const int SCROLL_SPEED = 1;
 const int BOTTOM_AREA_Y = M5.Lcd.height() - 30; // 240 - 30 = 210
 const int BOTTOM_AREA_HEIGHT = 30;
@@ -53,7 +77,7 @@ int scrollXOffsett = M5.Lcd.width(); // 初期位置は画面右外側 (320)
 int counterSC = 4;
 int minic = 0;
 String UU;
-String TexNet = "  S0:GETWIFI\n  S1:WEBSOCKET\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
+String TexNet = "  S0:GETWIFI\n  S1:SOFTAP\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
 int IntNet = 6;
 String TexNet2 = "  Send Text\n  Receive Text\n  All UserID LIST\n  Force Exit";
 int IntNet2 = 4;
@@ -103,9 +127,9 @@ String getTimestampStr() {
 }
 
 String TexNet1(MettDataMap mmmc){
-    return "  SSID:" + GyakuhenkanTxt(mmmc["table_SSID"]) + "\n  Username:" + GyakuhenkanTxt(mmmc["table_Usrname"] )+ "\n  Password:" + GyakuhenkanTxt(mmmc["table_Pass"]) + "\n  Login\n  Wifi Status\n";
+    return "  SSID:" + GyakuhenkanTxt(mmmc["table_SSID"]) + "\n  Username:" + GyakuhenkanTxt(mmmc["table_Usrname"] )+ "\n  Password:" + GyakuhenkanTxt(mmmc["table_Pass"]) + "\n  Login\n  Wifi Status\n  SSID Scanner" ;
 }
-int IntNet1 = 5;
+int IntNet1 = 6;
 bool createEE(MettDataMap& MDM,int type){
     
     
@@ -442,6 +466,7 @@ void disconnectWiFi() {
         MailRList.clear();
         SSListc = 0;
         SessionSized = 0;
+        wifi_links = false;
         Serial.println("WiFi Disconnected.");
         manual_wifi = false;
         WSTT.clear();
@@ -592,7 +617,7 @@ bool connectToEnterpriseWiFi(String ssid, String id, String pass) {
 
         // 情報収集
         collectWSTT();
-
+        wifi_links = true;
         // 成功表示のために画面クリア
         showStatus("Connected!", GREEN);
         manual_wifi = true;
@@ -839,14 +864,15 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
 }
 
 void startWebSocket() {
-    if (WiFi.status() != WL_CONNECTED) return;
+  WiFi.setSleep(false);
     if (isWebSocketActive) return;
 
     webSocket.begin();
     webSocket.onEvent(onWebSocketEvent);
+    
     isWebSocketActive = true;
     
-    Serial.println("[WS] Server Started on Port 81");
+    Serial.println("[WS] Server Started on Port 65500");
 }
 
 void stopWebSocket() {
@@ -1935,4 +1961,129 @@ void stopWebServer() {
     isServerRunning = false;
 
     M5_LOGI("WebServer stopped (WebSocket kept alive)");
+}
+
+
+void WiFiEvent(WiFiEvent_t event) {
+    switch (event) {
+        case ARDUINO_EVENT_ETH_START:
+            Serial.println("[ETH] Started");
+            ETH.setHostname("m5stack-server");
+            break;
+        case ARDUINO_EVENT_ETH_CONNECTED:
+            Serial.println("[ETH] Cable Connected");
+            break;
+        case ARDUINO_EVENT_ETH_GOT_IP:
+            Serial.print("[ETH] Got IP: ");
+            Serial.println(ETH.localIP());
+            
+            eth_connected = true;
+            
+            // IPアドレスを再取得・更新
+            refreshServerIP();
+            
+            // LAN接続時にサーバーが動いていなければ起動
+            startWebServer(); 
+            break;
+        case ARDUINO_EVENT_ETH_DISCONNECTED:
+            Serial.println("[ETH] Disconnected");
+            eth_connected = false;
+            refreshServerIP(); // 切断時もIP情報を更新
+            break;
+        case ARDUINO_EVENT_ETH_STOP:
+            Serial.println("[ETH] Stopped");
+            eth_connected = false;
+            refreshServerIP();
+            break;
+        default: break;
+    }
+}
+
+
+void startSoftAP(String ssid, String pass) {
+    Serial.println("[Net] Starting SoftAP...");
+
+    // WiFiをAPモードに
+    WiFi.mode(WIFI_AP);
+
+    // パスワードなし or あり
+    bool ok;
+    if (pass.length() == 0) {
+        ok = WiFi.softAP(ssid.c_str());
+    } else {
+        ok = WiFi.softAP(ssid.c_str(), pass.c_str());
+    }
+
+    if (!ok) {
+        Serial.println("[Error] SoftAP Start Failed");
+        return;
+    }
+
+    // IP更新
+    wifi_links = true;
+
+    Serial.println("[Net] SoftAP Started!");
+    Serial.print("[Net] SSID: "); Serial.println(ssid);
+    Serial.print("[Net] AP IP Address: "); Serial.println(currentIPString);
+
+    startWebServer();
+    refreshServerIP();
+}
+
+void stopSoftAP() {
+    WiFi.softAPdisconnect(true);
+    Serial.println("[Net] SoftAP Stopped");
+    refreshServerIP();
+    wifi_links = false;
+    issoftap = false;
+}
+
+String refreshServerIP() {
+    String newIP = "0.0.0.0";
+
+    if ((WiFi.getMode() == WIFI_AP) || (WiFi.getMode() == WIFI_AP_STA)) {
+        newIP = WiFi.softAPIP().toString();
+    }
+    else if (WiFi.status() == WL_CONNECTED) {
+        newIP = WiFi.localIP().toString();
+    }
+    currentIPString = newIP;
+    stationIPString = WiFi.localIP().toString();
+    return currentIPString;
+}
+
+
+String scanAndGetSSIDList() {
+    Serial.println("[WiFi] Starting Scan...");
+    
+    // WiFiがOFFの場合は一時的にSTAモードにする
+    if (WiFi.getMode() == WIFI_OFF) {
+        WiFi.mode(WIFI_STA);
+        delay(100);
+    }
+
+    // スキャン実行 (async=false: 完了まで待機, show_hidden=true)
+    int n = WiFi.scanNetworks(false, true);
+    
+    String ssidList = "";
+
+    if (n == 0) {
+        ssidList = "No networks found";
+    } else {
+        Serial.printf("[WiFi] %d networks found\n", n);
+        for (int i = 0; i < n; ++i) {
+            String ssid = WiFi.SSID(i);
+            if (ssid.length() == 0) ssid = "<Hidden>";
+            
+            // SSID (RSSI) の形式で追加
+            ssidList += ssid + " (" + String(WiFi.RSSI(i)) + "dBm)\n";
+            delay(10); // WDトリガ防止の小休止
+        }
+    }
+    
+    // スキャン結果をメモリから削除
+    WiFi.scanDelete();
+    
+    Serial.println("[WiFi] Scan done");
+    return ssidList;
 }
