@@ -1522,7 +1522,7 @@ else  if(mainmode == 20){
       TTM2 = allhensuname[holdpositpointx3];
       M5.Lcd.setTextFont(3);
       shokaipointer5(0);
-      
+      positpoint = 0;
       return;
 
 
