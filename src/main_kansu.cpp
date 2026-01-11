@@ -183,7 +183,7 @@ if(wifi_links){
   Serial.println("fefe");
 }
 
-delay(1);
+
 if(mainmode == 38){
   
 }
@@ -265,6 +265,7 @@ else if(mainmode == 34){
     }else if(entryenter == 1){//next
       if(!isValidFormat(SuperT)){
         Textex = "Invalid Format! No kaigho or too long!";
+        entryenter = 0;
         return;
       }
       sendmode = 1;

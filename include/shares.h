@@ -133,6 +133,8 @@ void logExistingFileContents(fs::FS &fs, const String& fullFilePath);
 extern const int CURSOR_BLINK_INTERVAL; // カーソル点滅のフレーム間隔
 extern const int MAX_STRING_LENGTH ; 
 extern int lastDrawnCursorScreenX ; 
+
+void ttmain();
 extern int lastDrawnCursorScreenY ;
 extern int scrollOffset ; // スクロールテキストの描画オフセット
 extern int scrollFrameCounter ;

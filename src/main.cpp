@@ -727,12 +727,12 @@ String getDateTimeString();
 void loop() {
 
 
+ M5.update(); // ボタン状態を更新
 
-
-
+delay(1);
 
 //delay入れたらサーバー起動時にエラー出ます
-mainkansu_intmain();
+
   
    
   
@@ -740,10 +740,10 @@ mainkansu_intmain();
   if(mainmode == 13){
     tututu = false;
   }
-  M5.update(); // ボタン状態を更新
+ 
   
 
-  if(checkWiFiConnection){
+  if(wifi_links){
     monitorConnectionLoss();
   }
 
@@ -752,6 +752,22 @@ if(M5.Touch.getCount() > 1){
   SD.end();
   ESP.restart();
 }
+
+
+if(mainmode > 29){
+  mainkansu_intmain();
+}else{
+  ttmain();
+    mainkansu_optsd();
+}
+
+  
+
+}
+
+
+void ttmain(){
+  
  //serial.println暴走対策,Allname[positpoint]はテーブル名
 if(mainmode == 22){
      updatePointer2(3,imano_pagek);
@@ -2121,12 +2137,8 @@ else if(mainmode == -1){
 
 
     }
-  }else{
-    mainkansu_optsd();
   }
-
 }
-
 String getDateTimeString() {
     m5::rtc_datetime_t dt;
     M5.Rtc.getDateTime(&dt); // RTCから現在時刻を取得
