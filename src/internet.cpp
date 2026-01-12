@@ -467,6 +467,7 @@ void disconnectWiFi() {
         SSListc = 0;
         SessionSized = 0;
         wifi_links = false;
+        issta = false;
         Serial.println("WiFi Disconnected.");
         manual_wifi = false;
         WSTT.clear();
@@ -628,7 +629,7 @@ bool connectToEnterpriseWiFi(String ssid, String id, String pass) {
         M5.Lcd.println("MAC: " + WSTT[2]);
         M5.Lcd.println("Auth: " + WSTT[6]);
         M5.Lcd.setTextSize(2); // サイズを戻す
-        
+        issta = true;
         // シリアルにも全情報を出力
         Serial.println("--- WSTT Info ---");
         for(int i=0; i<WSTT.size(); i++) {
@@ -1932,21 +1933,59 @@ void onWsEvent(
 }
 
 void startWebServer() {
-  static bool started = false;
-  if (started) return;
- // turnOnBatteryLedGreen();
-  if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) return;
-  if (!SD.exists("/data/index.html")) return;
-  turnOnLED(CRGB::Blue);
-  ws.onEvent(onWsEvent);
-  server.addHandler(&ws);
+    static bool started = false;
+    // すでに正常に開始している場合は何もしない
+    if (started) return;
 
-  server.serveStatic("/", SD, "/data/")
-        .setDefaultFile("index.html");
+    // Wi-FiのIPアドレスが確定しているか確認 (接続前のRefused防止)
+    if (WiFi.localIP() == IPAddress(0,0,0,0) && WiFi.softAPIP() == IPAddress(0,0,0,0)) {
+        // IPがまだ割り振られていない場合は、次のループでリトライさせるためstartedはfalseのまま
+        return;
+    }
 
-  server.begin();
-  
-  started = true;
+    // SDカードの初期化確認
+    // 起動直後は失敗することがあるため、失敗時はstartedをtrueにせず戻る
+    if (!SD.begin(GPIO_NUM_4, SPI, 20000000)) {
+        Serial.println("[HTTP] SD Mount Failed. Retrying later...");
+        return;
+    }
+
+    // ファイルの存在確認
+    if (!SD.exists("/data/index.html")) {
+        Serial.println("[HTTP] Fatal: /data/index.html not found.");
+        return;
+    }
+
+    // --- 接続拒否(Refused)対策 ---
+
+    // 1. ブラウザに「通信が終わったらすぐに接続を閉じろ」と指示する
+    // これを入れないと、iPhoneなどが古いTCP接続を維持し続け、新しい接続枠を奪います。
+    DefaultHeaders::Instance().addHeader("Connection", "close");
+    
+    // 2. CORS許可 (外部からのアクセスによる拒否を防止)
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+
+    // 通知用LED
+    // turnOnBatteryLedGreen(); // 必要に応じて有効化
+    turnOnLED(CRGB::Blue);
+
+    // WebSocketの登録
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
+
+    // 静的ファイルの配信設定
+    // setDefaultFile("index.html") により "/" アクセスで index.html を返します
+    server.serveStatic("/", SD, "/data/")
+          .setDefaultFile("index.html")
+          .setCacheControl("max-age=3600"); // キャッシュを1時間に設定してリクエスト回数を削減
+
+    // サーバー開始
+    server.begin();
+    
+    started = true;
+    Serial.println("[HTTP] Web Server Started (Optimized for Stability)");
+    Serial.print("[HTTP] IP Address: ");
+    Serial.println(WiFi.getMode() <= 2 ? WiFi.localIP() : WiFi.softAPIP());
 }
 
 
@@ -2002,7 +2041,7 @@ void WiFiEvent(WiFiEvent_t event) {
 
 void startSoftAP(String ssid, String pass) {
     Serial.println("[Net] Starting SoftAP...");
-
+    issta  = false;
     // WiFiをAPモードに
     WiFi.mode(WIFI_AP);
 
@@ -2036,6 +2075,7 @@ void stopSoftAP() {
     refreshServerIP();
     wifi_links = false;
     issoftap = false;
+    issta = false;
 }
 
 String refreshServerIP() {

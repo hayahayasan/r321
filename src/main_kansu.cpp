@@ -35,6 +35,7 @@ int frameright;
 int holdpositpointt;
 String tttt = "hello";
 bool returnss;
+bool issta;
 String statustext;
 
 String RESERVED_NAMES[] = {
@@ -383,7 +384,7 @@ else if(mainmode == 33){
     }
   }
 }
-if(mainmode == 32){
+else if(mainmode == 32){
   updateSessionDisplay();
   if(M5.BtnB.wasPressed()){
     positpoint = 0;
@@ -738,7 +739,7 @@ if(mainmode == 32){
 
 
 
-      }else if(positpoint == 4){//disconnect
+      }else if(positpoint == 4 && issta){//disconnect
         if(issoftap){
           kanketu("Soft AP Enabled!",599);
           M5.Lcd.fillScreen(BLACK);
@@ -983,8 +984,8 @@ if(mainmode == 32){
           
         }
         return;
-      }else if(positpoint == 1){//soapmode
-        if(!issoftap){
+      }else if(positpoint == 1 && !issta){//soapmode
+        if(!issoftap ){
           M5.Lcd.fillScreen(BLACK);
           if(wifi_links){
             stopSoftAP();
@@ -1637,14 +1638,15 @@ if(sse == "E"){
       h2hh = DirecX.substring(0,DirecX.length() - 1);
     }
     Serial.println("CC: " + copymotroot + "DD: " + h2hh);
-    bool success = smartCopy(copymotroot,h2hh,dd);
+    String gg  =  "";
+    bool success = smartCopy(copymotroot,h2hh,dd,gg);
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextSize(File_goukeifont);
     
     if(success){
-     kanketu("paste successed!",500);
+     kanketu("paste successed!",1500);
     }else{
-      kanketu("paste failed!",500);
+      kanketu("paste failed!",1500);
     }
     positpoint = 0 ;
     holdpositpoint = 0;
@@ -1860,8 +1862,9 @@ if(sse == "E"){
   else if(M5.BtnB.wasPressed() && positpoint == 4){ //ファイルコピー
    // bool dd = areubunki("Copy this file","Copy this pdir");   //フォルダコピーは技術的に難しいため没
    bool dd = true;
-    if(ForDlist[positpoint] == 0){//ファイルコピー
-      copymotroot =  DirecX +  Filelist[nowpositZ()];
+   Serial.println(String(holdpositpoint) + " " + ForDlist[holdpositpoint] + " " + Filelist[holdpositpoint]);
+    if(ForDlist[holdpositpoint] == "0"){//ファイルコピー
+      copymotroot =  DirecX +  Filelist[holdpositpoint];
       copymotdir = false;
       kanketu("copied(file)",500);
       M5.Lcd.fillScreen(BLACK);
@@ -1913,19 +1916,20 @@ if(sse == "E"){
       hh = DirecX.substring(0,DirecX.length() - 1);
     }
     Serial.println("CC: " + copymotroot + "DD: " + hh);
-    bool success = smartCopy(copymotroot,hh,dd);
+    String gg = Filelist[holdpositpoint];
+    bool success = smartCopy(copymotroot,hh,dd,gg);
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextSize(File_goukeifont);
     
     if(success){
-      
+      kanketu("Pasted\nPasted name:" + gg,2000);
     }else{
-      kanketu("paste failed!",500);
+      kanketu("paste failed!",1000);
     }
     positpoint = 0 ;
     holdpositpoint = 0;
         imano_page = 0;
-
+M5.Lcd.fillScreen(BLACK);
         // SDカードコンテンツの初期表示
         shokaipointer();
         return;
@@ -2037,6 +2041,7 @@ if(sse == "E"){
     // M5Stackの画面をクリア
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
+    M5.Lcd.setTextSize(1);
 
     // 取得した情報を画面に表示
     M5.Lcd.println("File Information:");
@@ -2063,7 +2068,7 @@ if(sse == "E"){
     M5.Lcd.println("Error: File not found or failed to open!");
     M5.Lcd.printf("File: %s\n", gggs.c_str());
   }
-
+      
       holdpositpointd = positpoint;
       holdimanopaged = imano_page;
       holdpositpointmaxd = positpointmax;
@@ -2071,6 +2076,7 @@ if(sse == "E"){
       if(ggmode.endsWith(".mett") ||  ggmode.endsWith(".txt")){
         M5.Lcd.printf("Wanna Edit? Press BtnB\n");
       }
+      M5.Lcd.setTextSize(3);
       return;
       
   }
@@ -2402,8 +2408,7 @@ if(sse == "E"){
     textluck();
     if(entryenter == 2){//back
       entryenter = 0;
-      bool ss = areusure();
-      if(ss){
+      
        
         M5.Lcd.fillScreen(BLACK);
         M5.Lcd.setCursor(0,0);
@@ -2411,9 +2416,7 @@ if(sse == "E"){
         positpoint = holdpositpoint;
         shokaipointer();
         return;
-      }else{
-        M5.Lcd.fillScreen(BLACK);
-      }
+      
     }else if(entryenter == 1){//enter
       entryenter = 0;
       M5.Lcd.fillScreen(BLACK);
@@ -2739,11 +2742,26 @@ Serial.println("feaef" + Filelist[holdpositpoint]);
       M5.Lcd.setTextSize(3);
       M5.Lcd.println("Loading...");
       Serial.println("fe" + DirecX + ggmode);
-      shokaipointer2(0,DirecX + ggmode);
+      if(Filelist[holdpositpoint].endsWith(".txt" )){
+        String dirrr = DirecX + ggmode;
+      
+      Serial.println("dt" + dirrr);
+      String Texx = "";
+      bool suc = readSdFileToStringForced(dirrr,Texx,fontdd);
+      SuperT = Texx;
+     
+        mainmode = -11;
+        M5.Lcd.fillScreen(BLACK);
+        Textex =  "This character code:" + mozikk[fontdd] + "   Press Tab to save!";
+        return;
+      }else if(Filelist[holdpositpoint].endsWith(".mett" )){
+        shokaipointer2(0,DirecX + ggmode);
       imano_page = 0;
       
       
       Serial.println("sus" + String(maxpage));
+      return;
+      }
       return;
           }else{
             maxpage = -1;

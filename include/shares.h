@@ -43,6 +43,7 @@ extern String TexNet;
 extern int IntNet;
 extern String directlist[100];
 extern String ForDlist[100];
+String checkAndRename(String path);
 void updatePointer2(int size = 3,int &imanopp = imano_page);
 String HenkanTxt(const String& text);
 extern String formatBytes(uint64_t bytes);
@@ -63,7 +64,7 @@ extern bool createDirRecursive(const char* path);
 extern String checkAndRename(String filePath);
 extern bool copyFile(const char* sourcePath, const char* destinationPath, uint32_t totalSize);
 extern bool removePath(const char* path) ;
-extern bool smartCopy(String sourcePath, String destinationPath, bool isCut) ;
+bool smartCopy(String sourcePath, String destinationPath, bool isCut,String& finalFilename);
 // 他のファイルで定義された関数のプロトタイプ
 void updatePointerLite();
 extern int SCROLL_INTERVAL_FRAMES;
@@ -133,7 +134,7 @@ void logExistingFileContents(fs::FS &fs, const String& fullFilePath);
 extern const int CURSOR_BLINK_INTERVAL; // カーソル点滅のフレーム間隔
 extern const int MAX_STRING_LENGTH ; 
 extern int lastDrawnCursorScreenX ; 
-
+extern bool issta;
 void ttmain();
 extern int lastDrawnCursorScreenY ;
 extern int scrollOffset ; // スクロールテキストの描画オフセット

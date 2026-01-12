@@ -1172,37 +1172,6 @@ bool createDirRecursive(const char* path) {
     return true;
 }
 
-// Function to check for and rename files with a unique new name to avoid duplication
-String checkAndRename(String filePath) {
-    if (!SD.exists(filePath)) {
-        return filePath;
-    }
-
-    int dotIndex = filePath.lastIndexOf('.');
-    String baseName = filePath;
-    String extension = "";
-    if (dotIndex != -1) {
-        baseName = filePath.substring(0, dotIndex);
-        extension = filePath.substring(dotIndex);
-    }
-    
-    int slashIndex = baseName.lastIndexOf('/');
-    String fileNameOnly = baseName;
-    String directoryPath = "/";
-    if (slashIndex != -1) {
-        fileNameOnly = baseName.substring(slashIndex + 1);
-        directoryPath = baseName.substring(0, slashIndex + 1);
-    }
-
-    for (int i = 1; i <= 1000; i++) {
-        String newFileName = directoryPath + fileNameOnly + "(" + String(i) + ")" + extension;
-        if (!SD.exists(newFileName)) {
-            return newFileName;
-        }
-    }
-    
-    return "";
-}
 
 String wirecheck() {
     int incomingByte = -1;
@@ -1400,18 +1369,61 @@ bool removePath(const char* path) {
 }
 
 // Main function to perform file operations
-bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
+// 既存のファイル名をチェックし、重複する場合は(1)～(10000)を付与する関数
+String checkAndRename(String path) {
+    // ファイルが存在しなければそのままのパスを返す
+    if (!SD.exists(path)) {
+        return path;
+    }
+
+    // パスからディレクトリ、ファイル名、拡張子を分離
+    int lastSlash = path.lastIndexOf('/');
+    String dir = (lastSlash == 0) ? "/" : path.substring(0, lastSlash); // ルート直下の場合の処理
+    if (lastSlash == -1) dir = ""; // スラッシュがない場合（通常ありえないが念のため）
+    
+    String fullFileName = path.substring(lastSlash + 1);
+    int lastDot = fullFileName.lastIndexOf('.');
+    
+    String fileNameBase;
+    String fileExt;
+
+    if (lastDot != -1) {
+        fileNameBase = fullFileName.substring(0, lastDot);
+        fileExt = fullFileName.substring(lastDot);
+    } else {
+        fileNameBase = fullFileName;
+        fileExt = "";
+    }
+
+    // (1) から (10000) まで試行
+    for (int i = 1; i <= 10000; i++) {
+        String newPath;
+        String numberPart = "(" + String(i) + ")";
+        
+        // パスの再構築
+        if (dir == "/") {
+            newPath = "/" + fileNameBase + numberPart + fileExt;
+        } else {
+            newPath = dir + "/" + fileNameBase + numberPart + fileExt;
+        }
+
+        // 存在チェック
+        if (!SD.exists(newPath)) {
+            return newPath; // 重複しないパスが見つかったらそれを返す
+        }
+    }
+
+    // 10000回試しても空きがない場合は空文字を返してエラー扱いにする
+    return "";
+}
+
+// Main function to perform file operations
+bool smartCopy(String sourcePath, String destinationPath, bool isCut,String& finalFilename) {
 
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.println("Initializing SD card...");
-    Serial.println("Initializing SD card...");
-    if (!SD.begin()) {
-        M5.Lcd.println("[ERROR] SD card initialization failed!");
-        Serial.println("[ERROR] SD card initialization failed!");
-        return false;
-    }
+   
 
     sourcePath = cleanPath(sourcePath);
     destinationPath = cleanPath(destinationPath);
@@ -1419,17 +1431,8 @@ bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
     // Get the parent directories of the source and destination paths
     String sourceParentDir = getParentDirectory(sourcePath);
     Serial.println("Source parent: " + sourceParentDir + ", Destination: " + destinationPath); 
-    // 1. Verify that the source and destination directories are not the same
-    // Check if we are trying to copy a file into its current directory
-    if (sourceParentDir == destinationPath) {
-        M5.Lcd.fillScreen(BLACK);
-        M5.Lcd.setCursor(0, 0);
-        
-        M5.Lcd.println("No Copy Use!");
-        Serial.println("No Copy Use!");
-        delay(2000);
-        return false;
-    }
+    
+
     
     // 2. Verify that the source file exists
     M5.Lcd.fillScreen(BLACK);
@@ -1494,13 +1497,21 @@ bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
         finalDestinationPath = destinationPath + "/" + fileNameOnly;
     }
     
+
+
     // 6. Get a numbered file path to prevent overwriting
+    // 【変更点2】ここで実装した checkAndRename を呼び出します
     String uniqueDestPath = checkAndRename(finalDestinationPath);
+    
     if (uniqueDestPath == "") {
-        M5.Lcd.println("[ERROR] Paste overflowed!");
-        Serial.println("[ERROR] Paste overflowed!");
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0, 0);
+        // 10000を超えた場合のエラーメッセージ
+        M5.Lcd.println("[ERROR] Paste limit (10000) reached!");
+        Serial.println("[ERROR] Paste limit (10000) reached!");
         return false;
     }
+    finalFilename = uniqueDestPath;
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.printf("Copying to: %s\n", uniqueDestPath.c_str());
@@ -1530,7 +1541,7 @@ bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
                 Serial.println("Paste and delete succeed!");
             }
         } else {
-            M5.Lcd.println("Paste successful!");
+           // M5.Lcd.println("Paste successful!");
             Serial.println("Paste successful!");
         }
         
@@ -1544,7 +1555,7 @@ bool smartCopy(String sourcePath, String destinationPath, bool isCut) {
         return false;
     }
     
-    delay(2000);
+    
 
     return true;
 }
@@ -1811,10 +1822,10 @@ void listSDRootContents(int pagetax,String Directtory,bool checkfirstMaxLine ) {
     // プレフィックスと色を決定 (isDirectory の情報を使用)
     if (entries[i].second) { // ディレクトリの場合
       M5.Lcd.setTextColor(GREEN); // 緑色
-      fullEntryName = "   [D] " + entries[i].first; // [D]でディレクトリを示す
+      fullEntryName = "  [D] " + entries[i].first; // [D]でディレクトリを示す
     } else { // ファイルの場合
       M5.Lcd.setTextColor(SKYBLUE); // 水色
-      fullEntryName = "   [F] " + entries[i].first; // [F]でファイルを示す
+      fullEntryName = "  [F] " + entries[i].first; // [F]でファイルを示す
     }
 
     // 表示幅を計算

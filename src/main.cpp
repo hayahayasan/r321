@@ -116,7 +116,7 @@ processingQueue = xQueueCreate(1000, sizeof(TaskMessage));
   M5.Lcd.fillScreen(BLACK); // 画面全体を黒でクリア
   // 左上すれすれ (0,0) に表示
   M5.Lcd.setCursor(0, 0);
-  sita = tttt;
+  sita = sitagar[0];
   textexx();
  
   wirecheck();
@@ -1272,7 +1272,7 @@ else  if(mainmode == 20){
         
         bool ge = GetOptDirect("defaultvalue;", uui);
         Serial.println("defval:" + uui);
-        if(ge && uui != ""){
+        if(ge && (uui != "" && uui != "#EMPMOJI")){
             ge = true;
         }else{
           ge = false;
