@@ -2129,8 +2129,8 @@ String scanAndGetSSIDList() {
     return ssidList;
 }
 
-#define LAN_CS_PIN  26
-#define LAN_RST_PIN 13
+int CS = 26;
+int RST = 13;
 int lastLinkStatus = 2; // 初期値は LinkOFF(2)
 // 固定IP設定 (DHCP失敗時のフォールバック用)
 
@@ -2148,32 +2148,36 @@ String startEthernetAP() {
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
-    Ethernet.setCsPin(LAN_CS_PIN);
-    Ethernet.setRstPin(LAN_RST_PIN);
+    // ピン設定は公式と同じ
+    Ethernet.setCsPin(CS);
+    Ethernet.setRstPin(RST);
 
-    // 完全ハードリセット（かなり長い版）
-    digitalWrite(LAN_RST_PIN, LOW);
-    delay(120);
-    digitalWrite(LAN_RST_PIN, HIGH);
+    // 外部リセット（最も重要）
+    pinMode(RST, OUTPUT);
+    digitalWrite(RST, LOW);
+    delay(150);
+    digitalWrite(RST, HIGH);
     delay(350);
 
-    // SPI再初期化
+    // SPI 再初期化（順序固定）
     SPI.end();
-    delay(10);
+    delay(20);
     SPI.begin();
+
+    // Ethernet.init を忘れると 255.255.255.255 地獄になる
+    Ethernet.init(2);
 
     int link = Ethernet.link();
 
-    IPAddress ip;
-
+    // ---------- DHCPフェーズ ----------
     if (link == 1) {
         Serial.println("[LAN] Link detected. Trying DHCP...");
 
         if (Ethernet.begin(mac)) {
             delay(300);
-            ip = Ethernet.localIP();
-            if (ip != IPAddress(0,0,0,0) &&
-                ip != IPAddress(255,255,255,255)) {
+            IPAddress ip = Ethernet.localIP();
+            if (ip != IPAddress(0,0,0,0)
+             && ip != IPAddress(255,255,255,255)) {
                 Serial.print("[LAN] DHCP OK: ");
                 Serial.println(ip);
                 isEthernetActive = true;
@@ -2182,23 +2186,49 @@ String startEthernetAP() {
             }
         }
 
-        Serial.println("[LAN] DHCP failed. Switching to local 192.168.4.1...");
+        Serial.println("[LAN] DHCP failed. Switching to 192.168.4.1...");
     } else {
         Serial.println("[LAN] No link. Forcing 192.168.4.1...");
     }
 
-    // ローカルモードへ強制切替
+    // ---------- Local APモード ----------
+    // ここも公式サンプル式に固定IP流し込むだけ。余計な再resetは不要。
     Ethernet.begin(mac, staticIP, staticIP, gateway, subnet);
-    delay(200);
-    ip = Ethernet.localIP();
+    delay(300);
 
+    IPAddress lip = Ethernet.localIP();
     Serial.print("[LAN] Local Mode IP: ");
-    Serial.println(ip);
+    Serial.println(lip);
 
     isEthernetActive = true;
     lastLinkStatus = link;
+    return lip.toString();
+}
+
+
+String getEthernetIPString() {
+    int link = Ethernet.link();
+
+    if (link == 2) {
+        lastLinkStatus = link;
+        return "";
+    }
+
+    if (!isEthernetActive || (lastLinkStatus == 2 && link == 1)) {
+        Serial.println("[LAN] Link status changed. Re-init...");
+        return startEthernetAP();
+    }
+
+    lastLinkStatus = link;
+
+    IPAddress ip = Ethernet.localIP();
+    if (ip == IPAddress(0,0,0,0) || ip == IPAddress(255,255,255,255)) {
+        return "";
+    }
+
     return ip.toString();
 }
+
 
 
 
@@ -2207,30 +2237,7 @@ String startEthernetAP() {
  * リンク状態の変化を検知した場合、自動的に再取得(DHCP/Static)を試みる
  * @return String IPアドレス文字列。未開通やエラー時は空文字 ""
  */
-String getEthernetIPString() {
-    int link = (int)Ethernet.link();
 
-    // 初期起動またはリンク復活時は再起動
-    if (!isEthernetActive || (lastLinkStatus == 2 && link == 1)) {
-        return startEthernetAP();
-    }
-
-    lastLinkStatus = link;
-
-    if (link == 2) {
-        return "";
-    }
-
-    IPAddress ip = Ethernet.localIP();
-
-    if (ip == IPAddress(0,0,0,0) ||
-        ip == IPAddress(255,255,255,255))
-    {
-        return startEthernetAP();
-    }
-
-    return ip.toString();
-}
 
 /**
  * 有線LAN接続を閉じる
