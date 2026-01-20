@@ -2135,6 +2135,26 @@ int lastLinkStatus = 2; // 初期値は LinkOFF(2)
 // 固定IP設定 (DHCP失敗時のフォールバック用)
 
 
+uint8_t readW5500Version() {
+    // VERSIONR = 0x0039, block = 0x00
+    SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+    digitalWrite(CS, LOW);
+
+    // 住所送信（上位, 下位）
+    SPI.transfer(0x00); // Address high
+    SPI.transfer(0x39); // Address low
+
+    // Control byte: R, 1byte access, Block 0
+    SPI.transfer(0x00);
+
+    // 読み出し
+    uint8_t ver = SPI.transfer(0);
+
+    digitalWrite(CS, HIGH);
+    SPI.endTransaction();
+
+    return ver;
+}
 
 bool isEthernetActive = false;
 
@@ -2147,29 +2167,24 @@ String startEthernetAP() {
     Serial.println("[LAN] Ethernet Service Stopped.");
     Serial.println("========== W5500 START ==========");
 
-    // ---- MAC ----
-    Serial.println("[DBG] Reading MAC...");
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
     Serial.print("[DBG] MAC read: ");
-    for (int i = 0; i < 6; i++) {
+    for (int i=0; i<6; i++) {
         Serial.print(mac[i], HEX);
-        if (i < 5) Serial.print(":");
+        if (i<5) Serial.print(":");
     }
     Serial.println();
 
-    // ---- ピン設定 ----
     Serial.println("[DBG] Configuring Pins");
     pinMode(RST, OUTPUT);
     digitalWrite(RST, HIGH);
     delay(20);
 
-    Serial.println("[DBG] Set CS/RST pins");
     Ethernet.setCsPin(CS);
     Ethernet.setRstPin(RST);
 
-    // ---- ハードリセット ----
     Serial.println("[DBG] Reset LOW");
     digitalWrite(RST, LOW);
     delay(150);
@@ -2178,31 +2193,31 @@ String startEthernetAP() {
     digitalWrite(RST, HIGH);
     delay(300);
 
-    // ---- SPI ----
-    Serial.println("[DBG] SPI begin requested");
+    Serial.println("[DBG] SPI.begin()");
     SPI.begin(36, 37, 35, CS);
-    Serial.println("[DBG] SPI.begin OK");
 
-    // ---- Ethernet.init ----
-    Serial.println("[DBG] Calling Ethernet.init(CS)");
+    Serial.println("[DBG] Ethernet.init(CS)");
     Ethernet.init(CS);
 
-    // ---- W5500 チップ確認（バージョンレジスタ確認）----
-    Serial.println("[DBG] Reading W5500 VERSIONR");
-    uint8_t ver = Ethernet.hardwareStatus();
-    Serial.print("[DBG] W5500 hardwareStatus(): ");
-    Serial.println(ver);
+    // ---- VERSIONR 読み取り ----
+    Serial.println("[DBG] Reading W5500 VERSIONR...");
+    uint8_t ver = readW5500Version();
 
-    // ---- Link status ----
+    Serial.print("[DBG] VERSIONR = 0x");
+    Serial.println(ver, HEX);
+
+    if (ver != 0x04) {
+        Serial.println("[WARN] W5500 version unexpected. SPI wiring?");
+    }
+
     Serial.println("[DBG] Checking link...");
     int link = Ethernet.link();
     Serial.print("[DBG] Ethernet.link(): ");
     Serial.println(link);
 
+    // ---- DHCP ----
     if (link == 1) {
         Serial.println("[LAN] Link detected. Trying DHCP...");
-        Serial.println("[DBG] Calling Ethernet.begin(mac)");
-
         bool dh = Ethernet.begin(mac);
 
         Serial.print("[DBG] Ethernet.begin result: ");
@@ -2215,7 +2230,8 @@ String startEthernetAP() {
         Serial.println(dip);
 
         if (dip != IPAddress(0,0,0,0)
-        &&  dip != IPAddress(255,255,255,255)) {
+         && dip != IPAddress(255,255,255,255)) {
+
             Serial.println("[LAN] DHCP Success");
             Serial.println("========== W5500 END ==========");
             isEthernetActive = true;
@@ -2224,7 +2240,8 @@ String startEthernetAP() {
         }
 
         Serial.println("[LAN] DHCP failed. Switching to 192.168.4.1...");
-    } else {
+    } 
+    else {
         Serial.println("[LAN] No link. Forcing 192.168.4.1...");
     }
 
@@ -2250,6 +2267,7 @@ String startEthernetAP() {
     lastLinkStatus = link;
     return lip.toString();
 }
+
 
 
 
