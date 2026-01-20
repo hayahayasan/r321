@@ -181,7 +181,7 @@ void mainkansu_intmain(){
 
 if(wifi_links){
   handleWebSocketLoop();
-  Serial.println("fefe");
+  //Serial.println("fefe");
 }
 
 
@@ -223,6 +223,7 @@ else if(mainmode == 37){
   }
 }
 else if(mainmode == 36){
+  M5.update();
   updateMailDisplay2(GyakuhenkanTxt(MMX));
   if(M5.BtnB.wasPressed()){
     M5.Lcd.setTextSize(3);
@@ -386,6 +387,7 @@ else if(mainmode == 33){
 }
 else if(mainmode == 32){
   updateSessionDisplay();
+  M5.update();
   if(M5.BtnB.wasPressed()){
     positpoint = 0;
             maxpage = -1;
@@ -402,7 +404,7 @@ else if(mainmode == 32){
         
             return;
   }
-  else if(M5.BtnC.wasPressed() && checkWiFiConnection() ){//メッセージ送信・受信モード
+  else if(M5.BtnC.wasPressed() && wifi_links){//メッセージ送信・受信モード
       M5.Lcd.setTextSize(3);
             M5.Lcd.setCursor(0, 0);
             M5.Lcd.setTextColor(WHITE);
