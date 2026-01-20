@@ -2143,9 +2143,12 @@ bool isEthernetActive = false;
  * @return String IPアドレス。エラー時は空文字 ""
  */
 String startEthernetAP() {
-    Serial.println("========== W5500 START (FIXED) ==========");
+
+    Serial.println("[LAN] Ethernet Service Stopped.");
+    Serial.println("========== W5500 START ==========");
 
     // ---- MAC ----
+    Serial.println("[DBG] Reading MAC...");
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
@@ -2157,56 +2160,66 @@ String startEthernetAP() {
     Serial.println();
 
     // ---- ピン設定 ----
-    Serial.println("[DBG] Pin setup");
+    Serial.println("[DBG] Configuring Pins");
     pinMode(RST, OUTPUT);
     digitalWrite(RST, HIGH);
-    delay(10);
+    delay(20);
 
+    Serial.println("[DBG] Set CS/RST pins");
     Ethernet.setCsPin(CS);
     Ethernet.setRstPin(RST);
 
-    // ---- 正しいSPIの起動順 ----
-    Serial.println("[DBG] SPI.begin()");
-    SPI.begin(36, 37, 35, CS);   // ESP32-S3 固定ピン
-
     // ---- ハードリセット ----
-    Serial.println("[DBG] Hardware Reset");
+    Serial.println("[DBG] Reset LOW");
     digitalWrite(RST, LOW);
-    delay(120);
+    delay(150);
+
+    Serial.println("[DBG] Reset HIGH");
     digitalWrite(RST, HIGH);
-    delay(250);
+    delay(300);
+
+    // ---- SPI ----
+    Serial.println("[DBG] SPI begin requested");
+    SPI.begin(36, 37, 35, CS);
+    Serial.println("[DBG] SPI.begin OK");
 
     // ---- Ethernet.init ----
-    Serial.println("[DBG] Ethernet.init(CS)");
+    Serial.println("[DBG] Calling Ethernet.init(CS)");
     Ethernet.init(CS);
 
-    // ---- Link確認 ----
+    // ---- W5500 チップ確認（バージョンレジスタ確認）----
+    Serial.println("[DBG] Reading W5500 VERSIONR");
+    uint8_t ver = Ethernet.hardwareStatus();
+    Serial.print("[DBG] W5500 hardwareStatus(): ");
+    Serial.println(ver);
+
+    // ---- Link status ----
+    Serial.println("[DBG] Checking link...");
     int link = Ethernet.link();
     Serial.print("[DBG] Ethernet.link(): ");
     Serial.println(link);
 
-    // ---- DHCP ----
     if (link == 1) {
         Serial.println("[LAN] Link detected. Trying DHCP...");
-        Serial.println("[DBG] Ethernet.begin(mac)");
+        Serial.println("[DBG] Calling Ethernet.begin(mac)");
 
         bool dh = Ethernet.begin(mac);
+
         Serial.print("[DBG] Ethernet.begin result: ");
         Serial.println(dh);
 
-        delay(350);
+        delay(400);
 
         IPAddress dip = Ethernet.localIP();
         Serial.print("[DBG] DHCP IP: ");
         Serial.println(dip);
 
         if (dip != IPAddress(0,0,0,0)
-         && dip != IPAddress(255,255,255,255)) {
-
-            Serial.println("[LAN] DHCP OK");
+        &&  dip != IPAddress(255,255,255,255)) {
+            Serial.println("[LAN] DHCP Success");
+            Serial.println("========== W5500 END ==========");
             isEthernetActive = true;
             lastLinkStatus = 1;
-            Serial.println("========== W5500 END ==========");
             return dip.toString();
         }
 
@@ -2217,16 +2230,15 @@ String startEthernetAP() {
 
     // ---- Local Mode ----
     Serial.println("[DBG] Setting manual IP");
-
     IPAddress manualIP(192,168,4,1);
     IPAddress manualDNS(192,168,4,1);
     IPAddress manualGW(192,168,4,1);
     IPAddress manualSN(255,255,255,0);
 
-    Serial.println("[DBG] Ethernet.begin(manual)");
+    Serial.println("[DBG] Calling Ethernet.begin(manual settings)");
     Ethernet.begin(mac, manualIP, manualDNS, manualGW, manualSN);
 
-    delay(350);
+    delay(400);
 
     IPAddress lip = Ethernet.localIP();
     Serial.print("[DBG] Local Mode IP readback: ");
@@ -2236,9 +2248,9 @@ String startEthernetAP() {
 
     isEthernetActive = true;
     lastLinkStatus = link;
-
     return lip.toString();
 }
+
 
 
 
