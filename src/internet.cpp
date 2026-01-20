@@ -2143,66 +2143,104 @@ bool isEthernetActive = false;
  * @return String IPアドレス。エラー時は空文字 ""
  */
 String startEthernetAP() {
-    Serial.println("[LAN] Initializing W5500...");
+    Serial.println("========== W5500 START (FIXED) ==========");
 
+    // ---- MAC ----
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    Serial.print("[DBG] MAC read: ");
+    for (int i = 0; i < 6; i++) {
+        Serial.print(mac[i], HEX);
+        if (i < 5) Serial.print(":");
+    }
+    Serial.println();
+
+    // ---- ピン設定 ----
+    Serial.println("[DBG] Pin setup");
+    pinMode(RST, OUTPUT);
+    digitalWrite(RST, HIGH);
+    delay(10);
 
     Ethernet.setCsPin(CS);
     Ethernet.setRstPin(RST);
 
-    pinMode(RST, OUTPUT);
+    // ---- 正しいSPIの起動順 ----
+    Serial.println("[DBG] SPI.begin()");
+    SPI.begin(36, 37, 35, CS);   // ESP32-S3 固定ピン
+
+    // ---- ハードリセット ----
+    Serial.println("[DBG] Hardware Reset");
     digitalWrite(RST, LOW);
-    delay(150);
+    delay(120);
     digitalWrite(RST, HIGH);
-    delay(350);
+    delay(250);
 
-    SPI.end();
-    delay(20);
-    SPI.begin();
+    // ---- Ethernet.init ----
+    Serial.println("[DBG] Ethernet.init(CS)");
+    Ethernet.init(CS);
 
-    Ethernet.init(2);
-
+    // ---- Link確認 ----
     int link = Ethernet.link();
+    Serial.print("[DBG] Ethernet.link(): ");
+    Serial.println(link);
 
-    // DHCP 試行
+    // ---- DHCP ----
     if (link == 1) {
         Serial.println("[LAN] Link detected. Trying DHCP...");
+        Serial.println("[DBG] Ethernet.begin(mac)");
 
-        if (Ethernet.begin(mac)) {
-            delay(300);
-            IPAddress ip = Ethernet.localIP();
-            if (ip != IPAddress(0,0,0,0)
-             && ip != IPAddress(255,255,255,255)) {
-                Serial.print("[LAN] DHCP OK: ");
-                Serial.println(ip);
-                isEthernetActive = true;
-                lastLinkStatus = 1;
-                return ip.toString();
-            }
+        bool dh = Ethernet.begin(mac);
+        Serial.print("[DBG] Ethernet.begin result: ");
+        Serial.println(dh);
+
+        delay(350);
+
+        IPAddress dip = Ethernet.localIP();
+        Serial.print("[DBG] DHCP IP: ");
+        Serial.println(dip);
+
+        if (dip != IPAddress(0,0,0,0)
+         && dip != IPAddress(255,255,255,255)) {
+
+            Serial.println("[LAN] DHCP OK");
+            isEthernetActive = true;
+            lastLinkStatus = 1;
+            Serial.println("========== W5500 END ==========");
+            return dip.toString();
         }
+
         Serial.println("[LAN] DHCP failed. Switching to 192.168.4.1...");
     } else {
         Serial.println("[LAN] No link. Forcing 192.168.4.1...");
     }
 
-    // ★ Local Mode 手動記述
+    // ---- Local Mode ----
+    Serial.println("[DBG] Setting manual IP");
+
     IPAddress manualIP(192,168,4,1);
     IPAddress manualDNS(192,168,4,1);
     IPAddress manualGW(192,168,4,1);
     IPAddress manualSN(255,255,255,0);
 
+    Serial.println("[DBG] Ethernet.begin(manual)");
     Ethernet.begin(mac, manualIP, manualDNS, manualGW, manualSN);
-    delay(300);
+
+    delay(350);
 
     IPAddress lip = Ethernet.localIP();
-    Serial.print("[LAN] Local Mode IP: ");
+    Serial.print("[DBG] Local Mode IP readback: ");
     Serial.println(lip);
+
+    Serial.println("========== W5500 END ==========");
 
     isEthernetActive = true;
     lastLinkStatus = link;
+
     return lip.toString();
 }
+
+
 
 
 
