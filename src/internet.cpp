@@ -9,7 +9,8 @@
 #include <M5Unified.h>
 #include <Wire.h>
 #include<SD.h>
-
+#include <Ethernet3.h>      // Ethernet3ライブラリを使用
+#include <EthernetClient.h>
 #include <USB.h> 
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -58,7 +59,7 @@ String currentIPString = "0.0.0.0";
 IPAddress staticIP(192, 168, 0, 200);
 IPAddress gateway(192, 168, 0, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(8, 8, 8, 8);
+
 String stationIPString;
 static bool eth_connected = false;
 
@@ -77,8 +78,8 @@ int scrollXOffsett = M5.Lcd.width(); // 初期位置は画面右外側 (320)
 int counterSC = 4;
 int minic = 0;
 String UU;
-String TexNet = "  S0:GETWIFI\n  S1:SOFTAP\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
-int IntNet = 6;
+String TexNet = "  S0:GETWIFI\n  S1:SOFTAP\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO\n  S6:LANNET";
+int IntNet = 7;
 String TexNet2 = "  Send Text\n  Receive Text\n  All UserID LIST\n  Force Exit";
 int IntNet2 = 4;
 bool manual_wifi = false;
@@ -2126,4 +2127,136 @@ String scanAndGetSSIDList() {
     
     Serial.println("[WiFi] Scan done");
     return ssidList;
+}
+
+#define LAN_CS_PIN  26
+#define LAN_RST_PIN 13
+int lastLinkStatus = 2; // 初期値は LinkOFF(2)
+// 固定IP設定 (DHCP失敗時のフォールバック用)
+
+
+
+bool isEthernetActive = false;
+
+/**
+ * 有線LAN接続を開始し、M5のIPアドレスをStringで返却する
+ * @return String IPアドレス。エラー時は空文字 ""
+ */
+String startEthernetAP() {
+    Serial.println("[LAN] Initializing W5500...");
+
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    Ethernet.setCsPin(LAN_CS_PIN);
+    Ethernet.setRstPin(LAN_RST_PIN);
+
+    // 完全ハードリセット（かなり長い版）
+    digitalWrite(LAN_RST_PIN, LOW);
+    delay(120);
+    digitalWrite(LAN_RST_PIN, HIGH);
+    delay(350);
+
+    // SPI再初期化
+    SPI.end();
+    delay(10);
+    SPI.begin();
+
+    int link = Ethernet.link();
+
+    IPAddress ip;
+
+    if (link == 1) {
+        Serial.println("[LAN] Link detected. Trying DHCP...");
+
+        if (Ethernet.begin(mac)) {
+            delay(300);
+            ip = Ethernet.localIP();
+            if (ip != IPAddress(0,0,0,0) &&
+                ip != IPAddress(255,255,255,255)) {
+                Serial.print("[LAN] DHCP OK: ");
+                Serial.println(ip);
+                isEthernetActive = true;
+                lastLinkStatus = 1;
+                return ip.toString();
+            }
+        }
+
+        Serial.println("[LAN] DHCP failed. Switching to local 192.168.4.1...");
+    } else {
+        Serial.println("[LAN] No link. Forcing 192.168.4.1...");
+    }
+
+    // ローカルモードへ強制切替
+    Ethernet.begin(mac, staticIP, staticIP, gateway, subnet);
+    delay(200);
+    ip = Ethernet.localIP();
+
+    Serial.print("[LAN] Local Mode IP: ");
+    Serial.println(ip);
+
+    isEthernetActive = true;
+    lastLinkStatus = link;
+    return ip.toString();
+}
+
+
+
+/**
+ * 現在の有線LAN IPv4アドレスをStringで取得する
+ * リンク状態の変化を検知した場合、自動的に再取得(DHCP/Static)を試みる
+ * @return String IPアドレス文字列。未開通やエラー時は空文字 ""
+ */
+String getEthernetIPString() {
+    int link = (int)Ethernet.link();
+
+    // 初期起動またはリンク復活時は再起動
+    if (!isEthernetActive || (lastLinkStatus == 2 && link == 1)) {
+        return startEthernetAP();
+    }
+
+    lastLinkStatus = link;
+
+    if (link == 2) {
+        return "";
+    }
+
+    IPAddress ip = Ethernet.localIP();
+
+    if (ip == IPAddress(0,0,0,0) ||
+        ip == IPAddress(255,255,255,255))
+    {
+        return startEthernetAP();
+    }
+
+    return ip.toString();
+}
+
+/**
+ * 有線LAN接続を閉じる
+ */
+void stopEthernetAP() {
+    if (!isEthernetActive) return;
+    Serial.println("[LAN] Ethernet Service Stopped.");
+    isEthernetActive = false;
+}
+
+/**
+ * 接続状態をシリアル出力するデバッグ関数
+ */
+void printLanStatus() {
+    Serial.print("[LAN] Status: ");
+    int status = (int)Ethernet.link(); 
+    if (status == 1) {
+        Serial.println("Link ON");
+    } else if (status == 2) {
+        Serial.println("Link OFF");
+    } else {
+        Serial.print("Unknown Status: ");
+        Serial.println(status);
+    }
+
+    String ip = getEthernetIPString();
+    Serial.print("[LAN] Current IP: ");
+    Serial.println(ip == "" ? "None" : ip);
 }

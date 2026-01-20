@@ -1051,6 +1051,95 @@ else if(mainmode == 32){
             M5.Lcd.println(TexNet);
             return;
         }
+      }else if(positpoint == 6){//LAN OPEN
+        if(issta){
+          kanketu("No Sta Mode!",500);
+          M5.Lcd.setTextSize(1);
+        M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+        }
+        if(!isEthernetActive){
+          M5.Lcd.setTextSize(3);
+          M5.Lcd.fillScreen(BLACK);
+          M5.Lcd.setCursor(0,0);
+          M5.Lcd.println("LAN Enabling");
+          String ipp = startEthernetAP();
+          if(ipp == ""){
+            kanketu("Error!",500);
+          M5.Lcd.setTextSize(1);
+        M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+          }else{
+            kanketu("Connected:\n your ip : " + ipp,4000);
+           
+          M5.Lcd.setTextSize(1);
+        M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+          }
+        }else{
+          kanketu("your ip:" + getEthernetIPString(),1000);
+          bool tt = areusure();
+          if(!tt){
+            M5.Lcd.setTextSize(1);
+        M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+          }
+          stopEthernetAP();
+          kanketu("Stopped!",500);
+          M5.Lcd.setTextSize(1);
+        M5.Lcd.fillScreen(BLACK);
+          positpoint = 0;
+            maxpage = -1;
+            isServerRunning = false;
+            holdpositpoint = 0;
+            imano_page = 0;
+            mainmode = 30;
+            M5.Lcd.setCursor(0, 0);
+            M5.Lcd.setTextSize(3);
+            positpointmax =IntNet;
+            M5.Lcd.println(TexNet);
+            return;
+        }
       }
 
     }

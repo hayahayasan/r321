@@ -436,4 +436,9 @@ void startWebServer();
 void stopWebServer();
 void turnOnLED(CRGB color);
 void turnOffLED();
+extern bool isEthernetActive;
+String startEthernetAP() ;
+String getEthernetIPString() ;
+void stopEthernetAP();
+void printLanStatus();
 #endif // SHARED
