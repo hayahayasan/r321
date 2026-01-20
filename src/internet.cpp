@@ -2148,28 +2148,24 @@ String startEthernetAP() {
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
-    // ピン設定は公式と同じ
     Ethernet.setCsPin(CS);
     Ethernet.setRstPin(RST);
 
-    // 外部リセット（最も重要）
     pinMode(RST, OUTPUT);
     digitalWrite(RST, LOW);
     delay(150);
     digitalWrite(RST, HIGH);
     delay(350);
 
-    // SPI 再初期化（順序固定）
     SPI.end();
     delay(20);
     SPI.begin();
 
-    // Ethernet.init を忘れると 255.255.255.255 地獄になる
     Ethernet.init(2);
 
     int link = Ethernet.link();
 
-    // ---------- DHCPフェーズ ----------
+    // DHCP 試行
     if (link == 1) {
         Serial.println("[LAN] Link detected. Trying DHCP...");
 
@@ -2185,15 +2181,18 @@ String startEthernetAP() {
                 return ip.toString();
             }
         }
-
         Serial.println("[LAN] DHCP failed. Switching to 192.168.4.1...");
     } else {
         Serial.println("[LAN] No link. Forcing 192.168.4.1...");
     }
 
-    // ---------- Local APモード ----------
-    // ここも公式サンプル式に固定IP流し込むだけ。余計な再resetは不要。
-    Ethernet.begin(mac, staticIP, staticIP, gateway, subnet);
+    // ★ Local Mode 手動記述
+    IPAddress manualIP(192,168,4,1);
+    IPAddress manualDNS(192,168,4,1);
+    IPAddress manualGW(192,168,4,1);
+    IPAddress manualSN(255,255,255,0);
+
+    Ethernet.begin(mac, manualIP, manualDNS, manualGW, manualSN);
     delay(300);
 
     IPAddress lip = Ethernet.localIP();
@@ -2204,6 +2203,7 @@ String startEthernetAP() {
     lastLinkStatus = link;
     return lip.toString();
 }
+
 
 
 String getEthernetIPString() {
