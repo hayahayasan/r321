@@ -1173,7 +1173,7 @@ bool createDirRecursive(const char* path) {
 }
 
 
-String wirecheck() {
+String wirecheck() {//Fn+L is Enter,Fn+K is Space,Fn+J is .
     int incomingByte = -1;
     byte error;
     const byte cardKBAddr = 0x5F; // 95 in decimal
@@ -1188,12 +1188,13 @@ String wirecheck() {
             byte key = Wire.read();
             if (key != 0) {
                 incomingByte = (int)key;
+                Serial.println(incomingByte);
             }
         }
     }
 
     // --- 2. USB Serial Check (If no I2C input) ---
-    if (incomingByte == -1 && Serial.available() > 0) {
+    else if (incomingByte == -1 && Serial.available() > 0) {
         incomingByte = Serial.read();
         
         // Command parsing (e.g., "U1\n")
@@ -1221,6 +1222,7 @@ String wirecheck() {
         // Command parsing for UART as well
         if (String("UDLRSTE").indexOf((char)incomingByte) != -1) {
             String rest = Serial2.readStringUntil('\n');
+            
             if (rest.startsWith("1")) {
                 char cmd = (char)incomingByte;
                 if (cmd == 'U') return "UP";
@@ -1247,6 +1249,9 @@ String wirecheck() {
             case 182: return "DOWN";
             case 180: return "LEFT";
             case 183: return "RIGHT";
+            case 162: return "ENT";
+            case 161: return "SPACE";
+            case 160: return ".";
         }
 
         char c = (char)incomingByte;

@@ -77,7 +77,11 @@ void setup() {
   Serial.begin(115200);
   lastTextScrollTime = 0;
   SCROLL_SPEED_PIXELS = 4;
+
+    delay(80);                   // 電源安定待ち（重要）
   M5.begin();
+
+  M5.Speaker.setVolume(100); 
   frameleft = 1;
   frameright = 1;
   statustext = "NetStep:0,No Internet!";

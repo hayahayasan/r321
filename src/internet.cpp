@@ -9,8 +9,7 @@
 #include <M5Unified.h>
 #include <Wire.h>
 #include<SD.h>
-#include <Ethernet3.h>      // Ethernet3ライブラリを使用
-#include <EthernetClient.h>
+
 #include <USB.h> 
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -78,8 +77,8 @@ int scrollXOffsett = M5.Lcd.width(); // 初期位置は画面右外側 (320)
 int counterSC = 4;
 int minic = 0;
 String UU;
-String TexNet = "  S0:GETWIFI\n  S1:SOFTAP\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO\n  S6:LANNET";
-int IntNet = 7;
+String TexNet = "  S0:GETWIFI\n  S1:SOFTAP\n  S2:WEBSERVER\n  S3:SESSIONS\n  S4:DISCONNECT\n  S5:DO_AUTO";
+int IntNet = 6;
 String TexNet2 = "  Send Text\n  Receive Text\n  All UserID LIST\n  Force Exit";
 int IntNet2 = 4;
 bool manual_wifi = false;
@@ -1968,7 +1967,7 @@ void startWebServer() {
 
     // 通知用LED
     // turnOnBatteryLedGreen(); // 必要に応じて有効化
-    turnOnLED(CRGB::Blue);
+
 
     // WebSocketの登録
     ws.onEvent(onWsEvent);
@@ -2134,27 +2133,54 @@ int RST = 13;
 int lastLinkStatus = 2; // 初期値は LinkOFF(2)
 // 固定IP設定 (DHCP失敗時のフォールバック用)
 
+// =====================
+// SPI デバッグラッパ
+// =====================
+uint8_t spiDebugTransfer(uint8_t data, const char* tag = "") {
+    uint8_t r = SPI.transfer(data);
+    Serial.print("[SPI ");
+    Serial.print(tag);
+    Serial.print("] TX=0x");
+    Serial.print(data, HEX);
+    Serial.print(" RX=0x");
+    Serial.println(r, HEX);
+    return r;
+}
 
-uint8_t readW5500Version() {
-    // VERSIONR = 0x0039, block = 0x00
-    SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+// =====================
+// W5500レジスタ読み取りデバッグ
+// =====================
+uint8_t debugReadReg(uint16_t addr) {
+    uint8_t control = 0x00; // Common register, read, 1byte
+
+    Serial.print("[W5500 DBG] Read REG 0x");
+    Serial.println(addr, HEX);
+
     digitalWrite(CS, LOW);
 
-    // 住所送信（上位, 下位）
-    SPI.transfer(0x00); // Address high
-    SPI.transfer(0x39); // Address low
-
-    // Control byte: R, 1byte access, Block 0
-    SPI.transfer(0x00);
-
-    // 読み出し
-    uint8_t ver = SPI.transfer(0);
+    spiDebugTransfer(addr >> 8, "ADDR_H");
+    spiDebugTransfer(addr & 0xFF, "ADDR_L");
+    spiDebugTransfer(control,  "CTRL");
+    uint8_t val = spiDebugTransfer(0x00, "DATA");
 
     digitalWrite(CS, HIGH);
-    SPI.endTransaction();
 
-    return ver;
+    Serial.print("[W5500 DBG] => 0x");
+    Serial.println(val, HEX);
+    return val;
 }
+uint8_t readW5500Version_debug() {
+    return debugReadReg(0x0039);
+}
+// =====================
+// VERSIONR 読み取りを差し替え
+// =====================
+uint8_t readW5500Version() {
+    return readW5500Version_debug();
+}
+
+
+
 
 bool isEthernetActive = false;
 
@@ -2164,108 +2190,7 @@ bool isEthernetActive = false;
  */
 String startEthernetAP() {
 
-    Serial.println("[LAN] Ethernet Service Stopped.");
-    Serial.println("========== W5500 START ==========");
 
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-
-    Serial.print("[DBG] MAC read: ");
-    for (int i=0; i<6; i++) {
-        Serial.print(mac[i], HEX);
-        if (i<5) Serial.print(":");
-    }
-    Serial.println();
-
-    Serial.println("[DBG] Configuring Pins");
-    pinMode(RST, OUTPUT);
-    digitalWrite(RST, HIGH);
-    delay(20);
-
-    Ethernet.setCsPin(CS);
-    Ethernet.setRstPin(RST);
-
-    Serial.println("[DBG] Reset LOW");
-    digitalWrite(RST, LOW);
-    delay(150);
-
-    Serial.println("[DBG] Reset HIGH");
-    digitalWrite(RST, HIGH);
-    delay(300);
-
-    Serial.println("[DBG] SPI.begin()");
-    SPI.begin(36, 37, 35, CS);
-
-    Serial.println("[DBG] Ethernet.init(CS)");
-    Ethernet.init(CS);
-
-    // ---- VERSIONR 読み取り ----
-    Serial.println("[DBG] Reading W5500 VERSIONR...");
-    uint8_t ver = readW5500Version();
-
-    Serial.print("[DBG] VERSIONR = 0x");
-    Serial.println(ver, HEX);
-
-    if (ver != 0x04) {
-        Serial.println("[WARN] W5500 version unexpected. SPI wiring?");
-    }
-
-    Serial.println("[DBG] Checking link...");
-    int link = Ethernet.link();
-    Serial.print("[DBG] Ethernet.link(): ");
-    Serial.println(link);
-
-    // ---- DHCP ----
-    if (link == 1) {
-        Serial.println("[LAN] Link detected. Trying DHCP...");
-        bool dh = Ethernet.begin(mac);
-
-        Serial.print("[DBG] Ethernet.begin result: ");
-        Serial.println(dh);
-
-        delay(400);
-
-        IPAddress dip = Ethernet.localIP();
-        Serial.print("[DBG] DHCP IP: ");
-        Serial.println(dip);
-
-        if (dip != IPAddress(0,0,0,0)
-         && dip != IPAddress(255,255,255,255)) {
-
-            Serial.println("[LAN] DHCP Success");
-            Serial.println("========== W5500 END ==========");
-            isEthernetActive = true;
-            lastLinkStatus = 1;
-            return dip.toString();
-        }
-
-        Serial.println("[LAN] DHCP failed. Switching to 192.168.4.1...");
-    } 
-    else {
-        Serial.println("[LAN] No link. Forcing 192.168.4.1...");
-    }
-
-    // ---- Local Mode ----
-    Serial.println("[DBG] Setting manual IP");
-    IPAddress manualIP(192,168,4,1);
-    IPAddress manualDNS(192,168,4,1);
-    IPAddress manualGW(192,168,4,1);
-    IPAddress manualSN(255,255,255,0);
-
-    Serial.println("[DBG] Calling Ethernet.begin(manual settings)");
-    Ethernet.begin(mac, manualIP, manualDNS, manualGW, manualSN);
-
-    delay(400);
-
-    IPAddress lip = Ethernet.localIP();
-    Serial.print("[DBG] Local Mode IP readback: ");
-    Serial.println(lip);
-
-    Serial.println("========== W5500 END ==========");
-
-    isEthernetActive = true;
-    lastLinkStatus = link;
-    return lip.toString();
 }
 
 
@@ -2274,27 +2199,9 @@ String startEthernetAP() {
 
 
 
+
 String getEthernetIPString() {
-    int link = Ethernet.link();
 
-    if (link == 2) {
-        lastLinkStatus = link;
-        return "";
-    }
-
-    if (!isEthernetActive || (lastLinkStatus == 2 && link == 1)) {
-        Serial.println("[LAN] Link status changed. Re-init...");
-        return startEthernetAP();
-    }
-
-    lastLinkStatus = link;
-
-    IPAddress ip = Ethernet.localIP();
-    if (ip == IPAddress(0,0,0,0) || ip == IPAddress(255,255,255,255)) {
-        return "";
-    }
-
-    return ip.toString();
 }
 
 
@@ -2311,27 +2218,12 @@ String getEthernetIPString() {
  * 有線LAN接続を閉じる
  */
 void stopEthernetAP() {
-    if (!isEthernetActive) return;
-    Serial.println("[LAN] Ethernet Service Stopped.");
-    isEthernetActive = false;
+
 }
 
 /**
  * 接続状態をシリアル出力するデバッグ関数
  */
 void printLanStatus() {
-    Serial.print("[LAN] Status: ");
-    int status = (int)Ethernet.link(); 
-    if (status == 1) {
-        Serial.println("Link ON");
-    } else if (status == 2) {
-        Serial.println("Link OFF");
-    } else {
-        Serial.print("Unknown Status: ");
-        Serial.println(status);
-    }
 
-    String ip = getEthernetIPString();
-    Serial.print("[LAN] Current IP: ");
-    Serial.println(ip == "" ? "None" : ip);
 }

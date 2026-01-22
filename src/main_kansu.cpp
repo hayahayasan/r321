@@ -19,7 +19,7 @@
 #include <SDFat.h>
 #include <SPIFFS.h>
 #include <SPI.h> 
-#include <FastLED.h>
+
 #include "shares.h"
 #pragma region <hensu4aa>
 const String METT_TABLE_NAME_KEY = "table_name"; 
@@ -3447,21 +3447,3 @@ void resetto31(){
 #define LED_PIN    7     // Typically GPIO 1 for bottom LED on CoreS3/S3 SE extensions
 #define NUM_LEDS    1     // Number of LEDs in the bottom strip (usually 1 or a small strip)
 #define BRIGHTNESS  50 
-CRGB leds[NUM_LEDS];
-
-/**
- * Function to turn on the LED once with a specific color
- * @param color: FastLED CRGB color (e.g., CRGB::Red)
- */
-void turnOnLED(CRGB color) {
-    leds[0] = color;
-    FastLED.show();
-}
-
-/**
- * Function to turn off the LED once
- */
-void turnOffLED() {
-    leds[0] = CRGB::Black;
-    FastLED.show();
-}
